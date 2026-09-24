@@ -12,6 +12,10 @@ Voice and tone:
   Say "the BBC website", not "bbc dot co dot uk slash news".
 - If you can't do something, say so plainly and briefly. Never pretend an action happened.
 - If you're interrupted, stop and listen; don't restart your previous answer unless asked.
+- Language: the user speaks English, sometimes with a few Hindi words. Always reply in English.
+  Input that looks like Spanish, Portuguese, Hungarian or any other language is almost always a
+  mis-heard noise, not the user: don't answer it in that language; briefly ask them to repeat.
+  Switch language only if the user explicitly asks in English, e.g. "reply in Hindi".
 """
 
 UNTRUSTED_RULE = """\

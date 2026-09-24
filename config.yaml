@@ -19,6 +19,7 @@ wake_word:
   active_window_s: 15
 
 audio:
+  transcription_languages: [en-IN]   # BCP-47 hints for your speech; [] = auto-detect
   input_device: null            # null = Windows default; or part of a device name, e.g. "Nord Buds"
   mute_mic_while_speaking: false
   echo_tail_ms: 400

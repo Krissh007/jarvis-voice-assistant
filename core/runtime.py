@@ -112,6 +112,8 @@ class Assistant:
                 push_to_talk=self.gate.push_to_talk,
                 resume_handle=handle,
                 tools=declarations,
+                languages=audio_cfg.get("transcription_languages"),
+                vocabulary=["Jarvis", "hey Jarvis", *confirm_cfg["accept_phrases"]],
             ),
             self,
         )

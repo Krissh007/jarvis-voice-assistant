@@ -41,6 +41,8 @@ def build_live_config(
     push_to_talk: bool,
     resume_handle: str | None,
     tools: list[types.FunctionDeclaration] | None = None,
+    languages: list[str] | None = None,
+    vocabulary: list[str] | None = None,
 ) -> types.LiveConnectConfig:
     """Session setup: audio out, both transcriptions, compression, resumption, VAD mode."""
     speech = None
@@ -53,7 +55,9 @@ def build_live_config(
         system_instruction=system_instruction,
         speech_config=speech,
         tools=[types.Tool(function_declarations=tools)] if tools else None,
-        input_audio_transcription=types.AudioTranscriptionConfig(),
+        input_audio_transcription=types.AudioTranscriptionConfig(
+            language_codes=languages or None, custom_vocabulary=vocabulary or None
+        ),
         output_audio_transcription=types.AudioTranscriptionConfig(),
         context_window_compression=types.ContextWindowCompressionConfig(sliding_window=types.SlidingWindow()),
         session_resumption=types.SessionResumptionConfig(handle=resume_handle),
@@ -69,6 +73,7 @@ class ReconnectPolicy:
     """Exponential backoff with jitter; after `max_failures` within `window_s`, a long back-off."""
 
     max_failures: int = 3
+    drop_handle_after: int = 2  # a resumption handle that fails this many times in a row is discarded
     window_s: float = 300.0
     long_backoff_s: float = 60.0
     base_delay_s: float = 1.0
@@ -108,6 +113,7 @@ class LiveSession:
         self.resume_handle: str | None = None
         self.connected = asyncio.Event()
         self._tool_tasks: set[asyncio.Task] = set()
+        self._consecutive_failures = 0
 
     # ---- outbound (non-blocking, safe to call from the event loop) ----
 
@@ -143,6 +149,10 @@ class LiveSession:
                 raise
             except Exception as exc:
                 self.connected.clear()
+                self._consecutive_failures += 1
+                if self.resume_handle and self._consecutive_failures >= self._policy.drop_handle_after:
+                    log.warning("resuming keeps failing; starting a fresh session (conversation context is lost)")
+                    self.resume_handle = None
                 delay, notice = self._policy.record_failure()
                 log.warning("live session error: %s: %s (retry in %.1fs)", type(exc).__name__, exc, delay)
                 if notice:
@@ -215,6 +225,7 @@ class LiveSession:
         content = msg.server_content
         if content is None:
             return False
+        self._consecutive_failures = 0  # the connection is healthy
         # The user's words first, so they are judged before the model's reply starts playing.
         if content.input_transcription and content.input_transcription.text:
             self._events.on_input_transcript(content.input_transcription.text)

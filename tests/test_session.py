@@ -130,3 +130,18 @@ async def test_repeated_failures_tell_the_user() -> None:
     client = fl.FakeClient([], fail_first=3)
     await run_briefly(make_session(client, events, policy), 0.3)
     assert any(kind == "status" and "backing off" in msg for kind, msg in events.calls)
+
+
+def test_config_passes_transcription_language_and_vocabulary() -> None:
+    cfg = build_live_config(system_instruction="x", voice=None, push_to_talk=False, resume_handle=None,
+                            languages=["en-IN"], vocabulary=["Jarvis", "confirm"])
+    assert cfg.input_audio_transcription.language_codes == ["en-IN"]
+    assert cfg.input_audio_transcription.custom_vocabulary == ["Jarvis", "confirm"]
+
+
+async def test_bad_resumption_handle_is_dropped_after_two_failures() -> None:
+    client = fl.FakeClient([[fl.resumption("h1"), fl.go_away()]], fail_after=1)
+    policy = ReconnectPolicy(base_delay_s=0.001, long_backoff_s=0.001)
+    await run_briefly(make_session(client, policy=policy), 0.2)
+    handles = [c["config"].session_resumption.handle for c in client.connects]
+    assert handles[:3] == [None, "h1", "h1"] and handles[3] is None

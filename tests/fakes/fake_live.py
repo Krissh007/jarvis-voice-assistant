@@ -85,9 +85,12 @@ class FakeSession:
 class FakeClient:
     """Stands in for `genai.Client`; `client.aio.live.connect(...)` returns scripted sessions."""
 
-    def __init__(self, scripts: list[list[types.LiveServerMessage]], fail_first: int = 0) -> None:
+    def __init__(
+        self, scripts: list[list[types.LiveServerMessage]], fail_first: int = 0, fail_after: int | None = None
+    ) -> None:
         self._scripts = list(scripts)
         self._fail_first = fail_first
+        self._fail_after = fail_after  # connections after this many successful ones all fail
         self.connects: list[dict[str, Any]] = []
         self.sessions: list[FakeSession] = []
         self.aio = self
@@ -98,6 +101,8 @@ class FakeClient:
         self.connects.append({"model": model, "config": config})
         if self._fail_first > 0:
             self._fail_first -= 1
+            raise ConnectionError("fake connection failure")
+        if self._fail_after is not None and len(self.sessions) >= self._fail_after:
             raise ConnectionError("fake connection failure")
         session = FakeSession(self._scripts.pop(0) if self._scripts else [])
         self.sessions.append(session)
