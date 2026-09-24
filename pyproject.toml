@@ -1,0 +1,21 @@
+[project]
+name = "jarvis"
+version = "0.1.0"
+description = "Personal voice assistant for Windows on the Gemini Live API"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "pyyaml",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

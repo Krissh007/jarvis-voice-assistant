@@ -1,0 +1,69 @@
+# JARVIS configuration. Secrets go in .env, never here.
+
+user:
+  name: ""                      # how JARVIS addresses you
+
+voice:
+  name: null                    # Live API voice; set in Phase 1 from current docs
+
+models:
+  live: null                    # native-audio Live model; set in Phase 1 from current docs
+  flash: null                   # text model for sub-tasks; set in Phase 1 from current docs
+
+listening:
+  mode: always_on               # always_on | push_to_talk | wake_word
+
+wake_word:
+  model: hey_jarvis
+  threshold: 0.5
+  active_window_s: 15
+
+audio:
+  mute_mic_while_speaking: false
+  echo_tail_ms: 400
+
+hotkeys:
+  mute: ctrl+alt+m
+  push_to_talk: ctrl+alt+space
+  stop: ctrl+alt+s
+  confirm: ctrl+alt+y
+  cancel: ctrl+alt+n
+
+confirm:
+  accept_phrases: [confirm, "yes", yes do it, go ahead]
+  timeout_s: 20
+
+apps:
+  allowlist: {}                 # filled in Phase 3 from your app list
+
+sites:
+  read_allowlist: [youtube.com, music.youtube.com, google.com, wikipedia.org]
+  action_allowlist: [youtube.com, music.youtube.com, google.com, wikipedia.org]
+
+music:
+  source: youtube_music
+
+paths:
+  research_dir: '%USERPROFILE%\Documents\jarvis'
+
+limits:
+  live: {rpm: null, tpm: null, rpd: null}     # from current free-tier docs (Phase 1)
+  flash: {rpm: null, tpm: null, rpd: null}    # from current free-tier docs (Phase 1)
+  research_pages_max: 3
+  agent_steps_max: 10
+  agent_replans_max: 1
+  browser_task_steps_max: 10
+  page_cache_ttl_h: 24
+
+features:
+  system: true
+  web: true
+  browser: true
+  media: true
+  screen: true
+  clipboard: true
+  memory: true
+  reminders: true
+  agent_mode: true
+  morning_briefing: false
+  wake_word: false

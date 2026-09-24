@@ -1,0 +1,14 @@
+# Secrets
+.env
+
+# Runtime state
+data/*
+!data/.gitkeep
+logs/*
+!logs/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
