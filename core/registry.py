@@ -14,6 +14,10 @@ from typing import Any
 from google.genai import types
 
 
+class ToolError(Exception):
+    """Raise from a tool when the message itself is what the user should hear."""
+
+
 class Tier(IntEnum):
     """Risk tier. Higher is stricter; tiers can be escalated at runtime, never lowered."""
 
@@ -22,7 +26,22 @@ class Tier(IntEnum):
     BLOCKED = 2
 
 
-ToolFunc = Callable[..., str] | Callable[..., Awaitable[str]]
+ToolFunc = Callable[..., Any] | Callable[..., Awaitable[Any]]
+
+
+@dataclass
+class NeedsConfirmation:
+    """Returned by a multi-step tool when its next step needs the user's OK.
+
+    `summary` is written by code from the actual step; `resume` runs that step and continues,
+    returning a str or another NeedsConfirmation. The dispatcher treats it exactly like a
+    CONFIRM tool call: same accept phrases, echo gating, timeout and audit.
+    """
+
+    summary: str
+    resume: Callable[[], Awaitable[Any]]
+    step: dict[str, Any] = field(default_factory=dict)
+    progress: str = ""
 
 
 def default_summary(name: str, args: dict[str, Any]) -> str:
@@ -41,6 +60,8 @@ class Tool:
     parameters: dict[str, Any] = field(default_factory=lambda: {"type": "object", "properties": {}})
     read_only: bool = False
     untrusted_output: bool = False
+    # Enforces its own per-step tiers (e.g. browser_task), so taint doesn't escalate the whole call.
+    self_gated: bool = False
     summarize: Callable[[dict[str, Any]], str] | None = None
     rung: int = 2
 

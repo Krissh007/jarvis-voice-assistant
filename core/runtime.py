@@ -105,7 +105,8 @@ class Assistant:
                 base_delay_s=0.5,
                 thinking=models.get("thinking"),
             )
-        self.registry = load_actions(Registry(), config, Services(llm=llm))
+        self.services = Services(llm=llm)
+        self.registry = load_actions(Registry(), config, self.services)
         if self.wake:
             self.registry.register(Tool(
                 name="go_to_sleep",
@@ -170,6 +171,11 @@ class Assistant:
             for t in tasks:
                 t.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
+            if self.services.browser is not None:
+                try:
+                    await self.services.browser.session.close()
+                except Exception:
+                    log.exception("browser close failed")
             self.close()
 
     def close(self) -> None:

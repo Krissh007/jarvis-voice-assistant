@@ -66,3 +66,29 @@ and list it in `actions/__init__.py`.
   `OPENROUTER_API_KEY` and `models.openrouter` are set. If all are busy JARVIS says
   "I've hit my usage limit". Free-tier limits are per account: see aistudio.google.com/rate-limit.
 - Local and private addresses (localhost, 192.168.x.x) are never fetched.
+
+## Browser control (Phase 5)
+
+JARVIS drives your installed Google Chrome with **its own profile** (`data/browser_profile`), never
+your everyday Chrome profile.
+
+**One-time sign-in (for YouTube Premium):** run `run.bat --browser-login`, sign in with your own
+Google account, pick your own YouTube profile, choose **No thanks** to sync and to saving passwords,
+then close that window. Close it before starting JARVIS: one profile can't be open twice.
+
+Tools: `play_youtube` (search and play the Nth video, no confirmation), `site_search`,
+`browser_open`, `read_current_page`, and `browser_task` for short multi-step jobs.
+
+Privacy rules, enforced in code (`core/privacy.py`):
+- Password, payment, card, CVV, OTP, PIN, UPI and IBAN fields are never typed into, clicked or read;
+  the planner model never even sees them. Chrome's password saving and card/address autofill are off
+  in this profile.
+- Account pages can't be opened: Google account, account chooser, Families, Pay, Gmail, Drive,
+  Photos, Passwords, YouTube Studio, YouTube account settings, channel switcher, memberships.
+  Navigation to them is aborted inside the browser, whoever triggers it.
+- "Switch account", "Add account", "Sign out", "Manage your Google Account" and similar controls
+  are never clicked, so other Family-plan members' profiles stay out of reach.
+- Emails and phone numbers are scrubbed from page text before any model sees it; form values are
+  never read.
+- In `browser_task`: links and play buttons on the same site run straight away; typing (only on
+  `sites.action_allowlist`), other clicks and leaving the site ask first.

@@ -26,6 +26,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", help="log tool calls instead of executing side effects")
     parser.add_argument("--text", action="store_true", help="type instead of speak")
     parser.add_argument("--mic-test", action="store_true", help="show live mic level and wake-word score, then exit")
+    parser.add_argument("--browser-login", action="store_true",
+                        help="open JARVIS's Chrome profile normally so you can sign in to YouTube once")
     return parser.parse_args(argv)
 
 
@@ -41,6 +43,40 @@ def setup_logging(log_dir: Path = ROOT / "logs") -> None:
     logging.basicConfig(level=logging.INFO, handlers=[handler])
 
 
+def find_chrome() -> str | None:
+    import winreg
+
+    for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        try:
+            with winreg.OpenKey(hive, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe") as key:
+                return winreg.QueryValue(key, None)
+        except OSError:
+            continue
+    return None
+
+
+def browser_login() -> int:
+    """One-time: sign in to YouTube inside JARVIS's own Chrome profile (ordinary Chrome, not automated)."""
+    import subprocess
+
+    from actions.browser import write_profile_preferences
+
+    chrome = find_chrome()
+    if chrome is None:
+        print("Google Chrome wasn't found.")
+        return 1
+    profile = ROOT / "data" / "browser_profile"
+    write_profile_preferences(profile)
+    print("Opening Chrome with JARVIS's own profile (your normal Chrome profile is not touched).")
+    print("  1. Sign in with your own Google account and pick YOUR YouTube profile.")
+    print('  2. If Chrome offers to "Turn on sync" or save a password: choose No thanks.')
+    print("  3. Close that Chrome window when you're done. JARVIS reuses the sign-in from then on.")
+    subprocess.run([chrome, f"--user-data-dir={profile}", "--no-first-run",
+                    "https://accounts.google.com/ServiceLogin?continue=https://www.youtube.com/"])
+    print("Done. The sign-in is saved in data/browser_profile (never committed to git).")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     sys.stdout.reconfigure(line_buffering=True)
@@ -50,6 +86,8 @@ def main(argv: list[str] | None = None) -> int:
         from core.mictest import run_mic_test
 
         return run_mic_test(config)
+    if args.browser_login:
+        return browser_login()
     load_dotenv(ROOT / ".env")
     from core.secrets import env_key
 

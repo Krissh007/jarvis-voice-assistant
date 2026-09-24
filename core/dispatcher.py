@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from core.confirm import Confirmer, PendingAction, UtteranceTracker, is_accept
-from core.registry import Registry, Tier, Tool
+from core.registry import NeedsConfirmation, Registry, Tier, Tool, ToolError
 from core.untrusted import wrap
 
 log = logging.getLogger(__name__)
@@ -126,7 +126,7 @@ class Dispatcher:
 
         base = tool.base_tier(args)
         effective = base
-        if self.tainted and not tool.read_only:
+        if self.tainted and not tool.read_only and not tool.self_gated:
             effective = max(base, Tier.CONFIRM)
         if effective == Tier.BLOCKED:
             self._audit(name, args, base.name, effective.name, "refused", "blocked for safety")
@@ -146,6 +146,12 @@ class Dispatcher:
             return {**response, "status": "awaiting_confirmation", "summary": summary, "instruction": CONFIRM_INSTRUCTION}
 
         result = await self._run(tool, args, call_id)
+        if isinstance(result, NeedsConfirmation):
+            self._audit(name, args, base.name, effective.name, "not_required", f"paused: {result.summary}",
+                        tainted=was_tainted)
+            pending = self._park(tool, result, call_id)
+            return {**response, "status": "awaiting_confirmation", "summary": pending.summary,
+                    "progress": result.progress, "instruction": CONFIRM_INSTRUCTION}
         self._audit(name, args, base.name, effective.name, "not_required", result, tainted=was_tainted)
         return {**response, "status": "ok", "result": result}
 
@@ -212,11 +218,29 @@ class Dispatcher:
 
     # ------------------------------------------------------------------ internals
 
+    def _park(self, tool: Tool, needs: NeedsConfirmation, call_id: str | None) -> PendingAction:
+        """A multi-step tool paused on a step that needs confirmation."""
+        pending = self.confirmer.create(tool.name, needs.step, needs.summary, call_id)
+        self._pending_meta[pending.id] = {"tier": "CONFIRM", "effective_tier": "CONFIRM",
+                                          "tainted": self.tainted, "resume": needs.resume}
+        log.info("pending #%d (step): %s", pending.id, needs.summary)
+        return pending
+
     async def _confirm(self, outcome: str) -> None:
         pending = self.confirmer.take()
         tool = self.registry.get(pending.tool)
-        result = await self._run(tool, pending.args, pending.call_id)
         meta = self._pending_meta.pop(pending.id, {})
+        result = await self._run(tool, pending.args, pending.call_id, resume=meta.get("resume"))
+        if isinstance(result, NeedsConfirmation):
+            self._audit(pending.tool, pending.args, "CONFIRM", "CONFIRM", outcome, f"next: {result.summary}",
+                        tainted=meta.get("tainted", False))
+            nxt = self._park(tool, result, pending.call_id)
+            self.notify(
+                f'[system notice] The user confirmed "{pending.summary}" and it was done. {result.progress}\n'
+                "The next step also needs confirmation. Read this to the user word for word and ask whether "
+                f'to go ahead: "{nxt.summary}"'
+            )
+            return
         self._audit(pending.tool, pending.args, meta.get("tier", "CONFIRM"), meta.get("effective_tier", "CONFIRM"),
                     outcome, result, tainted=meta.get("tainted", False))
         self.notify(
@@ -235,21 +259,33 @@ class Dispatcher:
                 "Tell the user briefly."
             )
 
-    async def _run(self, tool: Tool, args: dict[str, Any], call_id: str | None) -> str:
-        """Execute a tool, always returning a short speakable string."""
+    async def _run(self, tool: Tool, args: dict[str, Any], call_id: str | None,
+                   resume=None) -> str | NeedsConfirmation:
+        """Execute a tool (or resume a paused step), returning a short speakable string."""
         if self.dry_run and not tool.read_only:
             return f"[dry run] Would {tool.summary(args)}."
-        if inspect.iscoroutinefunction(tool.func):
+        if resume is not None:
+            task = asyncio.ensure_future(resume())
+        elif inspect.iscoroutinefunction(tool.func):
             task = asyncio.ensure_future(tool.func(**args))
         else:
             task = asyncio.ensure_future(asyncio.to_thread(tool.func, **args))
         self._running = (task, call_id)
         try:
-            result = str(await task)
+            raw = await task
+            if isinstance(raw, NeedsConfirmation):
+                if tool.untrusted_output:
+                    self.tainted = True
+                    raw.progress = wrap(tool.name, raw.progress) if raw.progress else ""
+                return raw
+            result = str(raw)
         except asyncio.CancelledError:
             if asyncio.current_task().cancelling():
                 raise  # we are being shut down, not stopped by the user
             result = "Stopped."
+        except ToolError as exc:
+            log.warning("tool %s: %s", tool.name, exc)
+            result = str(exc)
         except Exception as exc:
             log.exception("tool %s failed", tool.name)
             result = f"That didn't work ({type(exc).__name__})."

@@ -13,6 +13,7 @@ from core.registry import Registry
 MODULES: dict[str, str | None] = {
     "actions.system": "system",
     "actions.web": "web",
+    "actions.browser": "browser",
     "actions.testing": "test_tools",
 }
 
@@ -23,6 +24,7 @@ class Services:
 
     llm: Any = None  # core.llm.LLM
     data_dir: Path = Path(__file__).resolve().parent.parent / "data"
+    browser: Any = None  # actions.browser.BrowserTools, shared with media
 
 
 def load_actions(registry: Registry, config: dict, services: Services | None = None) -> Registry:

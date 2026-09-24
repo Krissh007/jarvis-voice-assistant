@@ -103,6 +103,18 @@ async def fetch_page(url: str) -> tuple[str, str, str]:
     return final_url, title, text[:MAX_TEXT_CHARS]
 
 
+async def summarise(llm, url: str, text: str, question: str) -> str:
+    """Summarise page text (already redacted if needed) for a question. Raises LLMUnavailable."""
+    if llm is None:
+        return text[:1200]
+    prompt = (
+        f"Question: {question or '(none given; summarise the main points)'}\n\n"
+        "Summarise the page below in at most 120 words, focused on the question. Keep concrete facts, "
+        "names, numbers and prices. If the page doesn't answer the question, say so.\n\n" + wrap(url, text)
+    )
+    return await llm.generate(prompt, system="You summarise web pages for a voice assistant.")
+
+
 def slugify(title: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:60].strip("-")
     return slug or "research"
@@ -243,14 +255,7 @@ class Web:
                 for r in response.json().get("results", [])]
 
     async def _summarise(self, url: str, text: str, question: str) -> str:
-        if self.llm is None:
-            return text[:1200]
-        prompt = (
-            f"Question: {question or '(none given; summarise the main points)'}\n\n"
-            "Summarise the page below in at most 120 words, focused on the question. Keep concrete facts, "
-            "names, numbers and prices. If the page doesn't answer the question, say so.\n\n" + wrap(url, text)
-        )
-        return await self.llm.generate(prompt, system="You summarise web pages for a voice assistant.")
+        return await summarise(self.llm, url, text, question)
 
     async def _report(self, title: str) -> str:
         notes = "\n\n".join(wrap(p["url"], f"{p['title']}\n{p['summary']}") for p in self.state.pages)

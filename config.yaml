@@ -82,6 +82,10 @@ sites:
 weather:
   default_city: null            # used when you ask "what's the weather?" without a city
 
+browser:
+  channel: chrome               # your installed Google Chrome, with JARVIS's own profile in data/browser_profile
+  headless: false               # show the window (needed to hear and see what it plays)
+
 music:
   source: youtube_music
 
