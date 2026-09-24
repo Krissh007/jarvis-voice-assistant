@@ -145,6 +145,12 @@ def test_prompt_has_persona_name_and_untrusted_rule() -> None:
     assert "user's name" not in build_system_instruction("")
 
 
+def test_prompt_lists_only_real_capabilities() -> None:
+    assert "conversation only" in build_system_instruction(None)
+    text = build_system_instruction(None, ["get_datetime: tells the time"])
+    assert "get_datetime" in text and "conversation only" not in text
+
+
 # ---- runtime wiring (no audio devices, no network) ----
 
 @pytest.fixture
