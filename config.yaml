@@ -4,11 +4,11 @@ user:
   name: ""                      # how JARVIS addresses you
 
 voice:
-  name: null                    # Live API voice; set in Phase 1 from current docs
+  name: Charon                  # Live API prebuilt voice (accent/tone come from the persona prompt)
 
 models:
-  live: null                    # native-audio Live model; set in Phase 1 from current docs
-  flash: null                   # text model for sub-tasks; set in Phase 1 from current docs
+  live: gemini-3.8-live         # stable Live model, free tier (docs checked 2026-09-24)
+  flash: gemini-3.8-flash       # text sub-tasks, free tier (docs checked 2026-09-24)
 
 listening:
   mode: always_on               # always_on | push_to_talk | wake_word
@@ -47,8 +47,10 @@ paths:
   research_dir: '%USERPROFILE%\Documents\jarvis'
 
 limits:
-  live: {rpm: null, tpm: null, rpd: null}     # from current free-tier docs (Phase 1)
-  flash: {rpm: null, tpm: null, rpd: null}    # from current free-tier docs (Phase 1)
+  # Google no longer publishes free-tier numbers in the docs; they are shown per account at
+  # https://aistudio.google.com/rate-limit . Copy yours here; null = no client-side limit.
+  live: {rpm: null, tpm: null, rpd: null}
+  flash: {rpm: null, tpm: null, rpd: null}
   research_pages_max: 3
   agent_steps_max: 10
   agent_replans_max: 1

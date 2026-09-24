@@ -4,7 +4,17 @@ version = "0.1.0"
 description = "Personal voice assistant for Windows on the Gemini Live API"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "google-genai>=2.25.0",
+    "numpy>=2.5.3",
+    "pynput>=1.8.2",
+    "python-dotenv>=1.2.3",
     "pyyaml",
+    "sounddevice>=0.5.6",
+]
+
+[project.optional-dependencies]
+wakeword = [
+    "openwakeword>=0.6",
 ]
 
 [dependency-groups]
@@ -15,6 +25,7 @@ dev = [
 
 [tool.uv]
 package = false
+environments = ["sys_platform == 'win32'"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
