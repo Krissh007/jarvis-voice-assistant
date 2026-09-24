@@ -3,19 +3,32 @@
 from __future__ import annotations
 
 import importlib
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 from core.registry import Registry
 
 # module name -> feature flag in config.yaml (None = always on)
 MODULES: dict[str, str | None] = {
     "actions.system": "system",
+    "actions.web": "web",
     "actions.testing": "test_tools",
 }
 
 
-def load_actions(registry: Registry, config: dict) -> Registry:
+@dataclass
+class Services:
+    """Shared things action modules may need. The LLM never sees secrets or memory."""
+
+    llm: Any = None  # core.llm.LLM
+    data_dir: Path = Path(__file__).resolve().parent.parent / "data"
+
+
+def load_actions(registry: Registry, config: dict, services: Services | None = None) -> Registry:
     features = config.get("features", {})
+    services = services or Services()
     for module_name, flag in MODULES.items():
         if flag is None or features.get(flag):
-            importlib.import_module(module_name).register(registry, config)
+            importlib.import_module(module_name).register(registry, config, services)
     return registry

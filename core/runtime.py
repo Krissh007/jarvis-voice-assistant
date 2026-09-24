@@ -9,11 +9,15 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 
-from actions import load_actions
+import os
+
+from actions import Services, load_actions
 from core.audio import Mic, MicGate, PlaybackState, Player, chime, resolve_input_device
 from core.confirm import Confirmer, UtteranceTracker
 from core.dispatcher import AuditLog, Dispatcher
 from core.hotkeys import Hotkeys
+from core.llm import LLM
+from core.secrets import env_key
 from core.prompts import build_system_instruction
 from core.registry import Registry, Tier, Tool
 from core.session import LiveSession, build_live_config
@@ -80,7 +84,20 @@ class Assistant:
             self.wake = WakeState(active_window_s=ww["active_window_s"])
             self.detector = WakeWordDetector(ww["model"], ww["threshold"])
 
-        self.registry = load_actions(Registry(), config)
+        models = config["models"]
+        llm = None
+        if client is not None:
+            limits = config.get("limits", {})
+            llm = LLM(
+                client,
+                [models.get("flash"), *(models.get("flash_fallbacks") or [])],
+                rpm={models.get("flash"): (limits.get("flash") or {}).get("rpm")},
+                openrouter_key=env_key("OPENROUTER_API_KEY"),
+                openrouter_model=models.get("openrouter"),
+                base_delay_s=0.5,
+                thinking=models.get("thinking"),
+            )
+        self.registry = load_actions(Registry(), config, Services(llm=llm))
         if self.wake:
             self.registry.register(Tool(
                 name="go_to_sleep",

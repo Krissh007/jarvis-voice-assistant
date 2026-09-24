@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "Personal voice assistant for Windows on the Gemini Live API"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "ddgs>=9.16.0",
     "google-genai>=2.25.0",
+    "httpx>=0.28.1",
     "numpy>=2.5.3",
     "psutil>=7.2.2",
     "pycaw>=20260921",
@@ -12,6 +14,7 @@ dependencies = [
     "python-dotenv>=1.2.3",
     "pyyaml",
     "sounddevice>=0.5.6",
+    "trafilatura>=2.2.0",
 ]
 
 [project.optional-dependencies]

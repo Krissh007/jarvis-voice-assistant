@@ -58,6 +58,15 @@ class Tool:
 class Registry:
     def __init__(self) -> None:
         self._tools: dict[str, Tool] = {}
+        self._turn_hooks: list[Callable[[], None]] = []
+
+    def on_user_turn(self, hook: Callable[[], None]) -> None:
+        """Run `hook` whenever the user starts a new turn (e.g. to reset per-question caps)."""
+        self._turn_hooks.append(hook)
+
+    def user_turn(self) -> None:
+        for hook in self._turn_hooks:
+            hook()
 
     def register(self, tool: Tool) -> None:
         if tool.name in self._tools:

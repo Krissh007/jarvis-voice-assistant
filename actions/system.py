@@ -172,7 +172,7 @@ def make_open_website(config: dict):
     return open_website, summarize, lambda args: website_tier(str(args.get("url", "")), read_allowlist)
 
 
-def register(registry: Registry, config: dict) -> None:
+def register(registry: Registry, config: dict, services=None) -> None:
     registry.register(Tool(
         name="get_datetime",
         description="Get the current local date, time and day of the week.",

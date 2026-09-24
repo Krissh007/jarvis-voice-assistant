@@ -173,6 +173,7 @@ class Dispatcher:
         self.tainted = False  # a new user turn clears taint
         pending = self.confirmer.pending
         if pending is None:
+            self.registry.user_turn()
             return False
         if source == "voice" and not self.confirmer.armed:
             return False  # spoken before the summary finished: not an answer yet

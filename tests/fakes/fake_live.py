@@ -162,7 +162,8 @@ class SafetyHarness:
 
     ACCEPT = ["confirm", "yes", "yes do it", "go ahead"]
 
-    def __init__(self, log_dir, dry_run: bool = False, extra_tools=(), config: dict | None = None) -> None:
+    def __init__(self, log_dir, dry_run: bool = False, extra_tools=(), config: dict | None = None,
+                 services=None) -> None:
         from actions import load_actions
         from actions import testing
         from core.audio import PlaybackState
@@ -176,7 +177,7 @@ class SafetyHarness:
         self.playback = PlaybackState(tail_s=0.4, clock=self.clock)
         config = config or {}
         config.setdefault("features", {}).update({"system": True, "test_tools": True})
-        self.registry = load_actions(Registry(), config)
+        self.registry = load_actions(Registry(), config, services)
         for tool in extra_tools:
             self.registry.register(tool)
         self.notices: list[str] = []

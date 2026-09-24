@@ -51,7 +51,9 @@ def main(argv: list[str] | None = None) -> int:
 
         return run_mic_test(config)
     load_dotenv(ROOT / ".env")
-    api_key = os.environ.get("GOOGLE_API_KEY")
+    from core.secrets import env_key
+
+    api_key = env_key("GOOGLE_API_KEY")
     if not api_key:
         print("GOOGLE_API_KEY is missing. Copy .env.example to .env and add your key.")
         return 1

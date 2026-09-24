@@ -24,7 +24,7 @@ def test_fetch_untrusted(url: str = "https://example.test/recipes") -> str:
     return INJECTED_PAGE
 
 
-def register(registry: Registry, config: dict) -> None:
+def register(registry: Registry, config: dict, services=None) -> None:
     registry.register(Tool(
         name="test_write_note",
         description="TEST TOOL: save a short note. Requires the user's confirmation.",

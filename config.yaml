@@ -9,6 +9,12 @@ voice:
 models:
   live: gemini-3.8-live         # stable Live model, free tier (docs checked 2026-09-24)
   flash: gemini-3.8-flash       # text sub-tasks, free tier (docs checked 2026-09-24)
+  flash_fallbacks: [gemini-3.5-flash, gemini-3.5-flash-lite]   # tried in order when flash is overloaded
+  thinking:                     # thinking level per text model (lower = faster); measured 2026-09-25
+    gemini-3.8-flash: low       # 3.8 rejects "minimal"
+    gemini-3.5-flash: minimal
+    gemini-3.5-flash-lite: minimal
+  openrouter: null              # e.g. a free OpenRouter model id; used only if OPENROUTER_API_KEY is set
 
 listening:
   mode: wake_word               # always_on | push_to_talk | wake_word
@@ -70,6 +76,9 @@ apps:
 sites:
   read_allowlist: [youtube.com, music.youtube.com, google.com, wikipedia.org]
   action_allowlist: [youtube.com, music.youtube.com, google.com, wikipedia.org]
+
+weather:
+  default_city: null            # used when you ask "what's the weather?" without a city
 
 music:
   source: youtube_music

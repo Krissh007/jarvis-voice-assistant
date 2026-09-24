@@ -54,3 +54,15 @@ and list it in `actions/__init__.py`.
   Only http/https links can be opened.
 - **Status:** "what's my battery?" gives battery, CPU and memory.
 - **Volume and media:** "volume to 30", "pause the music", "next song".
+
+## Web research (Phase 4)
+
+- "Research X": JARVIS searches, reads up to 3 pages, answers in a few sentences, and offers to save
+  longer notes to `Documents\jarvis\` (asks first; never overwrites).
+- Search uses DuckDuckGo with no key, or Tavily if `TAVILY_API_KEY` is set (falls back to DuckDuckGo
+  if Tavily fails). Page summaries are cached for 24 h in `data/cache/`.
+- "What's the weather in <city>?" uses Open-Meteo (no key). Set `weather.default_city` to skip the city.
+- Text sub-tasks use `models.flash`, then `models.flash_fallbacks`, then OpenRouter if
+  `OPENROUTER_API_KEY` and `models.openrouter` are set. If all are busy JARVIS says
+  "I've hit my usage limit". Free-tier limits are per account: see aistudio.google.com/rate-limit.
+- Local and private addresses (localhost, 192.168.x.x) are never fetched.
