@@ -43,6 +43,22 @@ def setup_logging(log_dir: Path = ROOT / "logs") -> None:
     logging.basicConfig(level=logging.INFO, handlers=[handler])
 
 
+def quiet_closed_pipe_noise() -> None:
+    """Ctrl+C reaches every process in the console, including Chrome's automation driver, so its pipes
+    are already gone when asyncio garbage-collects them. Hide only that harmless 'closed pipe' noise."""
+    default_hook = sys.unraisablehook
+
+    def hook(args) -> None:
+        text = f"{args.exc_value}"
+        if isinstance(args.exc_value, (ValueError, RuntimeError)) and (
+            "closed pipe" in text or "Event loop is closed" in text
+        ) and "Transport" in type(args.object).__qualname__ + repr(getattr(args, "object", "")):
+            return
+        default_hook(args)
+
+    sys.unraisablehook = hook
+
+
 def find_chrome() -> str | None:
     import winreg
 
@@ -101,6 +117,7 @@ def main(argv: list[str] | None = None) -> int:
     from core.runtime import Assistant, Options
 
     assistant = Assistant(config, genai.Client(api_key=api_key), Options(text_mode=args.text, dry_run=args.dry_run))
+    quiet_closed_pipe_noise()
     try:
         asyncio.run(assistant.run())
     except KeyboardInterrupt:

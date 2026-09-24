@@ -13,7 +13,8 @@ import os
 
 from actions import Services, load_actions
 from core.audio import (
-    Mic, MicGate, PlaybackState, Player, chime, default_output_name, resolve_echo_mode, resolve_input_device,
+    Mic, MicGate, PlaybackState, Player, chime, default_output_name, refresh_portaudio, resolve_echo_mode,
+    resolve_input_device, windows_audio_state,
 )
 from core.confirm import Confirmer, UtteranceTracker
 from core.dispatcher import AuditLog, Dispatcher
@@ -67,16 +68,9 @@ class Assistant:
         audio_cfg = config["audio"]
 
         self.playback = PlaybackState(tail_s=audio_cfg["echo_tail_ms"] / 1000)
-        self.output_name = default_output_name()
-        self.echo_mode = resolve_echo_mode(audio_cfg.get("echo_mode", "auto"), self.output_name)
-        # On speakers JARVIS would hear itself and cut itself off, so the mic is ignored while it talks.
-        # Push-to-talk doesn't need this: pressing the key stops playback first.
-        speakers_gate = self.echo_mode == "speakers" and self.mode in {"always_on", "wake_word"}
-        self.gate = MicGate(
-            playback=self.playback,
-            push_to_talk=self.mode == "push_to_talk",
-            mute_while_speaking=audio_cfg["mute_mic_while_speaking"] or speakers_gate,
-        )
+        self.gate = MicGate(playback=self.playback, push_to_talk=self.mode == "push_to_talk")
+        self._apply_echo_mode(default_output_name())
+        self._audio_state: tuple[str, frozenset[str]] | None = None  # Windows devices at last check
         self._drop_reply = False  # set by the stop key: discard the rest of the current reply
         self.player = Player(self.playback)
         self.transcript = Transcript(config["user"].get("name") or "You")
@@ -160,10 +154,10 @@ class Assistant:
         if self.mode == "text":
             self._start_stdin_reader()
         else:
-            device = resolve_input_device(self.config["audio"].get("input_device"))
-            self._mic = Mic(self._loop, self._on_mic_chunk, device)
+            self._mic = self._make_mic()
             self._mic.start()
         tasks.append(asyncio.create_task(self._ticker(), name="ticker"))
+        tasks.append(asyncio.create_task(self._audio_watchdog(), name="audio-devices"))
         self._print_banner()
         try:
             await asyncio.gather(*tasks)
@@ -259,6 +253,54 @@ class Assistant:
             if self.wake and self.wake.check_sleep(self.playback.playing or self.dispatcher.awaiting_confirmation):
                 self.transcript.flush()
                 print("(sleeping)", flush=True)
+
+    # ---- audio devices ----
+
+    def _apply_echo_mode(self, output_name: str) -> None:
+        """Pick headphone/speaker behaviour for the current output device."""
+        audio_cfg = self.config["audio"]
+        self.output_name = output_name
+        self.echo_mode = resolve_echo_mode(audio_cfg.get("echo_mode", "auto"), output_name)
+        # On speakers JARVIS would hear itself and cut itself off, so the mic is ignored while it talks.
+        # Push-to-talk doesn't need this: pressing the key stops playback first.
+        speakers_gate = self.echo_mode == "speakers" and self.mode in {"always_on", "wake_word"}
+        self.gate.mute_while_speaking = bool(audio_cfg["mute_mic_while_speaking"]) or speakers_gate
+
+    def _make_mic(self) -> Mic:
+        device = resolve_input_device(self.config["audio"].get("input_device"))
+        return Mic(self._loop, self._on_mic_chunk, device)
+
+    async def _audio_watchdog(self, interval_s: float = 2.0) -> None:
+        """Follow Windows when headphones connect/disconnect or the default device changes."""
+        while True:
+            try:
+                state = await asyncio.to_thread(windows_audio_state)
+                if state[0] and self._audio_state is not None and state != self._audio_state:
+                    await self._switch_audio()
+                if state[0]:
+                    self._audio_state = state
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("audio device check failed")
+            await asyncio.sleep(interval_s)
+
+    async def _switch_audio(self) -> None:
+        """Reopen speaker and mic on whatever Windows is using now."""
+        self.player.clear()
+        if self._mic:
+            self._mic.stop()
+        self.player.stop()
+        await asyncio.to_thread(refresh_portaudio)
+        self._apply_echo_mode(default_output_name())
+        self.player.start()
+        if self._mic:
+            self._mic = self._make_mic()
+            self._mic.start()
+        mode = "speaker mode: I stop listening while I talk" if self.gate.mute_while_speaking \
+            else "headphone mode: interrupt me by talking"
+        print(f"(audio: now using {self.output_name or 'the default device'}, {mode})", flush=True)
+        log.info("audio switched to %s (%s)", self.output_name, self.echo_mode)
 
     async def _go_to_sleep(self) -> str:
         """Rung 2 (app state). Tier SAFE. Ends the wake window; the reply still finishes playing."""

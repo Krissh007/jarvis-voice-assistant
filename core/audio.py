@@ -192,6 +192,34 @@ def default_output_name() -> str:
         return ""
 
 
+def windows_audio_state() -> tuple[str, frozenset[str]]:
+    """(default output name, names of all active devices) as Windows sees them *right now*.
+    PortAudio only knows the list from startup, so this asks Core Audio directly.
+    Safe to call from a worker thread."""
+    import comtypes
+    from pycaw.constants import AudioDeviceState
+    from pycaw.pycaw import AudioUtilities
+
+    comtypes.CoInitialize()
+    try:
+        default = str(getattr(AudioUtilities.GetSpeakers(), "FriendlyName", "") or "")
+        active = frozenset(str(d.FriendlyName) for d in AudioUtilities.GetAllDevices()
+                           if d.state == AudioDeviceState.Active and d.FriendlyName)
+        return default, active
+    except Exception:
+        return "", frozenset()
+    finally:
+        comtypes.CoUninitialize()
+
+
+def refresh_portaudio() -> None:
+    """Re-read the device list so newly connected/disconnected devices are seen. Close all streams first."""
+    import sounddevice as sd
+
+    sd._terminate()
+    sd._initialize()
+
+
 def resolve_input_device(spec: int | str | None) -> int | None:
     """config `audio.input_device`: None = Windows default, an index, or part of a device name."""
     if spec is None or isinstance(spec, int):

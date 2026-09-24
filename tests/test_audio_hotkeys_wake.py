@@ -261,3 +261,69 @@ async def test_stop_key_drops_the_rest_of_the_reply(monkeypatch) -> None:
     a.on_turn_complete()
     a.on_audio(chime())  # next reply plays again
     assert a.playback.playing
+
+
+# ---- following Windows audio devices ----
+
+async def test_disconnecting_buds_switches_to_speaker_mode(monkeypatch) -> None:
+    import asyncio
+
+    from core import runtime
+
+    a = make_assistant(monkeypatch, "always_on", "Headphones (OnePlus Nord Buds 3 Pro)")
+    assert not a.gate.mute_while_speaking  # buds: interrupt by talking
+    states = iter([
+        ("Headphones (OnePlus Nord Buds 3 Pro)", frozenset({"Headphones (OnePlus Nord Buds 3 Pro)", "Speaker"})),
+        ("Speaker (Realtek(R) Audio)", frozenset({"Speaker"})),  # buds turned off
+    ])
+    reopened = []
+    monkeypatch.setattr(runtime, "windows_audio_state", lambda: next(states))
+    monkeypatch.setattr(runtime, "refresh_portaudio", lambda: reopened.append("refresh"))
+    monkeypatch.setattr(runtime, "default_output_name", lambda: "Speaker (Realtek(R) Audio)")
+    monkeypatch.setattr(a.player, "start", lambda: reopened.append("player"))
+    monkeypatch.setattr(a.player, "stop", lambda: None)
+    task = asyncio.create_task(a._audio_watchdog(interval_s=0.01))
+    await asyncio.sleep(0.1)
+    task.cancel()
+    assert reopened == ["refresh", "player"]  # reopened exactly once, on the new device
+    assert a.echo_mode == "speakers" and a.gate.mute_while_speaking
+
+
+async def test_no_switch_when_nothing_changes(monkeypatch) -> None:
+    import asyncio
+
+    from core import runtime
+
+    a = make_assistant(monkeypatch, "always_on", "Speaker (Realtek(R) Audio)")
+    monkeypatch.setattr(runtime, "windows_audio_state", lambda: ("Speaker", frozenset({"Speaker"})))
+    switched = []
+
+    async def fake_switch():
+        switched.append(1)
+
+    monkeypatch.setattr(a, "_switch_audio", fake_switch)
+    task = asyncio.create_task(a._audio_watchdog(interval_s=0.01))
+    await asyncio.sleep(0.1)
+    task.cancel()
+    assert switched == []
+
+
+def test_closed_pipe_noise_is_hidden_but_other_errors_are_not(monkeypatch) -> None:
+    import sys
+    import types
+
+    import main
+
+    seen = []
+    monkeypatch.setattr(sys, "unraisablehook", lambda args: seen.append(args.exc_value))
+    main.quiet_closed_pipe_noise()
+
+    class _ProactorBasePipeTransport:
+        pass
+
+    noise = types.SimpleNamespace(exc_value=ValueError("I/O operation on closed pipe"),
+                                  object=_ProactorBasePipeTransport())
+    real = types.SimpleNamespace(exc_value=ValueError("something else"), object=object())
+    sys.unraisablehook(noise)
+    sys.unraisablehook(real)
+    assert [str(e) for e in seen] == ["something else"]

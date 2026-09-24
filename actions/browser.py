@@ -488,8 +488,23 @@ class BrowserTools:
             titles = await page.locator("a#video-title").evaluate_all(
                 "els => els.slice(0, 5).map(e => (e.getAttribute('title') || e.innerText || '').trim())")
             return [t for t in titles if t]
+        if site == "wikipedia":
+            if "/wiki/" in page.url and "Special:Search" not in page.url:
+                return [f"Opened the article: {await page.title()}"]  # Wikipedia jumps straight to exact matches
+            return await self._texts(page, ".mw-search-result-heading a")
+        if site == "google":
+            return await self._texts(page, "#search a h3")
+        main = await self._texts(page, "main a, #content a, #search a, [role=main] a")
+        if main:
+            return [t for t in main if len(t) > 15][:5]
         elements = await self._snapshot(page)
         return [element_label(e) for e in elements if e.get("href") and len(element_label(e)) > 15][:5]
+
+    @staticmethod
+    async def _texts(page, selector: str, limit: int = 5) -> list[str]:
+        texts = await page.locator(selector).evaluate_all(
+            f"els => els.slice(0, {limit * 2}).map(e => (e.innerText || '').trim().replace(/\\s+/g, ' '))")
+        return [t for t in texts if t][:limit]
 
     async def _try_execute(self, page, action: dict, elements: list[dict], summary: str) -> str:
         """Run one step; a failure is recorded for the planner instead of ending the task."""
