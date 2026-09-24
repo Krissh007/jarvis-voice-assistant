@@ -32,7 +32,7 @@ hotkeys:
   cancel: ctrl+alt+n
 
 confirm:
-  accept_phrases: [confirm, "yes", yes do it, go ahead]
+  accept_phrases: [confirm, "yes", yes do it, go ahead, yeah, yep, sure, okay, ok]
   timeout_s: 20
 
 apps:

@@ -372,3 +372,13 @@ async def test_session_answers_tool_calls_and_sends_notices() -> None:
     assert response.id == "abc" and response.name == "get_datetime" and response.response["status"] == "ok"
     notice = sent[1]["client_content"]
     assert notice.role == "user" and notice.parts[0].text == "[system notice] hello"
+
+
+@pytest.mark.parametrize("text, ok", [
+    ("Yeah.", True), ("Sure.", True), ("Okay.", True), ("yep", True), ("Yeah, go ahead", True),
+    ("okay wait", False), ("sure but not now", False), ("yeah no", False), ("no", False),
+])
+def test_configured_short_answers(text, ok) -> None:
+    import main
+
+    assert is_accept(text, main.load_config()["confirm"]["accept_phrases"]) is ok
