@@ -7,6 +7,8 @@ with core.untrusted.wrap, and every call carries the untrusted-content rule.
 from __future__ import annotations
 
 import logging
+import re
+import time
 from typing import Any
 
 import httpx
@@ -22,6 +24,23 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 class LLMUnavailable(Exception):
     """Every model and fallback failed; the tool should say USAGE_LIMIT_MESSAGE."""
+
+
+class QuotaExceeded(Exception):
+    """A 429 that retrying soon won't fix (daily quota, or a long retryDelay)."""
+
+
+def quota_cooldown(exc: Exception) -> float | None:
+    """For a 429, how long to skip this model: 1 h for a daily quota, else the server's retryDelay.
+    None if retrying within a few seconds is reasonable."""
+    if getattr(exc, "code", None) != 429:
+        return None
+    text = str(getattr(exc, "details", "")) + str(exc)
+    if "PerDay" in text:
+        return 3600.0
+    match = re.search(r"retryDelay'?\"?:\s*'?\"?(\d+(?:\.\d+)?)s", text)
+    delay = float(match.group(1)) if match else None
+    return delay if delay and delay > 5 else None
 
 
 def is_retryable(exc: Exception) -> bool:
@@ -56,11 +75,15 @@ class LLM:
         self.thinking = {k: v.upper() for k, v in (thinking or {}).items() if v}  # model -> thinking level
         self.fallback_retries = fallback_retries  # fallbacks get fewer retries, to bound voice latency
         self.timeout_s = timeout_s
+        self.clock = time.monotonic
+        self._cooling: dict[str, float] = {}  # model -> skip until (monotonic time)
 
     async def generate(self, prompt: str, system: str = "", max_tokens: int = 800) -> str:
         """Return text, trying each model with backoff before falling back. Raises LLMUnavailable."""
         system = f"{system}\n\n{UNTRUSTED_RULE}".strip()
         for i, model in enumerate(self.models):
+            if self._cooling.get(model, 0) > self.clock():
+                continue  # quota used up; don't waste time on it
             try:
                 return await with_backoff(
                     lambda m=model: self._gemini(m, prompt, system, max_tokens),
@@ -83,7 +106,26 @@ class LLM:
 
         await self.buckets[model].acquire()
         level = self.thinking.get(model)
-        response = await self.client.aio.models.generate_content(
+        try:
+            response = await self._call(model, prompt, system, max_tokens, level)
+        except Exception as exc:
+            if (cooldown := quota_cooldown(exc)) is not None:
+                self._cooling[model] = self.clock() + cooldown
+                log.warning("%s quota exhausted; skipping it for %.0f s", model, cooldown)
+                raise QuotaExceeded(str(exc)) from exc
+            raise
+        text = (response.text or "").strip()
+        if not text:
+            raise ValueError(f"{model} returned no text")
+        candidates = getattr(response, "candidates", None) or []
+        if candidates and getattr(candidates[0].finish_reason, "name", "") == "MAX_TOKENS":
+            log.warning("%s hit max_output_tokens=%d; reply is cut short", model, max_tokens)
+        return text
+
+    async def _call(self, model: str, prompt: str, system: str, max_tokens: int, level: str | None):
+        from google.genai import types
+
+        return await self.client.aio.models.generate_content(
             model=model,
             contents=prompt,
             config=types.GenerateContentConfig(
@@ -97,13 +139,6 @@ class LLM:
                 ),
             ),
         )
-        text = (response.text or "").strip()
-        if not text:
-            raise ValueError(f"{model} returned no text")
-        candidates = getattr(response, "candidates", None) or []
-        if candidates and getattr(candidates[0].finish_reason, "name", "") == "MAX_TOKENS":
-            log.warning("%s hit max_output_tokens=%d; reply is cut short", model, max_tokens)
-        return text
 
     async def _openrouter(self, prompt: str, system: str, max_tokens: int) -> str:
         async with httpx.AsyncClient(timeout=self.timeout_s) as http:

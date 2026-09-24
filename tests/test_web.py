@@ -321,6 +321,29 @@ async def test_llm_sets_a_request_timeout() -> None:
     assert seen["timeout"] == 25000
 
 
+def quota_error(per_day: bool, delay: str = "27s") -> Exception:
+    from google.genai import errors
+
+    quota = "GenerateRequestsPerDayPerProjectPerModel-FreeTier" if per_day else "GenerateRequestsPerMinute"
+    return errors.APIError(429, {"error": {"code": 429, "message": "You exceeded your current quota",
+                                           "status": "RESOURCE_EXHAUSTED",
+                                           "details": [{"quotaId": quota}, {"retryDelay": delay}]}})
+
+
+async def test_daily_quota_skips_the_model_without_retrying() -> None:
+    client = FakeGenAI({"flash": [quota_error(per_day=True)], "lite": ["one", "two"]})
+    llm = LLM(client, ["flash", "lite"], base_delay_s=0)
+    assert await llm.generate("p") == "one"
+    assert await llm.generate("p") == "two"
+    assert client.calls == ["flash", "lite", "lite"]  # flash tried once, then skipped
+
+
+async def test_short_rate_limit_is_retried() -> None:
+    client = FakeGenAI({"flash": [quota_error(per_day=False, delay="2s"), "ok"]})
+    assert await LLM(client, ["flash"], base_delay_s=0).generate("p") == "ok"
+    assert client.calls == ["flash", "flash"]
+
+
 async def test_llm_does_not_retry_bad_requests() -> None:
     client = FakeGenAI({"flash": [api_error(400)], "lite": ["ok"]})
     await LLM(client, ["flash", "lite"], base_delay_s=0).generate("p")

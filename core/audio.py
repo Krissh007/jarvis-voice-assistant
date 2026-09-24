@@ -163,6 +163,35 @@ class Mic:
         self._loop.call_soon_threadsafe(self._on_chunk, indata[:, 0].tobytes())
 
 
+_HEADPHONE_WORDS = ("headphone", "headset", "earphone", "earbud", "buds", "airpods", "hands-free", "handsfree")
+
+
+def is_headphones(output_name: str) -> bool:
+    """Guess from the Windows device name whether sound goes to the ears rather than the room."""
+    name = output_name.lower()
+    return any(word in name for word in _HEADPHONE_WORDS)
+
+
+def resolve_echo_mode(setting: str | None, output_name: str) -> str:
+    """'headphones' (full duplex, barge-in by voice) or 'speakers' (mic ignored while JARVIS talks).
+
+    On laptop speakers JARVIS's own voice reaches the mic about as loud as the user's
+    (measured: echo peaks ~5400 vs speech 4000-8000), so no level threshold can separate them.
+    """
+    if setting in {"headphones", "speakers"}:
+        return setting
+    return "headphones" if is_headphones(output_name) else "speakers"
+
+
+def default_output_name() -> str:
+    try:
+        import sounddevice as sd
+
+        return str(sd.query_devices(kind="output")["name"])
+    except Exception:
+        return ""
+
+
 def resolve_input_device(spec: int | str | None) -> int | None:
     """config `audio.input_device`: None = Windows default, an index, or part of a device name."""
     if spec is None or isinstance(spec, int):

@@ -12,7 +12,9 @@ from pathlib import Path
 import os
 
 from actions import Services, load_actions
-from core.audio import Mic, MicGate, PlaybackState, Player, chime, resolve_input_device
+from core.audio import (
+    Mic, MicGate, PlaybackState, Player, chime, default_output_name, resolve_echo_mode, resolve_input_device,
+)
 from core.confirm import Confirmer, UtteranceTracker
 from core.dispatcher import AuditLog, Dispatcher
 from core.hotkeys import Hotkeys
@@ -65,11 +67,17 @@ class Assistant:
         audio_cfg = config["audio"]
 
         self.playback = PlaybackState(tail_s=audio_cfg["echo_tail_ms"] / 1000)
+        self.output_name = default_output_name()
+        self.echo_mode = resolve_echo_mode(audio_cfg.get("echo_mode", "auto"), self.output_name)
+        # On speakers JARVIS would hear itself and cut itself off, so the mic is ignored while it talks.
+        # Push-to-talk doesn't need this: pressing the key stops playback first.
+        speakers_gate = self.echo_mode == "speakers" and self.mode in {"always_on", "wake_word"}
         self.gate = MicGate(
             playback=self.playback,
             push_to_talk=self.mode == "push_to_talk",
-            mute_while_speaking=audio_cfg["mute_mic_while_speaking"],
+            mute_while_speaking=audio_cfg["mute_mic_while_speaking"] or speakers_gate,
         )
+        self._drop_reply = False  # set by the stop key: discard the rest of the current reply
         self.player = Player(self.playback)
         self.transcript = Transcript(config["user"].get("name") or "You")
 
@@ -178,8 +186,12 @@ class Assistant:
         print(f"  mute: {keys['mute']}   push-to-talk: {keys['push_to_talk']}   stop: {keys['stop']}")
         print(f"  confirm an action: say \"confirm\" or {keys['confirm']}   cancel: {keys['cancel']}")
         print(f"  tools: {', '.join(t.name for t in self.registry.visible()) or 'none'}")
-        if self.mode == "always_on" and not self.gate.mute_while_speaking:
-            print("  Tip: use headphones, or JARVIS may hear itself through the speakers and interrupt itself.")
+        if self.mode in {"always_on", "wake_word"}:
+            if self.gate.mute_while_speaking:
+                print(f"  Output: {self.output_name or 'unknown'} -> speaker mode: I stop listening while I talk.")
+                print(f"  Interrupt me with {keys['stop']}, or use headphones to interrupt by voice.")
+            else:
+                print(f"  Output: {self.output_name or 'unknown'} -> headphone mode: interrupt me just by talking.")
         if self.mode == "wake_word":
             print('  Say "hey jarvis" to wake me.')
         if self.mode == "text":
@@ -224,6 +236,7 @@ class Assistant:
             else:
                 self.session.activity_end()
         elif name == "stop" and pressed:
+            self._drop_reply = True  # the model keeps streaming this reply; don't play the rest
             self.player.clear()
             asyncio.ensure_future(self.dispatcher.on_hotkey("stop"))
         elif name in {"confirm", "cancel"} and pressed:
@@ -258,7 +271,8 @@ class Assistant:
         self.dispatcher.flush_utterance()
         if self.wake:
             self.wake.touch()
-        self.player.enqueue(pcm)
+        if not self._drop_reply:
+            self.player.enqueue(pcm)
 
     def on_interrupted(self) -> None:
         self.player.clear()
@@ -274,6 +288,7 @@ class Assistant:
         self.transcript.add("jarvis", text)
 
     def on_turn_complete(self) -> None:
+        self._drop_reply = False
         if self.wake:
             self.wake.touch()
         self.dispatcher.flush_utterance()

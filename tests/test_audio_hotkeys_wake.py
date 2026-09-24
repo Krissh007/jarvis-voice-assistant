@@ -196,3 +196,68 @@ def test_interruption_clears_playback(assistant) -> None:
     a.on_audio(chime())
     a.on_interrupted()
     assert not a.playback.playing
+
+
+# ---- echo mode ----
+
+@pytest.mark.parametrize("name, mode", [
+    ("Headphones (OnePlus Nord Buds 3 Pro)", "headphones"), ("Headset (Jabra Evolve)", "headphones"),
+    ("AirPods Pro", "headphones"), ("Speaker (Realtek(R) Audio)", "speakers"), ("", "speakers"),
+])
+def test_echo_mode_is_guessed_from_the_output_device(name, mode) -> None:
+    from core.audio import resolve_echo_mode
+
+    assert resolve_echo_mode("auto", name) == mode
+
+
+def test_echo_mode_setting_overrides_the_guess() -> None:
+    from core.audio import resolve_echo_mode
+
+    assert resolve_echo_mode("headphones", "Speaker (Realtek)") == "headphones"
+    assert resolve_echo_mode("speakers", "Headphones (Buds)") == "speakers"
+
+
+def make_assistant(monkeypatch, mode: str, output: str):
+    import main
+    from core import runtime
+    from core.runtime import Assistant, Options
+
+    monkeypatch.setattr(runtime, "default_output_name", lambda: output)
+    cfg = main.load_config()
+    cfg["listening"]["mode"] = mode
+    cfg["audio"]["echo_mode"] = "auto"
+    return Assistant(cfg, client=None, options=Options())
+
+
+def test_speakers_ignore_the_mic_while_jarvis_talks(monkeypatch) -> None:
+    a = make_assistant(monkeypatch, "always_on", "Speaker (Realtek(R) Audio)")
+    sent = []
+    monkeypatch.setattr(a.session, "send_audio", lambda pcm: sent.append(pcm))
+    a.on_audio(chime())  # JARVIS talking
+    a._on_mic_chunk(b"\x00\x00")
+    assert sent == []
+
+
+def test_headphones_allow_barge_in(monkeypatch) -> None:
+    a = make_assistant(monkeypatch, "always_on", "Headphones (OnePlus Nord Buds 3 Pro)")
+    sent = []
+    monkeypatch.setattr(a.session, "send_audio", lambda pcm: sent.append(pcm))
+    a.on_audio(chime())
+    a._on_mic_chunk(b"\x00\x00")
+    assert sent == [b"\x00\x00"]
+
+
+def test_push_to_talk_on_speakers_is_not_gated(monkeypatch) -> None:
+    a = make_assistant(monkeypatch, "push_to_talk", "Speaker (Realtek(R) Audio)")
+    assert not a.gate.mute_while_speaking
+
+
+async def test_stop_key_drops_the_rest_of_the_reply(monkeypatch) -> None:
+    a = make_assistant(monkeypatch, "always_on", "Headphones (Buds)")
+    a.on_audio(chime())
+    a.on_hotkey("stop", True)
+    a.on_audio(chime())  # model is still streaming the same reply
+    assert not a.playback.playing
+    a.on_turn_complete()
+    a.on_audio(chime())  # next reply plays again
+    assert a.playback.playing

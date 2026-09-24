@@ -27,6 +27,8 @@ wake_word:
 audio:
   transcription_languages: [en-IN]   # BCP-47 hints for your speech; [] = auto-detect
   input_device: null            # null = Windows default; or part of a device name, e.g. "Nord Buds"
+  echo_mode: auto               # auto | headphones | speakers. auto guesses from the output device name.
+                                # speakers: mic ignored while JARVIS talks (interrupt with the stop key)
   mute_mic_while_speaking: false
   echo_tail_ms: 400
 
@@ -90,7 +92,7 @@ limits:
   # Google no longer publishes free-tier numbers in the docs; they are shown per account at
   # https://aistudio.google.com/rate-limit . Copy yours here; null = no client-side limit.
   live: {rpm: null, tpm: null, rpd: null}
-  flash: {rpm: null, tpm: null, rpd: null}
+  flash: {rpm: null, tpm: null, rpd: 20}   # gemini-3.8-flash free tier: 20/day (from the API's 429, 2026-09-25)
   research_pages_max: 3
   agent_steps_max: 10
   agent_replans_max: 1
