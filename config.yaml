@@ -59,6 +59,7 @@ limits:
   page_cache_ttl_h: 24
 
 features:
+  test_tools: true              # Phase 2 safety-test tools; turn off once real tools exist
   system: true
   web: true
   browser: true

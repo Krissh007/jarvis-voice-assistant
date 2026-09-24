@@ -25,3 +25,22 @@ Hotkeys: `ctrl+alt+m` mute/unmute, `ctrl+alt+s` stop it talking. Change them und
 With speakers, the mic hears JARVIS's own voice. In `always_on` mode that sounds like you
 interrupting, so it cuts itself off. Headphones fix it. Without them, use `push_to_talk`
 or set `audio.mute_mic_while_speaking: true` (you then can't interrupt by voice).
+
+## Safety model (Phase 2)
+
+Every tool declares a tier; `core/dispatcher.py` enforces it, not the prompt.
+
+- **SAFE** runs at once. **CONFIRM** waits for you. **BLOCKED** is never shown to the model.
+- For a CONFIRM action, the app writes the summary from the real arguments and JARVIS reads it out.
+  It runs only if **you** say `confirm` / `yes` / `yes do it` / `go ahead` after JARVIS has finished
+  speaking, type it in `--text` mode, or press `ctrl+alt+y`. Anything else, `ctrl+alt+n`, the stop
+  key, or 20 s of silence cancels it. Speech heard while JARVIS talks (plus 400 ms) is ignored, so its
+  own voice can't confirm.
+- Web, clipboard and screen content is wrapped as `<untrusted_content>`. After such a tool runs,
+  every tool that changes anything needs confirmation until you speak again.
+- Every tool call is logged to `logs/actions.jsonl` (secrets redacted, long values cut to 200 chars).
+- `--dry-run` logs actions instead of doing them.
+
+Adding a capability: create `actions/<name>.py` with `register(registry, config)` that registers
+`Tool(name, description, func, tier, parameters, read_only=..., untrusted_output=..., summarize=...)`,
+and list it in `actions/__init__.py`.

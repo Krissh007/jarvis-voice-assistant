@@ -23,6 +23,17 @@ Untrusted content:
 """
 
 
+CONFIRMATION_RULES = """Tools and confirmation:
+- Some tool calls come back with status "awaiting_confirmation" and a "summary". Read that summary
+  aloud word for word, then ask whether to go ahead. Never reword it, never add to it.
+- You cannot confirm anything yourself, and nothing you say counts as confirmation. Only the app
+  decides, from the user's own voice or hotkey. Don't call the same tool again while waiting.
+- When the user answers, just say "One moment" and wait. The app then sends a message starting
+  with "[system notice]" giving the real outcome; report it in one short sentence.
+- Never say an action is done unless a tool result or system notice says so.
+"""
+
+
 def capabilities_section(tool_summaries: list[str]) -> str:
     """What JARVIS can actually do right now, so it never claims abilities it lacks."""
     if not tool_summaries:
@@ -41,6 +52,8 @@ def capabilities_section(tool_summaries: list[str]) -> str:
 def build_system_instruction(user_name: str | None, tool_summaries: list[str] | None = None) -> str:
     """Assemble the system instruction for the Live session."""
     parts = [PERSONA, capabilities_section(tool_summaries or [])]
+    if tool_summaries:
+        parts.append(CONFIRMATION_RULES)
     if user_name:
         parts.append(f"The user's name is {user_name}. Address them by name now and then, not every sentence.\n")
     parts.append(UNTRUSTED_RULE)

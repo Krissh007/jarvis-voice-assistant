@@ -55,10 +55,13 @@ class MicGate:
     mute_while_speaking: bool = False
     muted: bool = False
     ptt_held: bool = False
+    confirmation_pending: Callable[[], bool] = lambda: False
 
     def allows(self) -> bool:
         if self.muted:
             return False
+        if self.confirmation_pending() and self.playback.speaking_or_tail():
+            return False  # §0.3b: while an action awaits confirmation, never send audio that may be echo
         if self.push_to_talk and not self.ptt_held:
             return False
         if self.mute_while_speaking and self.playback.speaking_or_tail():

@@ -7,10 +7,15 @@ import logging
 import sys
 import threading
 from dataclasses import dataclass
+from pathlib import Path
 
+from actions import load_actions
 from core.audio import Mic, MicGate, PlaybackState, Player, chime, resolve_input_device
+from core.confirm import Confirmer, UtteranceTracker
+from core.dispatcher import AuditLog, Dispatcher
 from core.hotkeys import Hotkeys
 from core.prompts import build_system_instruction
+from core.registry import Registry
 from core.session import LiveSession, build_live_config
 from core.wakeword import WakeState
 
@@ -21,6 +26,7 @@ log = logging.getLogger(__name__)
 class Options:
     text_mode: bool = False
     dry_run: bool = False
+    log_dir: Path = Path(__file__).resolve().parent.parent / "logs"
 
 
 class Transcript:
@@ -45,7 +51,7 @@ class Transcript:
 
 
 class Assistant:
-    """The running voice assistant (Phase 1: conversation only, no tools)."""
+    """The running voice assistant: audio + session + tools behind the dispatcher."""
 
     def __init__(self, config: dict, client, options: Options) -> None:
         self.config = config
@@ -74,7 +80,21 @@ class Assistant:
             self.wake = WakeState(active_window_s=ww["active_window_s"])
             self.detector = WakeWordDetector(ww["model"], ww["threshold"])
 
-        instruction = build_system_instruction(config["user"].get("name"))
+        self.registry = load_actions(Registry(), config)
+        confirm_cfg = config["confirm"]
+        self.dispatcher = Dispatcher(
+            self.registry,
+            Confirmer(self.playback, timeout_s=confirm_cfg["timeout_s"]),
+            UtteranceTracker(self.playback),
+            AuditLog(options.log_dir / "actions.jsonl"),
+            notify=self._notify,
+            accept_phrases=confirm_cfg["accept_phrases"],
+            dry_run=options.dry_run,
+        )
+        self.gate.confirmation_pending = lambda: self.dispatcher.awaiting_confirmation
+
+        instruction = build_system_instruction(config["user"].get("name"), self.registry.summaries())
+        declarations = self.registry.declarations()
         self.session = LiveSession(
             client,
             config["models"]["live"],
@@ -83,11 +103,12 @@ class Assistant:
                 voice=config["voice"].get("name"),
                 push_to_talk=self.gate.push_to_talk,
                 resume_handle=handle,
+                tools=declarations,
             ),
             self,
         )
         self.hotkeys = Hotkeys(
-            {k: v for k, v in config["hotkeys"].items() if k in {"mute", "push_to_talk", "stop"}},
+            {k: v for k, v in config["hotkeys"].items() if k in {"mute", "push_to_talk", "stop", "confirm", "cancel"}},
             self._hotkey_from_thread,
         )
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -106,8 +127,7 @@ class Assistant:
             device = resolve_input_device(self.config["audio"].get("input_device"))
             self._mic = Mic(self._loop, self._on_mic_chunk, device)
             self._mic.start()
-        if self.wake:
-            tasks.append(asyncio.create_task(self._wake_watchdog(), name="wake"))
+        tasks.append(asyncio.create_task(self._ticker(), name="ticker"))
         self._print_banner()
         try:
             await asyncio.gather(*tasks)
@@ -126,8 +146,11 @@ class Assistant:
 
     def _print_banner(self) -> None:
         keys = self.config["hotkeys"]
-        print(f"JARVIS online ({self.mode} mode). Ctrl+C to quit.", flush=True)
-        print(f"  mute: {keys['mute']}   push-to-talk: {keys['push_to_talk']}   stop talking: {keys['stop']}")
+        dry = " [DRY RUN: actions are only logged]" if self.options.dry_run else ""
+        print(f"JARVIS online ({self.mode} mode){dry}. Ctrl+C to quit.", flush=True)
+        print(f"  mute: {keys['mute']}   push-to-talk: {keys['push_to_talk']}   stop: {keys['stop']}")
+        print(f"  confirm an action: say \"confirm\" or {keys['confirm']}   cancel: {keys['cancel']}")
+        print(f"  tools: {', '.join(t.name for t in self.registry.visible()) or 'none'}")
         if self.mode == "always_on" and not self.gate.mute_while_speaking:
             print("  Tip: use headphones, or JARVIS may hear itself through the speakers and interrupt itself.")
         if self.mode == "wake_word":
@@ -151,9 +174,13 @@ class Assistant:
         def reader() -> None:
             for line in sys.stdin:
                 if line.strip():
-                    self._loop.call_soon_threadsafe(self.session.send_text, line.strip())
+                    asyncio.run_coroutine_threadsafe(self._on_typed(line.strip()), self._loop)
 
         threading.Thread(target=reader, name="stdin", daemon=True).start()
+
+    async def _on_typed(self, text: str) -> None:
+        if not await self.dispatcher.on_user_input(text, "text"):
+            self.session.send_text(text)
 
     def _hotkey_from_thread(self, name: str, pressed: bool) -> None:
         self._loop.call_soon_threadsafe(self.on_hotkey, name, pressed)
@@ -171,17 +198,30 @@ class Assistant:
                 self.session.activity_end()
         elif name == "stop" and pressed:
             self.player.clear()
+            asyncio.ensure_future(self.dispatcher.on_hotkey("stop"))
+        elif name in {"confirm", "cancel"} and pressed:
+            asyncio.ensure_future(self.dispatcher.on_hotkey(name))
 
-    async def _wake_watchdog(self) -> None:
+    async def _ticker(self) -> None:
+        """Housekeeping: confirmation arming/timeouts, quiet utterances, wake-word sleep."""
         while True:
-            await asyncio.sleep(0.5)
-            if self.wake.check_sleep(self.playback.playing):
+            await asyncio.sleep(0.2)
+            try:
+                await self.dispatcher.tick()
+            except Exception:
+                log.exception("dispatcher tick failed")
+            if self.wake and self.wake.check_sleep(self.playback.playing or self.dispatcher.awaiting_confirmation):
                 self.transcript.flush()
                 print("(sleeping)", flush=True)
+
+    def _notify(self, text: str) -> None:
+        log.info("notice: %s", text.splitlines()[0])
+        self.session.send_notice(text)
 
     # ---- SessionEvents ----
 
     def on_audio(self, pcm: bytes) -> None:
+        self.dispatcher.flush_utterance()
         if self.wake:
             self.wake.touch()
         self.player.enqueue(pcm)
@@ -193,14 +233,33 @@ class Assistant:
         if self.wake:
             self.wake.touch()
         self.transcript.add("user", text)
+        self.dispatcher.on_input_fragment(text)
 
     def on_output_transcript(self, text: str) -> None:
+        self.dispatcher.flush_utterance()
         self.transcript.add("jarvis", text)
 
     def on_turn_complete(self) -> None:
         if self.wake:
             self.wake.touch()
+        self.dispatcher.flush_utterance()
+        self.dispatcher.on_turn_complete()
         self.transcript.flush()
+
+    async def on_tool_call(self, name: str, args: dict, call_id: str | None) -> dict:
+        self.transcript.flush()
+        print(f"  [tool] {name}({', '.join(f'{k}={v!r}' for k, v in args.items())})", flush=True)
+        result = await self.dispatcher.handle_call(name, args, call_id)
+        status = result.get("status")
+        if status == "awaiting_confirmation":
+            keys = self.config["hotkeys"]
+            print(f"  [confirm?] {result['summary']}  (say \"confirm\" / {keys['confirm']}, or {keys['cancel']})", flush=True)
+        else:
+            print(f"  [tool] -> {status}", flush=True)
+        return result
+
+    def on_tool_cancellation(self, ids: list[str]) -> None:
+        self.dispatcher.on_tool_cancellation(ids)
 
     def on_status(self, message: str, *, problem: bool = False) -> None:
         print(f"[{'!' if problem else 'i'}] {message}", flush=True)

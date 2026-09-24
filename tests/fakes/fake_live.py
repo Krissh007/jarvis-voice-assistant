@@ -63,6 +63,12 @@ class FakeSession:
     async def send_realtime_input(self, **kwargs: Any) -> None:
         self.sent.append(kwargs)
 
+    async def send_tool_response(self, *, function_responses: Any) -> None:
+        self.sent.append({"tool_response": function_responses})
+
+    async def send_client_content(self, *, turns: Any = None, turn_complete: bool = True) -> None:
+        self.sent.append({"client_content": turns, "turn_complete": turn_complete})
+
     async def receive(self):
         """Mirrors the SDK: yields until the end of one turn, then stops."""
         if not self._script:
@@ -121,3 +127,90 @@ class RecordingEvents:
 
     def on_status(self, message: str, *, problem: bool = False) -> None:
         self.calls.append(("status", message))
+
+    async def on_tool_call(self, name: str, args: dict[str, Any], call_id: str | None) -> dict[str, Any]:
+        self.calls.append(("tool_call", (name, args, call_id)))
+        return {"status": "ok", "result": f"ran {name}"}
+
+    def on_tool_cancellation(self, ids: list[str]) -> None:
+        self.calls.append(("tool_cancellation", ids))
+
+
+def tool_call(name: str, call_id: str = "call-1", **args: Any) -> types.LiveServerMessage:
+    return types.LiveServerMessage(
+        tool_call=types.LiveServerToolCall(function_calls=[types.FunctionCall(id=call_id, name=name, args=args)])
+    )
+
+
+# ---- safety harness: dispatcher + confirmation + echo gating on a fake clock ----
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.t = 1000.0
+
+    def __call__(self) -> float:
+        return self.t
+
+
+class SafetyHarness:
+    """Drives the real Dispatcher with scripted model calls, transcripts and playback events."""
+
+    ACCEPT = ["confirm", "yes", "yes do it", "go ahead"]
+
+    def __init__(self, log_dir, dry_run: bool = False, extra_tools=()) -> None:
+        from actions import load_actions
+        from actions import testing
+        from core.audio import PlaybackState
+        from core.confirm import Confirmer, UtteranceTracker
+        from core.dispatcher import AuditLog, Dispatcher
+        from core.registry import Registry
+
+        testing.NOTES.clear()
+        self.notes = testing.NOTES
+        self.clock = FakeClock()
+        self.playback = PlaybackState(tail_s=0.4, clock=self.clock)
+        self.registry = load_actions(Registry(), {"features": {"system": True, "test_tools": True}})
+        for tool in extra_tools:
+            self.registry.register(tool)
+        self.notices: list[str] = []
+        self.audit_path = log_dir / "actions.jsonl"
+        self.dispatcher = Dispatcher(
+            self.registry,
+            Confirmer(self.playback, timeout_s=20, clock=self.clock),
+            UtteranceTracker(self.playback, idle_s=1.0, clock=self.clock),
+            AuditLog(self.audit_path),
+            notify=self.notices.append,
+            accept_phrases=self.ACCEPT,
+            dry_run=dry_run,
+        )
+
+    async def model_calls(self, name: str, **args: Any) -> dict:
+        return await self.dispatcher.handle_call(name, args, call_id=f"id-{name}")
+
+    async def advance(self, seconds: float) -> None:
+        self.clock.t += seconds
+        await self.dispatcher.tick()
+
+    async def speak_summary(self, seconds: float = 3.0) -> None:
+        """The model reads the summary aloud, finishes its turn, and playback + echo tail end."""
+        self.playback.set_playing(True)
+        self.clock.t += seconds
+        self.playback.set_playing(False)
+        self.dispatcher.on_turn_complete()
+        await self.advance(0.5)
+
+    async def user_says(self, text: str) -> None:
+        """Mic transcript fragment(s), then the user goes quiet."""
+        self.dispatcher.on_input_fragment(text)
+        await self.advance(1.1)
+
+    @property
+    def pending(self):
+        return self.dispatcher.confirmer.pending
+
+    def audit(self) -> list[dict]:
+        import json
+
+        if not self.audit_path.exists():
+            return []
+        return [json.loads(line) for line in self.audit_path.read_text(encoding="utf-8").splitlines()]

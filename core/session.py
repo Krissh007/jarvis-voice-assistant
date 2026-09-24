@@ -30,6 +30,8 @@ class SessionEvents(Protocol):
     def on_output_transcript(self, text: str) -> None: ...
     def on_turn_complete(self) -> None: ...
     def on_status(self, message: str, *, problem: bool = False) -> None: ...
+    async def on_tool_call(self, name: str, args: dict[str, Any], call_id: str | None) -> dict[str, Any]: ...
+    def on_tool_cancellation(self, ids: list[str]) -> None: ...
 
 
 def build_live_config(
@@ -38,6 +40,7 @@ def build_live_config(
     voice: str | None,
     push_to_talk: bool,
     resume_handle: str | None,
+    tools: list[types.FunctionDeclaration] | None = None,
 ) -> types.LiveConnectConfig:
     """Session setup: audio out, both transcriptions, compression, resumption, VAD mode."""
     speech = None
@@ -49,6 +52,7 @@ def build_live_config(
         response_modalities=[types.Modality.AUDIO],
         system_instruction=system_instruction,
         speech_config=speech,
+        tools=[types.Tool(function_declarations=tools)] if tools else None,
         input_audio_transcription=types.AudioTranscriptionConfig(),
         output_audio_transcription=types.AudioTranscriptionConfig(),
         context_window_compression=types.ContextWindowCompressionConfig(sliding_window=types.SlidingWindow()),
@@ -103,6 +107,7 @@ class LiveSession:
         self._outgoing: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
         self.resume_handle: str | None = None
         self.connected = asyncio.Event()
+        self._tool_tasks: set[asyncio.Task] = set()
 
     # ---- outbound (non-blocking, safe to call from the event loop) ----
 
@@ -115,6 +120,10 @@ class LiveSession:
 
     def send_text(self, text: str) -> None:
         self._outgoing.put_nowait(("text", text))
+
+    def send_notice(self, text: str) -> None:
+        """Add an app message to the conversation, in order, and let the model respond to it."""
+        self._outgoing.put_nowait(("notice", text))
 
     def activity_start(self) -> None:
         self._outgoing.put_nowait(("activity_start", None))
@@ -167,6 +176,12 @@ class LiveSession:
                 await session.send_realtime_input(activity_start=types.ActivityStart())
             elif kind == "activity_end":
                 await session.send_realtime_input(activity_end=types.ActivityEnd())
+            elif kind == "tool_response":
+                await session.send_tool_response(function_responses=payload)
+            elif kind == "notice":
+                await session.send_client_content(
+                    turns=types.Content(role="user", parts=[types.Part(text=payload)]), turn_complete=True
+                )
 
     async def _receive_loop(self, session: Any) -> None:
         """Returns on GoAway (reconnect with the resumption handle); raises if the socket dies."""
@@ -189,22 +204,37 @@ class LiveSession:
             log.info("GoAway received (time left %s); reconnecting", msg.go_away.time_left)
             return True
 
-        if msg.tool_call:
-            log.warning("tool call received but no tools are registered yet: %s", msg.tool_call)
+        if msg.tool_call and msg.tool_call.function_calls:
+            for call in msg.tool_call.function_calls:
+                task = asyncio.create_task(self._answer_tool_call(call))
+                self._tool_tasks.add(task)
+                task.add_done_callback(self._tool_tasks.discard)
+        if msg.tool_call_cancellation and msg.tool_call_cancellation.ids:
+            self._events.on_tool_cancellation(list(msg.tool_call_cancellation.ids))
 
         content = msg.server_content
         if content is None:
             return False
+        # The user's words first, so they are judged before the model's reply starts playing.
+        if content.input_transcription and content.input_transcription.text:
+            self._events.on_input_transcript(content.input_transcription.text)
         if content.interrupted:
             self._events.on_interrupted()
         if content.model_turn and content.model_turn.parts:
             for part in content.model_turn.parts:
                 if part.inline_data and part.inline_data.data:
                     self._events.on_audio(part.inline_data.data)
-        if content.input_transcription and content.input_transcription.text:
-            self._events.on_input_transcript(content.input_transcription.text)
         if content.output_transcription and content.output_transcription.text:
             self._events.on_output_transcript(content.output_transcription.text)
         if content.turn_complete:
             self._events.on_turn_complete()
         return False
+
+    async def _answer_tool_call(self, call: types.FunctionCall) -> None:
+        try:
+            payload = await self._events.on_tool_call(call.name, dict(call.args or {}), call.id)
+        except Exception:
+            log.exception("tool call handler failed for %s", call.name)
+            payload = {"status": "error", "message": "Something went wrong running that."}
+        response = types.FunctionResponse(id=call.id, name=call.name, response=payload)
+        self._outgoing.put_nowait(("tool_response", [response]))
