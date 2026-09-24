@@ -15,7 +15,7 @@ from core.confirm import Confirmer, UtteranceTracker
 from core.dispatcher import AuditLog, Dispatcher
 from core.hotkeys import Hotkeys
 from core.prompts import build_system_instruction
-from core.registry import Registry
+from core.registry import Registry, Tier, Tool
 from core.session import LiveSession, build_live_config
 from core.wakeword import WakeState
 
@@ -81,6 +81,14 @@ class Assistant:
             self.detector = WakeWordDetector(ww["model"], ww["threshold"])
 
         self.registry = load_actions(Registry(), config)
+        if self.wake:
+            self.registry.register(Tool(
+                name="go_to_sleep",
+                description="Stop listening until the user says the wake word again (e.g. 'go to sleep').",
+                func=self._go_to_sleep,
+                tier=Tier.SAFE,
+                read_only=True,  # changes nothing outside JARVIS
+            ))
         confirm_cfg = config["confirm"]
         self.dispatcher = Dispatcher(
             self.registry,
@@ -213,6 +221,13 @@ class Assistant:
             if self.wake and self.wake.check_sleep(self.playback.playing or self.dispatcher.awaiting_confirmation):
                 self.transcript.flush()
                 print("(sleeping)", flush=True)
+
+    async def _go_to_sleep(self) -> str:
+        """Rung 2 (app state). Tier SAFE. Ends the wake window; the reply still finishes playing."""
+        self.wake.awake = False
+        self.transcript.flush()
+        print("(sleeping)", flush=True)
+        return 'Now asleep. Say a short goodbye; the user wakes you with "hey jarvis".'
 
     def _notify(self, text: str) -> None:
         log.info("notice: %s", text.splitlines()[0])

@@ -199,6 +199,22 @@ async def test_model_saying_user_confirmed_does_not_confirm(tmp_path) -> None:
     assert testing.NOTES == [] and a.dispatcher.awaiting_confirmation
 
 
+async def test_go_to_sleep_tool_in_wake_word_mode(tmp_path, monkeypatch) -> None:
+    import main
+    from core import wakeword
+    from core.runtime import Assistant, Options
+
+    monkeypatch.setattr(wakeword, "WakeWordDetector", lambda *a, **k: object())
+    cfg = main.load_config()
+    cfg["listening"]["mode"] = "wake_word"
+    cfg["features"]["wake_word"] = True
+    a = Assistant(cfg, client=None, options=Options(log_dir=tmp_path))
+    assert "go_to_sleep" in [d.name for d in a.registry.declarations()]
+    a.wake.wake()
+    resp = await a.on_tool_call("go_to_sleep", {}, "c1")
+    assert resp["status"] == "ok" and not a.wake.awake
+
+
 async def test_mic_audio_is_gated_during_playback_while_confirmation_pending() -> None:
     pb = PlaybackState()
     pending = [False]
@@ -209,12 +225,20 @@ async def test_mic_audio_is_gated_during_playback_while_confirmation_pending() -
     assert not gate.allows()
 
 
-def test_accept_phrases_match_exactly_after_normalising() -> None:
-    phrases = ["confirm", "yes", "yes do it", "go ahead"]
-    assert is_accept("Yes.", phrases) and is_accept("Go ahead!", phrases) and is_accept(" YES, do it ", phrases)
-    assert not is_accept("yes but change it", phrases)
-    assert not is_accept("no", phrases)
-    assert not is_accept("", phrases)
+@pytest.mark.parametrize("text", [
+    "Yes.", "Go ahead!", " YES, do it ", "Yeah, go ahead.", "Yes, go ahead.", "confirm please",
+    "Okay jarvis, confirm", "yes yes",
+])
+def test_natural_confirmations_are_accepted(text) -> None:
+    assert is_accept(text, ["confirm", "yes", "yes do it", "go ahead"])
+
+
+@pytest.mark.parametrize("text", [
+    "yes but change it", "no", "No, don't go ahead", "don't do it", "yeah", "okay", "", "go", "yes wait",
+    "not yet", "yes to the second one", "confirm the other one", "cancel",
+])
+def test_anything_else_is_not_a_confirmation(text) -> None:
+    assert not is_accept(text, ["confirm", "yes", "yes do it", "go ahead"])
 
 
 # ---------------------------------------------------------------- taint + injection

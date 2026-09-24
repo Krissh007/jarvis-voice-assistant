@@ -23,9 +23,22 @@ def normalize(text: str) -> str:
     return " ".join(re.sub(r"[^\w\s]", " ", text.lower()).split())
 
 
+# Words that may surround an accept phrase without changing its meaning ("Yeah, go ahead please").
+FILLER_WORDS = {"yeah", "yep", "yup", "ok", "okay", "sure", "please", "jarvis", "now", "right", "alright", "fine"}
+
+
 def is_accept(text: str, phrases: list[str]) -> bool:
-    """Exact match after normalisation: 'Yes.' matches, 'yes but change it' does not."""
-    return normalize(text) in {normalize(p) for p in phrases}
+    """True if the utterance contains an accept phrase and every other word is harmless filler.
+
+    'Yes.' and 'Yeah, go ahead' match; 'yes but change it', "don't go ahead" and 'no' do not,
+    because 'but', 'change', "don't" and 'no' are neither part of an accept phrase nor filler.
+    """
+    words = normalize(text).split()
+    accepted = [normalize(p).split() for p in phrases]
+    allowed = FILLER_WORDS | {w for p in accepted for w in p}
+    if not words or any(w not in allowed for w in words):
+        return False
+    return any(words[i : i + len(p)] == p for p in accepted for i in range(len(words) - len(p) + 1))
 
 
 @dataclass

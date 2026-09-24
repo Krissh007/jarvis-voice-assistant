@@ -179,7 +179,8 @@ class Dispatcher:
         if is_accept(text, self.accept_phrases):
             await self._confirm(f"confirmed_{source}")
         else:
-            self._finish_cancel(self.confirmer.take(), "you said something else", "cancelled")
+            reason = f'the user answered "{text[:80]}", which is not a confirmation'
+            self._finish_cancel(self.confirmer.take(), reason, "cancelled")
         return True
 
     async def on_hotkey(self, name: str) -> None:
