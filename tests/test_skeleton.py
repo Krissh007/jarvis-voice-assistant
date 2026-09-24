@@ -21,7 +21,6 @@ def test_config_has_required_sections() -> None:
     assert cfg["hotkeys"]["confirm"] == "ctrl+alt+y"
     assert cfg["hotkeys"]["cancel"] == "ctrl+alt+n"
     assert cfg["confirm"]["timeout_s"] == 20
-    assert cfg["features"]["wake_word"] is False
 
 
 def test_gitignore_covers_secrets_and_state() -> None:

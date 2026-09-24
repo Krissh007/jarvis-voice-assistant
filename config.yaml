@@ -11,7 +11,7 @@ models:
   flash: gemini-3.8-flash       # text sub-tasks, free tier (docs checked 2026-09-24)
 
 listening:
-  mode: always_on               # always_on | push_to_talk | wake_word
+  mode: wake_word               # always_on | push_to_talk | wake_word
 
 wake_word:
   model: hey_jarvis
@@ -68,4 +68,4 @@ features:
   reminders: true
   agent_mode: true
   morning_briefing: false
-  wake_word: false
+  wake_word: true
