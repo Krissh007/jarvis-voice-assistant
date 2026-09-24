@@ -59,6 +59,6 @@ def build_system_instruction(user_name: str | None, tool_summaries: list[str] | 
     if tool_summaries:
         parts.append(CONFIRMATION_RULES)
     if user_name:
-        parts.append(f"The user's name is {user_name}. Address them by name now and then, not every sentence.\n")
+        parts.append(f'Address the user as "{user_name}" now and then, not in every sentence.\n')
     parts.append(UNTRUSTED_RULE)
     return "\n".join(parts)

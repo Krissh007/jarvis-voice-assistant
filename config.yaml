@@ -1,7 +1,7 @@
 # JARVIS configuration. Secrets go in .env, never here.
 
 user:
-  name: ""                      # how JARVIS addresses you
+  name: Sir                     # how JARVIS addresses you
 
 voice:
   name: Charon                  # Live API prebuilt voice (accent/tone come from the persona prompt)
@@ -36,7 +36,36 @@ confirm:
   timeout_s: 20
 
 apps:
-  allowlist: {}                 # filled in Phase 3 from your app list
+  # friendly name -> what Windows should launch (App Paths names or a URL). Only these can be opened.
+  allowlist:
+    chrome: chrome.exe
+    vs code: code.exe
+    notepad: notepad.exe
+    calculator: calc.exe
+    file explorer: explorer.exe
+    youtube music: https://music.youtube.com
+    terminal: wt.exe
+    word: winword.exe
+    excel: excel.exe
+  # other ways of saying the same app (exact match after lower-casing; nothing is guessed)
+  aliases:
+    google chrome: chrome
+    browser: chrome
+    visual studio code: vs code
+    vscode: vs code
+    code: vs code
+    calc: calculator
+    explorer: file explorer
+    files: file explorer
+    my files: file explorer
+    windows terminal: terminal
+    command prompt: terminal
+    powershell: terminal
+    yt music: youtube music
+    microsoft word: word
+    ms word: word
+    microsoft excel: excel
+    ms excel: excel
 
 sites:
   read_allowlist: [youtube.com, music.youtube.com, google.com, wikipedia.org]

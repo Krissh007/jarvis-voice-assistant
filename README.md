@@ -44,3 +44,13 @@ Every tool declares a tier; `core/dispatcher.py` enforces it, not the prompt.
 Adding a capability: create `actions/<name>.py` with `register(registry, config)` that registers
 `Tool(name, description, func, tier, parameters, read_only=..., untrusted_output=..., summarize=...)`,
 and list it in `actions/__init__.py`.
+
+## System controls (Phase 3)
+
+- **Apps:** "open calculator", "open VS Code"... Only names under `apps.allowlist` (or its `aliases`)
+  in config.yaml can be opened; anything else is refused, never guessed. Add an app by adding
+  `friendly name: program.exe` (a name Windows knows, or a URL).
+- **Websites:** sites on `sites.read_allowlist` open straight away; any other site asks first.
+  Only http/https links can be opened.
+- **Status:** "what's my battery?" gives battery, CPU and memory.
+- **Volume and media:** "volume to 30", "pause the music", "next song".

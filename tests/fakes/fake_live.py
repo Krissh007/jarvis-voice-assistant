@@ -162,7 +162,7 @@ class SafetyHarness:
 
     ACCEPT = ["confirm", "yes", "yes do it", "go ahead"]
 
-    def __init__(self, log_dir, dry_run: bool = False, extra_tools=()) -> None:
+    def __init__(self, log_dir, dry_run: bool = False, extra_tools=(), config: dict | None = None) -> None:
         from actions import load_actions
         from actions import testing
         from core.audio import PlaybackState
@@ -174,7 +174,9 @@ class SafetyHarness:
         self.notes = testing.NOTES
         self.clock = FakeClock()
         self.playback = PlaybackState(tail_s=0.4, clock=self.clock)
-        self.registry = load_actions(Registry(), {"features": {"system": True, "test_tools": True}})
+        config = config or {}
+        config.setdefault("features", {}).update({"system": True, "test_tools": True})
+        self.registry = load_actions(Registry(), config)
         for tool in extra_tools:
             self.registry.register(tool)
         self.notices: list[str] = []
@@ -189,8 +191,8 @@ class SafetyHarness:
             dry_run=dry_run,
         )
 
-    async def model_calls(self, name: str, **args: Any) -> dict:
-        return await self.dispatcher.handle_call(name, args, call_id=f"id-{name}")
+    async def model_calls(self, tool: str, /, **args: Any) -> dict:
+        return await self.dispatcher.handle_call(tool, args, call_id=f"id-{tool}")
 
     async def advance(self, seconds: float) -> None:
         self.clock.t += seconds

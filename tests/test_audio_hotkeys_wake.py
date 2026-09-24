@@ -142,7 +142,7 @@ def test_wake_state_stays_awake_while_jarvis_is_talking() -> None:
 def test_prompt_has_persona_name_and_untrusted_rule() -> None:
     text = build_system_instruction("Alex")
     assert "British" in text and "Alex" in text and "untrusted_content" in text
-    assert "user's name" not in build_system_instruction("")
+    assert "Address the user" not in build_system_instruction("")
 
 
 def test_prompt_lists_only_real_capabilities() -> None:
