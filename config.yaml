@@ -15,7 +15,7 @@ listening:
 
 wake_word:
   model: hey_jarvis
-  threshold: 0.5
+  threshold: 0.3                # lowered from 0.5: best score in the first mic test was 0.41
   active_window_s: 15
 
 audio:
