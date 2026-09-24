@@ -25,6 +25,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="jarvis", description="JARVIS desktop voice assistant")
     parser.add_argument("--dry-run", action="store_true", help="log tool calls instead of executing side effects")
     parser.add_argument("--text", action="store_true", help="type instead of speak")
+    parser.add_argument("--mic-test", action="store_true", help="show live mic level and wake-word score, then exit")
     return parser.parse_args(argv)
 
 
@@ -45,6 +46,10 @@ def main(argv: list[str] | None = None) -> int:
     sys.stdout.reconfigure(line_buffering=True)
     setup_logging()
     config = load_config()
+    if args.mic_test:
+        from core.mictest import run_mic_test
+
+        return run_mic_test(config)
     load_dotenv(ROOT / ".env")
     api_key = os.environ.get("GOOGLE_API_KEY")
     if not api_key:

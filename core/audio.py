@@ -127,16 +127,24 @@ class Player:
 class Mic:
     """Captures 16 kHz mono PCM and hands each 80 ms chunk to the event loop."""
 
-    def __init__(self, loop: asyncio.AbstractEventLoop, on_chunk: Callable[[bytes], None]) -> None:
+    def __init__(
+        self, loop: asyncio.AbstractEventLoop, on_chunk: Callable[[bytes], None], device: int | None = None
+    ) -> None:
         self._loop = loop
         self._on_chunk = on_chunk
+        self._device = device
         self._stream = None
 
     def start(self) -> None:
         import sounddevice as sd
 
         self._stream = sd.InputStream(
-            samplerate=INPUT_RATE, channels=1, dtype="int16", blocksize=MIC_BLOCK, callback=self._callback
+            samplerate=INPUT_RATE,
+            channels=1,
+            dtype="int16",
+            blocksize=MIC_BLOCK,
+            device=self._device,
+            callback=self._callback,
         )
         self._stream.start()
 
@@ -150,6 +158,20 @@ class Mic:
         if status:
             log.debug("mic status: %s", status)
         self._loop.call_soon_threadsafe(self._on_chunk, indata[:, 0].tobytes())
+
+
+def resolve_input_device(spec: int | str | None) -> int | None:
+    """config `audio.input_device`: None = Windows default, an index, or part of a device name."""
+    if spec is None or isinstance(spec, int):
+        return spec
+    import sounddevice as sd
+
+    wanted = spec.lower()
+    for i, d in enumerate(sd.query_devices()):
+        api = sd.query_hostapis(d["hostapi"])["name"]
+        if d["max_input_channels"] > 0 and api == "MME" and wanted in d["name"].lower():
+            return i
+    raise SystemExit(f"audio.input_device {spec!r} not found. Run with --mic-test to list devices.")
 
 
 def chime(freq: float = 880.0, duration_s: float = 0.15, volume: float = 0.25) -> bytes:

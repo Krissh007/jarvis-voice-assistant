@@ -8,7 +8,7 @@ import sys
 import threading
 from dataclasses import dataclass
 
-from core.audio import Mic, MicGate, PlaybackState, Player, chime
+from core.audio import Mic, MicGate, PlaybackState, Player, chime, resolve_input_device
 from core.hotkeys import Hotkeys
 from core.prompts import build_system_instruction
 from core.session import LiveSession, build_live_config
@@ -103,7 +103,8 @@ class Assistant:
         if self.mode == "text":
             self._start_stdin_reader()
         else:
-            self._mic = Mic(self._loop, self._on_mic_chunk)
+            device = resolve_input_device(self.config["audio"].get("input_device"))
+            self._mic = Mic(self._loop, self._on_mic_chunk, device)
             self._mic.start()
         if self.wake:
             tasks.append(asyncio.create_task(self._wake_watchdog(), name="wake"))
