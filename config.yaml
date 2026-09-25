@@ -51,7 +51,6 @@ apps:
     notepad: notepad.exe
     calculator: calc.exe
     file explorer: explorer.exe
-    youtube music: https://music.youtube.com
     terminal: wt.exe
     word: winword.exe
     excel: excel.exe
@@ -69,7 +68,6 @@ apps:
     windows terminal: terminal
     command prompt: terminal
     powershell: terminal
-    yt music: youtube music
     microsoft word: word
     ms word: word
     microsoft excel: excel

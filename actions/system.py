@@ -148,6 +148,121 @@ def make_open_app(config: dict):
     return open_app, summarize, sorted(allowlist)
 
 
+# What a launch command actually runs as (Windows 11 store apps differ from their launchers).
+PROCESS_NAMES = {"calc.exe": ["calculatorapp.exe", "calc.exe"], "wt.exe": ["windowsterminal.exe"],
+                 "code.exe": ["code.exe"], "notepad.exe": ["notepad.exe"]}
+EXPLORER_WINDOW_CLASS = "CabinetWClass"  # folder windows only; the desktop/taskbar is the same process
+WM_CLOSE = 0x0010
+
+
+def _visible_windows() -> list[tuple[int, int, str]]:
+    """(hwnd, pid, window class) for every visible top-level window with a title."""
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    found: list[tuple[int, int, str]] = []
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def callback(hwnd, _lparam):
+        if user32.IsWindowVisible(hwnd) and user32.GetWindowTextLengthW(hwnd) > 0:
+            pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            cls = ctypes.create_unicode_buffer(256)
+            user32.GetClassNameW(hwnd, cls, 256)
+            found.append((int(hwnd), int(pid.value), cls.value))
+        return True
+
+    user32.EnumWindows(callback, 0)
+    return found
+
+
+def _frame_app_pids(hwnd: int) -> set[int]:
+    """Store apps (Calculator...) live inside an ApplicationFrameHost frame: the pids of its child windows."""
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    pids: set[int] = set()
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def callback(child, _lparam):
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(child, ctypes.byref(pid))
+        pids.add(int(pid.value))
+        return True
+
+    user32.EnumChildWindows(hwnd, callback, 0)
+    return pids
+
+
+def _is_jarvis_browser(proc) -> bool:
+    try:
+        return "browser_profile" in " ".join(proc.cmdline())
+    except Exception:
+        return False
+
+
+def windows_to_close(command: str) -> list[int]:
+    """Top-level windows belonging to an allowlisted app. Never JARVIS's own Chrome, never the desktop."""
+    import psutil
+
+    exe = os.path.basename(command).lower()
+    wanted = set(PROCESS_NAMES.get(exe, [exe]))
+    hwnds = []
+    for hwnd, pid, cls in _visible_windows():
+        try:
+            proc = psutil.Process(pid)
+            name = proc.name().lower()
+        except psutil.Error:
+            continue
+        if exe == "explorer.exe":
+            if name == "explorer.exe" and cls == EXPLORER_WINDOW_CLASS:
+                hwnds.append(hwnd)
+        elif name == "applicationframehost.exe":
+            for child_pid in _frame_app_pids(hwnd):
+                try:
+                    if psutil.Process(child_pid).name().lower() in wanted:
+                        hwnds.append(hwnd)
+                        break
+                except psutil.Error:
+                    continue
+        elif name in wanted and not (name == "chrome.exe" and _is_jarvis_browser(proc)):
+            hwnds.append(hwnd)
+    return hwnds
+
+
+def make_close_app(config: dict):
+    apps = config.get("apps", {})
+    allowlist: dict[str, str] = apps.get("allowlist") or {}
+    aliases: dict[str, str] = apps.get("aliases") or {}
+
+    def close_app(name: str) -> str:
+        """Close an allowlisted app's windows politely (like clicking X, so it can ask to save).
+        Rung 2 (Win32 WM_CLOSE). Tier CONFIRM. Never force-kills; never touches JARVIS's browser."""
+        import ctypes
+
+        match = resolve_app(name, allowlist, aliases)
+        if match is None:
+            return f"{name!r} isn't on my list of apps, so I won't close it."
+        friendly, command = match
+        if "://" in command:
+            return f"{friendly} is a website, not an app. Say 'close the browser' to close JARVIS's browser."
+        hwnds = windows_to_close(command)
+        if not hwnds:
+            return f"{friendly} isn't open."
+        for hwnd in hwnds:
+            ctypes.windll.user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
+        plural = "window" if len(hwnds) == 1 else f"{len(hwnds)} windows"
+        return f"Asked {friendly} to close ({plural}). If it has unsaved work it may ask you first."
+
+    def summarize(args: dict[str, Any]) -> str:
+        match = resolve_app(str(args.get("name", "")), allowlist, aliases)
+        return f"Close all {match[0]} windows" if match else f"Close {args.get('name')!r}"
+
+    return close_app, summarize
+
+
 def make_open_website(config: dict):
     read_allowlist: list[str] = config.get("sites", {}).get("read_allowlist") or []
 
@@ -199,6 +314,19 @@ def register(registry: Registry, config: dict, services=None) -> None:
             "required": ["name"],
         },
         summarize=app_summary,
+    ))
+    close_app, close_summary = make_close_app(config)
+    registry.register(Tool(
+        name="close_app",
+        description="Close an app on the list (like clicking X; it may ask to save). Needs confirmation.",
+        func=close_app,
+        tier=Tier.CONFIRM,
+        parameters={
+            "type": "object",
+            "properties": {"name": {"type": "string", "description": "App name, e.g. 'notepad'."}},
+            "required": ["name"],
+        },
+        summarize=close_summary,
     ))
     # With the browser module on, websites open in JARVIS's own Chrome (browser_open) so it can read,
     # control and close them; this rung-2 fallback (the user's default browser) is only for without it.
