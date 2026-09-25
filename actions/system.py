@@ -356,15 +356,17 @@ def register(registry: Registry, config: dict, services=None) -> None:
         },
         summarize=lambda args: f"Set the volume to {args.get('level')}%",
     ))
-    registry.register(Tool(
-        name="media_key",
-        description="Control whatever media is playing: play, pause, next, previous or stop.",
-        func=media_key,
-        tier=Tier.SAFE,
-        parameters={
-            "type": "object",
-            "properties": {"action": {"type": "string", "enum": ["play", "pause", "next", "previous", "stop"]}},
-            "required": ["action"],
-        },
-        summarize=lambda args: f"Press the media {args.get('action')} key",
-    ))
+    # The media module replaces this with per-app Windows media session control.
+    if not config.get("features", {}).get("media"):
+        registry.register(Tool(
+            name="media_key",
+            description="Control whatever media is playing: play, pause, next, previous or stop.",
+            func=media_key,
+            tier=Tier.SAFE,
+            parameters={
+                "type": "object",
+                "properties": {"action": {"type": "string", "enum": ["play", "pause", "next", "previous", "stop"]}},
+                "required": ["action"],
+            },
+            summarize=lambda args: f"Press the media {args.get('action')} key",
+        ))

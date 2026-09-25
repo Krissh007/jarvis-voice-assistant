@@ -92,3 +92,18 @@ Privacy rules, enforced in code (`core/privacy.py`):
   never read.
 - In `browser_task`: links and play buttons on the same site run straight away; typing (only on
   `sites.action_allowlist`), other clicks and leaving the site ask first.
+
+## Music and app control (Phase 6)
+
+- **"Play Believer by Imagine Dragons"**: JARVIS finds the song on YouTube Music (ytmusicapi, no login),
+  picks the best title/artist match (originals over covers and remixes unless you ask), and opens it
+  in your installed **YouTube Music app** (found automatically from its Start-menu shortcut). The
+  previous app window is closed first so two songs never play at once. Playback is confirmed through
+  Windows' media sessions. Without the app, songs play in JARVIS's browser instead.
+- **"Pause" / "next" / "previous" / "what's playing?"** control the YouTube Music session directly
+  (so "pause" really pauses, instead of toggling), falling back to the media keys.
+- **"Close Notepad"**: `close_app` asks first, then closes like clicking X (apps can ask to save).
+- **app_ui_action** (rung 4, UI Automation) for apps with no other tool: JARVIS plans the exact steps,
+  reads them to you, and runs them only after you confirm. It never reads text inside apps, never
+  touches password boxes, account, settings or destructive controls, and won't type into a document
+  that looks like it holds secrets (`.env`, keys, passwords...) unless the plan opens a new tab first.

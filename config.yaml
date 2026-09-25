@@ -85,7 +85,7 @@ browser:
   headless: false               # show the window (needed to hear and see what it plays)
 
 music:
-  source: youtube_music
+  source: youtube_music_app      # your installed YouTube Music app; falls back to JARVIS's browser
 
 paths:
   research_dir: '%USERPROFILE%\Documents\jarvis'
@@ -107,6 +107,7 @@ features:
   web: true
   browser: true
   media: true
+  app_ui: true                  # app_ui_action: UI Automation for apps with no API (always confirmed)
   screen: true
   clipboard: true
   memory: true
