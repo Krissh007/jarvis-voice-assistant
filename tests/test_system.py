@@ -225,3 +225,32 @@ async def test_close_app_refuses_unlisted_apps(h, desktop) -> None:
     await h.model_calls("close_app", name="regedit")
     await h.dispatcher.on_hotkey("confirm")
     assert "isn't on my list" in h.audit()[-1]["result"]
+
+
+async def test_discarding_unsaved_work_is_spelled_out_in_the_confirmation(h, desktop, monkeypatch) -> None:
+    import ctypes
+
+    monkeypatch.setattr(ctypes, "windll", type("W", (), {"user32": type("U", (), {
+        "PostMessageW": staticmethod(lambda *a: None)})()})())
+    pressed = []
+    monkeypatch.setattr(system, "click_dont_save", lambda command: pressed.append(command) or 1)
+    resp = await h.model_calls("close_app", name="notepad", discard_unsaved=True)
+    assert resp["summary"] == "Close all notepad windows and throw away any unsaved changes"
+    assert pressed == []  # nothing pressed before the user confirms
+    await h.dispatcher.on_hotkey("confirm")
+    assert pressed == ["notepad.exe"]
+
+
+def test_dont_save_button_names() -> None:
+    for name in ["Don't save", "Don’t Save", "Do not save", "don't save"]:
+        assert system.DONT_SAVE.match(name)
+    for name in ["Save", "Cancel", "Don't save and delete all files"]:
+        assert not system.DONT_SAVE.match(name)
+
+
+async def test_focus_app_is_safe_and_brings_the_window_forward(h, desktop, monkeypatch) -> None:
+    focused = []
+    monkeypatch.setattr(system, "focus_window", focused.append)
+    resp = await h.model_calls("focus_app", name="notepad")
+    assert resp["status"] == "ok" and resp["result"] == "Switched to notepad." and focused == [101]
+    assert "isn't open" in (await h.model_calls("focus_app", name="word"))["result"]

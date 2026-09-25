@@ -277,7 +277,7 @@ class BrowserTools:
             summary = await summarise(self.llm, page.url, text, question)
         except LLMUnavailable:
             return USAGE_LIMIT_MESSAGE
-        return f"Title: {redact(await page.title())}\nURL: {page.url}\nSummary: {summary}"
+        return f"Title: {redact(await page.title())}\nURL: {page.url}\nSummary: {summary}" + signin_note(page)
 
     async def browser_close(self) -> str:
         """Close JARVIS's own Chrome window (never the user's own Chrome). Rung 3. Tier SAFE.
@@ -357,7 +357,7 @@ class BrowserTools:
             if kind == "done":
                 return f"Done. {action.get('answer', '')}".strip()
             if kind == "fail":
-                return f"I couldn't finish that: {action.get('reason', 'no reason given')}"
+                return f"I couldn't finish that: {action.get('reason', 'no reason given')}" + signin_note(page)
             tier, summary, why = self.classify(action, elements, page.url, state)
             if tier == Tier.BLOCKED:
                 state.blocked += 1
@@ -553,6 +553,22 @@ class BrowserTools:
         except Exception:
             pass
         await asyncio.sleep(1.0)
+
+
+SIGNIN_FRAME = re.compile(r"^https://accounts\.google\.com/(gsi|o/oauth2|signin|v3/signin)", re.IGNORECASE)
+
+
+def signin_note(page) -> str:
+    """Google's 'Continue as <name>' popup lives in a hidden accounts.google.com frame the page reader
+    can't see. Clicking it signs the user into the site with their Google account, which JARVIS never does."""
+    try:
+        present = any(SIGNIN_FRAME.match(f.url or "") for f in page.frames)
+    except Exception:
+        present = False
+    if not present:
+        return ""
+    return ("\nNote: the page is showing a Google sign-in prompt ('Continue as ...'). JARVIS never signs in "
+            "to accounts or shares the user's Google account with sites; the user can click it themselves.")
 
 
 def parse_action(raw: str) -> dict:

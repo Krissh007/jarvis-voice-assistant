@@ -232,14 +232,85 @@ def windows_to_close(command: str) -> list[int]:
     return hwnds
 
 
+DONT_SAVE = re.compile(r"^(don['’]?t save|do not save)$", re.IGNORECASE)
+
+
+def click_dont_save(command: str, timeout_s: float = 4.0) -> int:
+    """Press "Don't save" on the app's save prompts (UI Automation). Returns how many were pressed."""
+    import time
+
+    import comtypes
+    from pywinauto import Desktop
+
+    comtypes.CoInitialize()
+    pressed = 0
+    try:
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            found = False
+            for hwnd in windows_to_close(command):
+                try:
+                    win = Desktop(backend="uia").window(handle=hwnd)
+                    for btn in win.descendants(control_type="Button"):
+                        if DONT_SAVE.match((btn.element_info.name or "").strip()):
+                            btn.invoke()
+                            pressed += 1
+                            found = True
+                            time.sleep(0.5)
+                            break
+                except Exception:
+                    continue
+            if not found:
+                if pressed or not windows_to_close(command):
+                    break
+                time.sleep(0.4)
+        return pressed
+    finally:
+        comtypes.CoUninitialize()
+
+
+def focus_window(hwnd: int) -> None:
+    import ctypes
+
+    user32 = ctypes.windll.user32
+    if user32.IsIconic(hwnd):
+        user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+    # Windows only lets the foreground app hand over focus; a tap of Alt makes the request count as user input.
+    user32.keybd_event(0x12, 0, 0, 0)
+    user32.keybd_event(0x12, 0, 2, 0)
+    user32.SetForegroundWindow(hwnd)
+
+
+def make_focus_app(config: dict):
+    apps = config.get("apps", {})
+    allowlist: dict[str, str] = apps.get("allowlist") or {}
+    aliases: dict[str, str] = apps.get("aliases") or {}
+
+    def focus_app(name: str) -> str:
+        """Bring an already-open app's window to the front. Rung 2 (Win32). Tier SAFE, changes nothing."""
+        match = resolve_app(name, allowlist, aliases)
+        if match is None:
+            return f"{name!r} isn't on my list of apps."
+        friendly, command = match
+        hwnds = windows_to_close(command) if "://" not in command else []
+        if not hwnds:
+            return f"{friendly} isn't open. I can open it if you like."
+        focus_window(hwnds[0])
+        more = f" There are {len(hwnds)} {friendly} windows; this is the most recent." if len(hwnds) > 1 else ""
+        return f"Switched to {friendly}.{more}"
+
+    return focus_app
+
+
 def make_close_app(config: dict):
     apps = config.get("apps", {})
     allowlist: dict[str, str] = apps.get("allowlist") or {}
     aliases: dict[str, str] = apps.get("aliases") or {}
 
-    def close_app(name: str) -> str:
+    def close_app(name: str, discard_unsaved: bool = False) -> str:
         """Close an allowlisted app's windows politely (like clicking X, so it can ask to save).
-        Rung 2 (Win32 WM_CLOSE). Tier CONFIRM. Never force-kills; never touches JARVIS's browser."""
+        With discard_unsaved, also press "Don't save". Rung 2 (WM_CLOSE) / 4 (UIA). Tier CONFIRM.
+        Never force-kills; never touches JARVIS's browser."""
         import ctypes
 
         match = resolve_app(name, allowlist, aliases)
@@ -253,12 +324,22 @@ def make_close_app(config: dict):
             return f"{friendly} isn't open."
         for hwnd in hwnds:
             ctypes.windll.user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
+        if discard_unsaved:
+            pressed = click_dont_save(command)
+            left = len(windows_to_close(command))
+            if left == 0:
+                return f"Closed {friendly}" + (" without saving." if pressed else ".")
+            return f"{friendly} is still open ({left} window); it may be waiting on something I can't press."
         plural = "window" if len(hwnds) == 1 else f"{len(hwnds)} windows"
-        return f"Asked {friendly} to close ({plural}). If it has unsaved work it may ask you first."
+        return (f"Asked {friendly} to close ({plural}). If it asks to save, the user can say "
+                "'close it without saving' and I'll press Don't save.")
 
     def summarize(args: dict[str, Any]) -> str:
         match = resolve_app(str(args.get("name", "")), allowlist, aliases)
-        return f"Close all {match[0]} windows" if match else f"Close {args.get('name')!r}"
+        name = match[0] if match else repr(args.get("name"))
+        if args.get("discard_unsaved"):
+            return f"Close all {name} windows and throw away any unsaved changes"
+        return f"Close all {name} windows"
 
     return close_app, summarize
 
@@ -323,10 +404,22 @@ def register(registry: Registry, config: dict, services=None) -> None:
         tier=Tier.CONFIRM,
         parameters={
             "type": "object",
-            "properties": {"name": {"type": "string", "description": "App name, e.g. 'notepad'."}},
+            "properties": {
+                "name": {"type": "string", "description": "App name, e.g. 'notepad'."},
+                "discard_unsaved": {"type": "boolean",
+                                    "description": "Only if the user said not to save: press Don't save."},
+            },
             "required": ["name"],
         },
         summarize=close_summary,
+    ))
+    registry.register(Tool(
+        name="focus_app",
+        description="Switch to an app that's already open (bring its window to the front).",
+        func=make_focus_app(config),
+        tier=Tier.SAFE,
+        read_only=True,  # only changes which window is in front
+        parameters={"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
     ))
     # With the browser module on, websites open in JARVIS's own Chrome (browser_open) so it can read,
     # control and close them; this rung-2 fallback (the user's default browser) is only for without it.

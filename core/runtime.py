@@ -168,8 +168,8 @@ class Assistant:
             if self.services.browser is not None:
                 try:
                     await self.services.browser.session.close()
-                except Exception:
-                    log.exception("browser close failed")
+                except Exception as exc:  # expected after Ctrl+C: it also stops Chrome's driver
+                    log.info("browser already closed (%s)", type(exc).__name__)
             self.close()
 
     def close(self) -> None:
