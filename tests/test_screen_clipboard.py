@@ -161,3 +161,17 @@ async def test_active_window_hides_secret_titles(monkeypatch) -> None:
     assert "looks private" in await screen.Screen(Services()).active_window()
     monkeypatch.setattr(screen, "foreground_title", lambda: "Inbox (3) - a.b@gmail.com")
     assert "[email]" in await screen.Screen(Services()).active_window()
+
+
+async def test_says_when_nothing_new_was_copied(board, monkeypatch) -> None:
+    seq = {"n": 7}
+    monkeypatch.setattr(clipboard, "clipboard_sequence", lambda: seq["n"])
+    board["text"] = "=HYPERLINK(MID(O2,FIND(\"](\",O2)+2))"
+    clip = clipboard.Clipboard(Services(llm=FakeLLM("an Excel formula")))
+    first = await clip.clipboard_action("explain")
+    assert "nothing new has been copied" not in first
+    again = await clip.clipboard_action("translate", "Telugu")  # user thinks they copied new text
+    assert "nothing new has been copied" in again
+    seq["n"] = 8  # a real copy happened
+    board["text"] = "Hello"
+    assert "nothing new has been copied" not in await clip.clipboard_action("translate", "Telugu")

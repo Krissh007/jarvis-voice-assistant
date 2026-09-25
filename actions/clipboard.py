@@ -32,6 +32,13 @@ def read_clipboard() -> str:
     return pyperclip.paste() or ""
 
 
+def clipboard_sequence() -> int:
+    """Windows increments this on every copy, so it tells whether anything new was copied."""
+    import ctypes
+
+    return int(ctypes.windll.user32.GetClipboardSequenceNumber())
+
+
 def write_clipboard(text: str) -> None:
     import pyperclip
 
@@ -46,6 +53,19 @@ def preview(text: str, limit: int = 120) -> str:
 class Clipboard:
     def __init__(self, services) -> None:
         self.llm = services.llm
+        self._last_seq: int | None = None
+        self._written_seq: int | None = None  # our own write (clipboard_fix) doesn't count as a stale copy
+
+    async def _stale_note(self) -> str:
+        """If nothing was copied since the last read, say so: the user's copy may not have worked."""
+        seq = await asyncio.to_thread(clipboard_sequence)
+        stale = self._last_seq is not None and seq == self._last_seq and seq != self._written_seq
+        self._last_seq = seq
+        if not stale:
+            return ""
+        return ("Note for the user: nothing new has been copied since I last read the clipboard, so this is the "
+                "same text as before. If they meant to copy something else, the copy didn't work: select it and "
+                "press Ctrl+C again.\n")
 
     async def _copied(self) -> tuple[str | None, str | None]:
         """(text, refusal). Refuses empty, huge or secret-looking clipboards."""
@@ -66,9 +86,10 @@ class Clipboard:
         action = action.lower().strip()
         if action not in TASKS:
             return "I can summarise, translate, explain or fix what you copied."
+        note = await self._stale_note()
         text, refusal = await self._copied()
         if refusal:
-            return refusal
+            return note + refusal
         safe, mapping = redact_reversible(text)
         prompt = TASKS[action].format(language=language or "English") + (
             " Keep placeholders like [EMAIL1] exactly as they are.\n\n" + wrap("clipboard", safe))
@@ -76,7 +97,7 @@ class Clipboard:
             result = await self.llm.generate(prompt, system="You help with text the user copied.", max_tokens=1200)
         except LLMUnavailable:
             return USAGE_LIMIT_MESSAGE
-        return restore(result, mapping)
+        return note + restore(result, mapping)
 
     async def clipboard_fix(self, instructions: str = "Fix spelling, grammar and punctuation") -> str | NeedsConfirmation:
         """Rewrite the copied text and put it back on the clipboard. Rung 2 + Flash. The new text is
@@ -100,6 +121,7 @@ class Clipboard:
             if current != text:
                 return "The clipboard changed since I read it, so I didn't overwrite it."
             await asyncio.to_thread(write_clipboard, fixed)
+            self._written_seq = self._last_seq = await asyncio.to_thread(clipboard_sequence)
             return "Done: the corrected text is on the clipboard, ready to paste."
 
         words = len(fixed.split())
