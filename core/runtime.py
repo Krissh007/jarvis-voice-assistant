@@ -84,7 +84,7 @@ class Assistant:
 
             ww = config["wake_word"]
             self.wake = WakeState(active_window_s=ww["active_window_s"])
-            self.detector = WakeWordDetector(ww["model"], ww["threshold"])
+            self.detector = WakeWordDetector(ww["model"], ww["threshold"], float(ww.get("gain", 1.0)))
             self.wake_chime = chime(volume=float(ww.get("chime_volume", 0.06))) if ww.get("chime_volume", 0.06) else b""
 
         models = config["models"]

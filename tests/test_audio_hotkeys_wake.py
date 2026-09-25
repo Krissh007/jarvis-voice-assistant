@@ -327,3 +327,23 @@ def test_closed_pipe_noise_is_hidden_but_other_errors_are_not(monkeypatch) -> No
     sys.unraisablehook(noise)
     sys.unraisablehook(real)
     assert [str(e) for e in seen] == ["something else"]
+
+
+def test_amplify_clips_instead_of_wrapping() -> None:
+    import numpy as np
+
+    from core.wakeword import amplify
+
+    out = amplify(np.array([100, -100, 20000, -20000], dtype=np.int16), 3.0)
+    assert out.tolist() == [300, -300, 32767, -32768] and out.dtype == np.int16
+
+
+def test_mic_test_suggests_the_smallest_gain_that_wakes_most() -> None:
+    from core.mictest import gains_to_try, suggest_gain
+
+    assert gains_to_try(1.0) == [1.0, 2.0, 3.0, 4.0]
+    assert gains_to_try(2.5) == [1.0, 2.0, 2.5, 3.0, 4.0]
+    assert suggest_gain({1.0: 1, 2.0: 5, 3.0: 5, 4.0: 4}, 1.0) == 2.0
+    assert suggest_gain({1.0: 5, 2.0: 5}, 1.0) == 1.0
+    assert suggest_gain({1.0: 4, 2.0: 5, 3.0: 5}, 3.0) == 3.0  # current already ties the best
+    assert suggest_gain({1.0: 0, 2.0: 0}, 1.0) is None

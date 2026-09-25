@@ -22,6 +22,7 @@ listening:
 wake_word:
   model: hey_jarvis
   threshold: 0.3                # lowered from 0.5: best score in the first mic test was 0.41
+  gain: 1.0                     # boosts your voice for wake detection only; --mic-test suggests a value
   active_window_s: 15
   chime_volume: 0.06            # wake beep loudness, 0 = silent, 0.25 = the old level
 

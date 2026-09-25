@@ -44,10 +44,17 @@ class WakeState:
         return False
 
 
+def amplify(samples: np.ndarray, gain: float) -> np.ndarray:
+    """Scale int16 audio, clipping instead of wrapping around."""
+    if gain == 1.0:
+        return samples
+    return np.clip(samples.astype(np.float32) * gain, -32768, 32767).astype(np.int16)
+
+
 class WakeWordDetector:
     """Wraps openWakeWord's pretrained ONNX model. Feed 16 kHz int16 chunks of 1280 samples."""
 
-    def __init__(self, model_name: str = "hey_jarvis", threshold: float = 0.5) -> None:
+    def __init__(self, model_name: str = "hey_jarvis", threshold: float = 0.5, gain: float = 1.0) -> None:
         import openwakeword
         from openwakeword.model import Model
 
@@ -55,10 +62,14 @@ class WakeWordDetector:
         self._model = Model(wakeword_models=[model_name], inference_framework="onnx")
         self._name = model_name
         self.threshold = threshold
+        self.gain = gain
+
+    def score(self, samples: np.ndarray) -> float:
+        """Wake score for one chunk. `gain` boosts a quiet voice (wake detection only, never sent anywhere)."""
+        return max(self._model.predict(amplify(samples, self.gain)).values(), default=0.0)
 
     def detect(self, pcm: bytes) -> bool:
-        scores = self._model.predict(np.frombuffer(pcm, dtype=np.int16))
-        if max(scores.values(), default=0.0) >= self.threshold:
+        if self.score(np.frombuffer(pcm, dtype=np.int16)) >= self.threshold:
             self._model.reset()  # avoid re-triggering on the same utterance
             return True
         return False
