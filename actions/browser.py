@@ -171,7 +171,7 @@ class BrowserSession:
                 channel=self.channel,
                 headless=self.headless,
                 no_viewport=True,
-                args=["--autoplay-policy=no-user-gesture-required", "--no-first-run",
+                args=["--autoplay-policy=no-user-gesture-required", "--no-first-run", "--start-maximized",
                       "--disable-features=PasswordManagerOnboarding,AutofillServerCommunication"],
             )
         except Exception as exc:

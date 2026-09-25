@@ -396,3 +396,28 @@ def test_configured_short_answers(text, ok) -> None:
     import main
 
     assert is_accept(text, main.load_config()["confirm"]["accept_phrases"]) is ok
+
+
+async def test_model_re_calling_a_confirmed_tool_while_it_runs_is_refused(tmp_path) -> None:
+    """Live log: after "yes, confirm" the model called run_plan again and a second plan was queued."""
+    started, release, runs = asyncio.Event(), asyncio.Event(), []
+
+    async def slow(text: str) -> str:
+        runs.append(text)
+        started.set()
+        await release.wait()
+        return "done"
+
+    tool = Tool(name="test_slow", description="slow", func=slow, tier=Tier.CONFIRM,
+                parameters={"type": "object", "properties": {"text": {"type": "string"}}})
+    h = fl.SafetyHarness(tmp_path, extra_tools=[tool])
+    await h.model_calls("test_slow", text="a")
+    confirm = asyncio.ensure_future(h.dispatcher.on_hotkey("confirm"))
+    await started.wait()
+    again = await h.model_calls("test_slow", text="a")
+    assert again["status"] == "already_running" and h.pending is None
+    release.set()
+    await confirm
+    assert runs == ["a"]
+    # once finished, a fresh request is allowed again
+    assert (await h.model_calls("test_slow", text="b"))["status"] == "awaiting_confirmation"

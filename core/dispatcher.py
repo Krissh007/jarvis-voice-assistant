@@ -107,6 +107,7 @@ class Dispatcher:
         self.dry_run = dry_run
         self.tainted = False
         self._running: tuple[asyncio.Task, str | None] | None = None
+        self._confirmed_running: str | None = None  # tool the user just confirmed, while it runs
         self._pending_meta: dict[int, dict[str, Any]] = {}
         self._bg: set[asyncio.Task] = set()
 
@@ -123,6 +124,13 @@ class Dispatcher:
         if tool is None or tool.statically_blocked:
             self._audit(name, args, "BLOCKED" if tool else "UNKNOWN", "BLOCKED", "refused", "not available")
             return {"status": "refused", "message": f"{name} is not something I can do."}
+
+        if name == self._confirmed_running:
+            # The model re-issuing the call it just had confirmed would queue a second copy.
+            self._audit(name, args, "-", "-", "refused", "already running")
+            return {"status": "already_running",
+                    "message": "The user already confirmed this and it is running now. Do not call it again; "
+                               "wait for the result notice."}
 
         base = tool.base_tier(args)
         effective = base
@@ -242,6 +250,8 @@ class Dispatcher:
 
     def _park(self, tool: Tool, needs: NeedsConfirmation, call_id: str | None) -> PendingAction:
         """A multi-step tool paused on a step that needs confirmation."""
+        if self.confirmer.pending:
+            self._finish_cancel(self.confirmer.take(), "superseded by a paused step", "cancelled", notify=False)
         pending = self.confirmer.create(tool.name, needs.step, needs.summary, call_id)
         self._pending_meta[pending.id] = {"tier": "CONFIRM", "effective_tier": "CONFIRM",
                                           "tainted": self.tainted, "resume": needs.resume}
@@ -252,7 +262,11 @@ class Dispatcher:
         pending = self.confirmer.take()
         tool = self.registry.get(pending.tool)
         meta = self._pending_meta.pop(pending.id, {})
-        result = await self._run(tool, pending.args, pending.call_id, resume=meta.get("resume"))
+        self._confirmed_running = pending.tool
+        try:
+            result = await self._run(tool, pending.args, pending.call_id, resume=meta.get("resume"))
+        finally:
+            self._confirmed_running = None
         if isinstance(result, NeedsConfirmation):
             self._audit(pending.tool, pending.args, "CONFIRM", "CONFIRM", outcome, f"next: {result.summary}",
                         tainted=meta.get("tainted", False))

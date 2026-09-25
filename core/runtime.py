@@ -85,6 +85,7 @@ class Assistant:
             ww = config["wake_word"]
             self.wake = WakeState(active_window_s=ww["active_window_s"])
             self.detector = WakeWordDetector(ww["model"], ww["threshold"])
+            self.wake_chime = chime(volume=float(ww.get("chime_volume", 0.06))) if ww.get("chime_volume", 0.06) else b""
 
         models = config["models"]
         llm = None
@@ -204,7 +205,8 @@ class Assistant:
         if self.wake and not self.wake.awake:
             if self.detector.detect(pcm):
                 self.wake.wake()
-                self.player.enqueue(chime())
+                if self.wake_chime:
+                    self.player.enqueue(self.wake_chime)
                 print("(awake)", flush=True)
             return
         if self.gate.allows():
