@@ -7,6 +7,7 @@ import logging
 import sys
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -55,6 +56,16 @@ class Transcript:
         self._labels = {"user": user_label, "jarvis": "JARVIS"}
         self._buf = {"user": "", "jarvis": ""}
         self.last: tuple[str, str] = ("", "")  # (label, line) of the last finished line
+        self.lines: deque[tuple[str, str]] = deque(maxlen=60)  # finished lines, for the window
+        self.version = 0  # bumps on every change, so the window only redraws when needed
+
+    def set_user_label(self, label: str) -> None:
+        self._labels["user"] = label
+
+    def snapshot(self) -> tuple[int, list[tuple[str, str]]]:
+        """(version, finished lines + what's being said now), for the window."""
+        live = [(self._labels[w], " ".join(self._buf[w].split())) for w in ("user", "jarvis") if self._buf[w].strip()]
+        return self.version, [*self.lines, *live]
 
     def caption(self) -> tuple[str, str]:
         """What's being said right now, else the last finished line (for the JARVIS window)."""
@@ -67,6 +78,7 @@ class Transcript:
         if who == "jarvis":
             self.flush("user")
         self._buf[who] += text
+        self.version += 1
 
     def flush(self, who: str | None = None) -> None:
         for w in [who] if who else ["user", "jarvis"]:
@@ -74,6 +86,8 @@ class Transcript:
             if line:
                 print(f"{self._labels[w]}: {line}", flush=True)
                 self.last = (self._labels[w], line)
+                self.lines.append(self.last)
+                self.version += 1
                 log.info("%s: %s", w, line)
             self._buf[w] = ""
 
@@ -122,6 +136,13 @@ class Assistant:
                 thinking=models.get("thinking"),
             )
         self.services = Services(llm=llm)
+        duck_cfg = config.get("ducking") or {}
+        if duck_cfg.get("enabled") and self.mode != "text":
+            from core.ducking import Ducker
+
+            self.services.ducker = Ducker(float(duck_cfg.get("level", 0.3)),
+                                          state_path=self.services.data_dir / "ducking.json")
+        self._last_heard = 0.0
         self.registry = load_actions(Registry(), config, self.services)
         if self.wake:
             self.registry.register(Tool(
@@ -142,6 +163,11 @@ class Assistant:
             dry_run=options.dry_run,
         )
         self.gate.confirmation_pending = lambda: self.dispatcher.awaiting_confirmation
+        if self.services.memory is not None:
+            from actions.memory import preferred_name
+
+            if name := preferred_name(self.services.memory):
+                self.transcript.set_user_label(name)
         self.services.dispatcher = self.dispatcher
 
         def instruction() -> str:
@@ -193,10 +219,11 @@ class Assistant:
             wcfg = config.get("window") or {}
             self.face = Face(
                 status=self._face_status,
-                on_talk=lambda: self._from_thread(self.talk),
-                on_stop=lambda: self._from_thread(self.on_hotkey, "stop", True),
-                on_mute=lambda: self._from_thread(self.on_hotkey, "mute", True),
-                on_quit=lambda: self._from_thread(self.request_exit, "window"),
+                on_talk=lambda: self.ui("window: Talk", self.talk),
+                on_stop=lambda: self.ui("window: Stop", self.stop_all),
+                on_mute=lambda: self.ui("window: Mute", self.on_hotkey, "mute", True),
+                on_quit=lambda: self.ui("window: Quit", self.request_exit, "window"),
+                on_sleep=lambda: self.ui("window: Sleep", self.sleep_now),
                 state_path=self.services.data_dir / "window.json",
                 always_on_top=bool(wcfg.get("always_on_top", True)),
                 opacity=float(wcfg.get("opacity", 1.0)),
@@ -207,10 +234,11 @@ class Assistant:
             from core.tray import Tray
 
             self.tray = Tray(
-                on_talk=lambda: self._from_thread(self.talk),
-                on_stop=lambda: self._from_thread(self.on_hotkey, "stop", True),
-                on_mute=lambda: self._from_thread(self.on_hotkey, "mute", True),
-                on_quit=lambda: self._from_thread(self.request_exit, "tray"),
+                on_talk=lambda: self.ui("tray: Talk", self.talk),
+                on_stop=lambda: self.ui("tray: Stop", self.stop_all),
+                on_mute=lambda: self.ui("tray: Mute", self.on_hotkey, "mute", True),
+                on_quit=lambda: self.ui("tray: Quit", self.request_exit, "tray"),
+                on_sleep=lambda: self.ui("tray: Sleep", self.sleep_now),
                 is_muted=lambda: self.gate.muted,
                 on_show=self.face.show if self.face is not None else None,
             )
@@ -244,6 +272,8 @@ class Assistant:
             self.tray.start()
         if self.face is not None:
             self.face.start()
+        if self.services.ducker is not None:
+            self.services.ducker.start()
         self._main_task = asyncio.current_task()
         try:
             await asyncio.gather(*tasks)
@@ -257,6 +287,8 @@ class Assistant:
                 self.face.stop()
             if self._denoise_worker is not None:
                 self._denoise_worker.stop()
+            if self.services.ducker is not None:
+                self.services.ducker.stop()  # puts the music volume back
             if self.services.reminders is not None:
                 self.services.reminders.stop()
             for t in tasks:
@@ -330,7 +362,9 @@ class Assistant:
             level = self._mic_level
         else:
             level = 0.0
-        return {"state": state, "level": level, "caption": self.transcript.caption()}
+        version, lines = self.transcript.snapshot()
+        return {"state": state, "level": level, "caption": self.transcript.caption(), "version": version,
+                "lines": lines}
 
     def _start_stdin_reader(self) -> None:
         def reader() -> None:
@@ -357,6 +391,36 @@ class Assistant:
         """Run `func` on the asyncio loop (tray and hotkey callbacks come from other threads)."""
         if self._loop is not None:
             self._loop.call_soon_threadsafe(func, *args)
+
+    def ui(self, what: str, func, *args) -> None:
+        """A window or tray click (from its own thread): log it, then run it on the asyncio loop."""
+        log.info("%s clicked", what)
+        self._from_thread(func, *args)
+
+    def stop_all(self) -> None:
+        """The Stop button: JARVIS stops talking (and any running action), and the music pauses."""
+        self.on_hotkey("stop", True)
+        print("(stopped)", flush=True)
+        media = self.registry.get("media_key")
+        if media is not None and not self.options.dry_run:
+            asyncio.ensure_future(self._pause_music(media))
+
+    async def _pause_music(self, tool) -> None:
+        try:
+            await tool.func(action="pause")
+        except Exception:
+            log.exception("couldn't pause the music")
+
+    def sleep_now(self) -> None:
+        """The Sleep button: like saying "go to sleep", including cutting off a reply in progress."""
+        if self.wake is None:
+            return
+        self._drop_reply = True
+        self.player.clear()
+        if self.wake.awake:
+            self.wake.awake = False
+            self.transcript.flush()
+            print("(sleeping)", flush=True)
 
     def talk(self) -> None:
         """'Talk to JARVIS' without the wake word: tray click, or the push-to-talk key in wake-word mode."""
@@ -416,6 +480,15 @@ class Assistant:
                 print("(sleeping)", flush=True)
             if self.tray is not None:
                 self.tray.set_state(self._tray_state())
+            if self.services.ducker is not None:
+                self.services.ducker.set_ducked(self._should_duck())
+
+    def _should_duck(self) -> bool:
+        """Lower other apps while the user and JARVIS are talking."""
+        if self.wake is not None:
+            return self.wake.awake
+        recent = time.monotonic() - self._last_heard < 4.0
+        return self.playback.playing or recent or self.gate.ptt_held
 
     def _tray_state(self) -> str:
         if self.gate.muted:
@@ -528,6 +601,7 @@ class Assistant:
         self.player.clear()
 
     def on_input_transcript(self, text: str) -> None:
+        self._last_heard = time.monotonic()
         if self.wake:
             self.wake.touch()
         self.transcript.add("user", text)
@@ -540,6 +614,7 @@ class Assistant:
     def on_turn_complete(self) -> None:
         self._drop_reply = False
         self._last_tool_at = 0.0
+        self.transcript.version += 1
         if self.wake:
             self.wake.touch()
         self.dispatcher.flush_utterance()

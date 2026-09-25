@@ -95,7 +95,8 @@ def test_window_status_follows_the_assistant(assistant) -> None:
     st = a._face_status()
     assert st["state"] == "listening" and st["level"] == pytest.approx(0.5, abs=0.01)
     a.gate.muted = True
-    assert a._face_status() == {"state": "muted", "level": 0.0, "caption": ("", "")}
+    st = a._face_status()
+    assert (st["state"], st["level"], st["lines"]) == ("muted", 0.0, [])
 
 
 def test_captions_show_live_text_then_the_last_line(assistant) -> None:
@@ -221,3 +222,82 @@ def test_mic_test_noise_report_helpers() -> None:
     assert background(levels) == pytest.approx(50)
     assert reduction_db(800, 80) == pytest.approx(20)
     assert reduction_db(0, 0) == 0
+
+
+# ---------------------------------------------------------------- ducking, Stop, Sleep, conversation
+
+
+def test_duck_plan_lowers_then_restores_exactly() -> None:
+    from core.ducking import DuckPlan
+
+    plan = DuckPlan(0.3)
+    changes = plan.duck([("chrome.exe:1", 0.8), ("spotify.exe:2", 1.0)])
+    assert changes == pytest.approx({"chrome.exe:1": 0.24, "spotify.exe:2": 0.3})
+    assert plan.duck([("chrome.exe:1", 0.24), ("vlc.exe:3", 0.5)]) == pytest.approx({"vlc.exe:3": 0.15})  # new app only
+    assert plan.restore() == {"chrome.exe:1": 0.8, "spotify.exe:2": 1.0, "vlc.exe:3": 0.5}
+    assert plan.restore() == {}
+
+
+def test_music_volume_while_ducked_sets_the_normal_level() -> None:
+    from core.ducking import DuckPlan
+
+    plan = DuckPlan(0.5)
+    plan.duck([("chrome.exe:1", 1.0)])
+    assert plan.set_base(["chrome.exe:1"], 0.4, ducked=True) == pytest.approx({"chrome.exe:1": 0.2})
+    assert plan.restore() == pytest.approx({"chrome.exe:1": 0.4})  # "turn it down" survives waking up
+    assert plan.set_base(["chrome.exe:1"], 1.7, ducked=False) == {"chrome.exe:1": 1.0}  # clamped
+
+
+def test_ducker_never_touches_jarvis_itself() -> None:
+    import os
+
+    from core.ducking import Ducker
+
+    assert os.getpid() in Ducker(own_pids=[42]).own_pids and 42 in Ducker(own_pids=[42]).own_pids
+
+
+def test_should_duck_follows_the_wake_state(assistant) -> None:
+    a = assistant
+    assert a._should_duck() is False
+    a.talk()
+    assert a._should_duck() is True
+    a.sleep_now()
+    assert a._should_duck() is False and not a.wake.awake
+
+
+def test_sleep_button_cuts_off_the_reply(assistant) -> None:
+    a = assistant
+    a.talk()
+    a.player.enqueue(b"\x00" * 2000)
+    a.sleep_now()
+    assert not a.wake.awake and a._drop_reply and not a.playback.playing
+
+
+async def test_stop_button_stops_jarvis_and_pauses_the_music(assistant) -> None:
+    import asyncio
+
+    a = assistant
+    calls = []
+
+    class Media:
+        async def func(self, action):
+            calls.append(action)
+
+    a.registry._tools["media_key"] = type("T", (), {"func": Media().func})()
+    a.talk()
+    a.stop_all()
+    await asyncio.sleep(0.01)
+    assert a._drop_reply and calls == ["pause"]
+
+
+def test_conversation_snapshot_has_history_and_live_text(assistant) -> None:
+    t = assistant.transcript
+    v0, lines = t.snapshot()
+    assert lines == []
+    t.add("user", "play some rock")
+    t.add("jarvis", "Playing Back In Black.")
+    v1, lines = t.snapshot()
+    assert v1 > v0 and lines[0][1] == "play some rock" and lines[-1] == ("JARVIS", "Playing Back In Black.")
+    t.flush()
+    v2, lines = t.snapshot()
+    assert v2 > v1 and [text for _, text in lines] == ["play some rock", "Playing Back In Black."]

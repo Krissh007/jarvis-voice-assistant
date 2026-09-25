@@ -436,3 +436,17 @@ async def test_block_pages_are_reported_as_failures(w, monkeypatch) -> None:
     monkeypatch.setattr(web, "_transport", httpx.MockTransport(
         lambda r: httpx.Response(200, headers={"content-type": "text/html"}, text=denied)))
     assert "blocks automated readers" in await w.read_page("https://news.example/x")
+
+
+async def test_research_from_search_results_alone_can_be_saved(w, tmp_path, monkeypatch) -> None:
+    """Live log: JARVIS answered from search results, offered to save, then said there was nothing to save."""
+    monkeypatch.setattr(web.Web, "_ddgs", staticmethod(lambda q, news: [
+        {"title": "Voice assistant capabilities", "url": "https://a.example/va", "snippet": "NLP, knowledge graphs"},
+        {"title": "Research agents", "url": "https://b.example/ra", "snippet": "Multi-step retrieval"},
+    ]))
+    await w.search_web("voice assistant research capabilities")
+    w.state.new_turn()  # the user's "yes, save it" is a new turn
+    said = await w.save_research("Voice assistant research")
+    assert said.startswith("Saved to")
+    text = next((tmp_path / "Documents" / "jarvis").iterdir()).read_text(encoding="utf-8")
+    assert "https://a.example/va" in text and "https://b.example/ra" in text

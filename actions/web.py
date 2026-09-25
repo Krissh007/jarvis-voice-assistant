@@ -51,6 +51,7 @@ class ResearchState:
 
     question: str = ""
     pages: list[dict[str, str]] = field(default_factory=list)
+    results: list[dict[str, str]] = field(default_factory=list)  # search hits, for notes when no page was read
     pages_this_turn: int = 0
     searched_this_turn: bool = False
 
@@ -205,6 +206,8 @@ class Web:
             results = await asyncio.to_thread(self._ddgs, query, news)
         if not results:
             return f"No results for {query!r}."
+        seen = {r["url"] for r in self.state.results}
+        self.state.results.extend(r for r in results if r.get("url") and r["url"] not in seen)
         lines = [f"{i}. {r['title']} ({r['url']})\n   {r['snippet']}" for i, r in enumerate(results, 1)]
         return "\n".join(lines)
 
@@ -261,14 +264,14 @@ class Web:
 
     async def save_research(self, title: str) -> str:
         """Write the last research as markdown in Documents\\jarvis. Rung 2 (file write). Tier CONFIRM."""
-        if not self.state.pages:
+        if not self.state.pages and not self.state.results:
             return "There's no research to save yet."
         self.research_dir.mkdir(parents=True, exist_ok=True)
         path = next_free_path(self.research_dir, title)
         if path.resolve().parent != self.research_dir.resolve():
             return "I can only save inside the research folder."
         body = await self._report(title)
-        sources = "\n".join(f"- [{p['title']}]({p['url']})" for p in self.state.pages)
+        sources = "\n".join(f"- [{p['title']}]({p['url']})" for p in self.state.pages or self.state.results[:10])
         text = f"# {title}\n\n_Question: {self.state.question}_\n\n{body}\n\n## Sources\n\n{sources}\n"
         with path.open("x", encoding="utf-8") as f:  # "x": fail rather than overwrite
             f.write(text)
@@ -301,8 +304,11 @@ class Web:
         return await summarise(self.llm, url, text, question)
 
     async def _report(self, title: str) -> str:
-        notes = "\n\n".join(wrap(p["url"], f"{p['title']}\n{p['summary']}") for p in self.state.pages)
-        fallback = "\n\n".join(f"### {p['title']}\n\n{p['summary']}" for p in self.state.pages)
+        # Read pages when there are any; otherwise the search results' snippets.
+        items = [(p["url"], p["title"], p["summary"]) for p in self.state.pages] or [
+            (r["url"], r["title"], r.get("snippet", "")) for r in self.state.results[:10]]
+        notes = "\n\n".join(wrap(url, f"{t}\n{text}") for url, t, text in items)
+        fallback = "\n\n".join(f"### {t}\n\n{text}" for _, t, text in items)
         if self.llm is None:
             return fallback
         prompt = (

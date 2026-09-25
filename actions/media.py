@@ -124,6 +124,27 @@ def search_songs(query: str) -> list[dict[str, Any]]:
     return YTMusic().search(query, filter="songs", limit=10)
 
 
+def _bare(name: str) -> str:
+    n = _norm(name)
+    return n[4:] if n.startswith("the ") else n
+
+
+def artist_songs(query: str) -> list[dict[str, Any]]:
+    """If the request is just an artist ('The Rolling Stones'), that artist's popular songs; else []."""
+    from ytmusicapi import YTMusic
+
+    title, artist = parse_request(query)
+    if artist:  # "X by Y" is a song request
+        return []
+    yt = YTMusic()
+    for hit in yt.search(title, filter="artists", limit=3):
+        name = hit.get("artist") or hit.get("title") or ""
+        if hit.get("browseId") and SequenceMatcher(None, _bare(title), _bare(name)).ratio() >= 0.85:
+            songs = (yt.get_artist(hit["browseId"]).get("songs") or {}).get("results") or []
+            return [s for s in songs if s.get("videoId") and VIDEO_ID.match(s["videoId"])]
+    return []
+
+
 # ---------------------------------------------------------------- Windows media sessions
 
 async def media_sessions() -> list[Any]:
@@ -193,11 +214,11 @@ class Media:
         """Play a song on YouTube Music: 'Believer by Imagine Dragons'. Rung 2 (installed app + Windows media
         session) or rung 3 (JARVIS's browser). Tier SAFE: playing media."""
         try:
-            results = await asyncio.to_thread(search_songs, query)
+            top = await asyncio.to_thread(artist_songs, query)
+            song = top[0] if top else choose_song(await asyncio.to_thread(search_songs, query), query)
         except Exception as exc:
             log.warning("YouTube Music search failed: %s", exc)
             return "I couldn't search YouTube Music just now."
-        song = choose_song(results, query)
         if song is None:
             return f"I couldn't find {query!r} on YouTube Music."
         url = WATCH_URL.format(id=song["videoId"])
@@ -212,6 +233,11 @@ class Media:
         from actions.system import media_key as virtual_key
 
         action = action.lower().strip()
+        if action == "close":
+            windows = await asyncio.to_thread(app_windows)
+            for hwnd in windows:
+                ctypes.windll.user32.PostMessageW(hwnd, 0x0010, 0, 0)  # WM_CLOSE: like clicking X
+            return "Closed YouTube Music." if windows else "YouTube Music isn't open."
         app = self._app if self._detected else await asyncio.to_thread(self.app)
         try:
             session = await find_session(app.aumid if app else None)
@@ -232,6 +258,21 @@ class Media:
         now = f"{state['title']} by {state['artist']}" if state["title"] else "the music"
         return {"pause": f"Paused {now}.", "stop": f"Paused {now}.", "play": f"Playing {now}.",
                 "resume": f"Playing {now}."}.get(action, f"Now playing {now}.")
+
+    async def set_music_volume(self, level: float) -> str:
+        """Volume of the music and other apps, 0-100, without changing JARVIS's voice. Rung 2 (Windows
+        per-app volume). Tier SAFE."""
+        ducker = getattr(self.services, "ducker", None)
+        if ducker is None:
+            return "I can only change the whole computer's volume right now (set_volume)."
+        loop = asyncio.get_running_loop()
+        done = loop.create_future()
+        ducker.set_music_volume(max(0.0, min(100.0, float(level))),
+                                lambda msg: loop.call_soon_threadsafe(done.set_result, msg))
+        try:
+            return await asyncio.wait_for(done, 5)
+        except asyncio.TimeoutError:
+            return "I couldn't change the music volume."
 
     async def now_playing(self) -> str:
         """What's playing, from Windows' media sessions. Rung 2. Tier SAFE, read-only."""
@@ -288,7 +329,8 @@ def register(registry: Registry, config: dict, services) -> None:
     media = Media(config, services)
     registry.register(Tool(
         name="play_music",
-        description="Play a song on YouTube Music, e.g. 'Believer by Imagine Dragons'. Include the artist if known.",
+        description=("Play a song on YouTube Music, e.g. 'Believer by Imagine Dragons'. Include the artist if known. "
+                     "Just an artist or band name ('The Rolling Stones') plays their most popular song."),
         func=media.play_music,
         tier=Tier.SAFE,
         self_gated=True,  # can only ever start a YouTube Music song
@@ -298,16 +340,28 @@ def register(registry: Registry, config: dict, services) -> None:
     ))
     registry.register(Tool(
         name="media_key",
-        description="Control the music or video that's playing: play, pause, next, previous or stop.",
+        description=("Control the music or video that's playing: play, pause, next, previous or stop. "
+                     "'close' closes the YouTube Music app (e.g. 'close the music player')."),
         func=media.media_key,
         tier=Tier.SAFE,
         rung=2,
         parameters={
             "type": "object",
-            "properties": {"action": {"type": "string", "enum": ["play", "pause", "next", "previous", "stop"]}},
+            "properties": {"action": {"type": "string",
+                                      "enum": ["play", "pause", "next", "previous", "stop", "close"]}},
             "required": ["action"],
         },
         summarize=lambda a: f"Press {a.get('action')} on the music",
+    ))
+    registry.register(Tool(
+        name="set_music_volume",
+        description=("Turn the music (and other apps) up or down, 0 to 100, WITHOUT changing your own voice. "
+                     "Use this for 'turn the music down'. set_volume changes the whole PC, including your voice."),
+        func=media.set_music_volume,
+        tier=Tier.SAFE,
+        rung=2,
+        parameters={"type": "object", "properties": {"level": {"type": "number"}}, "required": ["level"]},
+        summarize=lambda a: f"Set the music volume to {a.get('level')}%",
     ))
     registry.register(Tool(
         name="now_playing",

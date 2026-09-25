@@ -36,6 +36,7 @@ class Services:
     web: Any = None  # actions.web.Web, for the morning briefing
     memory: Any = None  # actions.memory.MemoryStore, for the system instruction
     reminders: Any = None  # actions.reminders.Reminders, started by the runtime
+    ducker: Any = None  # core.ducking.Ducker: music-only volume and ducking while JARVIS is awake
 
 
 def load_actions(registry: Registry, config: dict, services: Services | None = None) -> Registry:

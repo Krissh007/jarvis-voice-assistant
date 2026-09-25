@@ -28,6 +28,10 @@ wake_word:
   active_window_s: 15
   chime_volume: 0.06            # wake beep loudness, 0 = silent, 0.25 = the old level
 
+ducking:                        # lower other apps (music) while JARVIS is awake; restored when it sleeps
+  enabled: true
+  level: 0.3                    # 0.3 = other apps play at 30% of their normal volume
+
 noise_suppression:              # RNNoise, runs on this PC: cleans the audio sent to Gemini
   enabled: true
   strength: 1.0                 # 0..1; lower keeps more of the original sound

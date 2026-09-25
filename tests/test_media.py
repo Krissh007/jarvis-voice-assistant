@@ -21,6 +21,12 @@ RESULTS = [
 ]
 
 
+@pytest.fixture(autouse=True)
+def no_artist_lookup(monkeypatch):
+    """Tests never reach the real YouTube Music; artist requests are faked where a test needs them."""
+    monkeypatch.setattr(media, "artist_songs", lambda q: [])
+
+
 # ---------------------------------------------------------------- choosing the song
 
 @pytest.mark.parametrize("query, expected", [
@@ -209,3 +215,25 @@ def test_media_module_replaces_the_plain_media_key() -> None:
     reg = load_actions(Registry(), {"features": {"system": True, "media": True}, "apps": {"allowlist": {}}},
                        Services())
     assert reg.get("media_key").func.__self__.__class__ is media.Media
+
+
+async def test_an_artist_name_plays_that_artists_song(fake_os, monkeypatch) -> None:
+    """Live log: 'Rolling Stones' played 'Still Rolling Stones' by someone else."""
+    monkeypatch.setattr(media, "artist_songs",
+                        lambda q: [song("PaintBlack1", "Paint It Black", "The Rolling Stones")] if "rolling" in q.lower() else [])
+    fake_os["session"] = FakeSession("Paint It Black", "The Rolling Stones")
+    m = media.Media({"music": {"source": "youtube_music_app"}}, Services())
+    said = await m.play_music("The Rolling Stones")
+    assert "Paint It Black by The Rolling Stones" in said
+    assert "PaintBlack1" in fake_os["launched"][-1][-1]
+
+
+async def test_close_the_music_app(fake_os) -> None:
+    m = media.Media({"music": {"source": "youtube_music_app"}}, Services())
+    assert await m.media_key("close") == "Closed YouTube Music."
+    assert fake_os["closed"] == [(501, 0x0010)]
+
+
+async def test_music_volume_needs_the_ducker() -> None:
+    m = media.Media({}, Services())
+    assert "whole computer" in await m.set_music_volume(30)

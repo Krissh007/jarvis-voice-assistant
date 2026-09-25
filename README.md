@@ -142,12 +142,20 @@ press **Ctrl+Alt+Y**. Anything else, **Ctrl+Alt+N**, or 20 seconds of silence ca
 | Ctrl+Alt+S | Stop JARVIS talking |
 | Ctrl+Alt+Y / Ctrl+Alt+N | Confirm / cancel the pending action |
 
-**JARVIS window** (`features.window`): a small always-on-top panel (bottom-right at first) with an
+**JARVIS window** (`features.window`): an always-on-top panel (bottom-right at first) with an
 animated orb. Its rings spin and its core pulses with your voice or JARVIS's, in the same colours as
-the tray icon. It shows live captions of what you and JARVIS say, and has **Talk**, **Mute** and
-**Stop** buttons. **Click the orb to talk**, drag it anywhere (the position is remembered), and
-right-click for *Always on top*, *Hide*, *Open log* and *Quit*. The **–** button hides it; bring it back from
-the tray menu (**Show JARVIS window**).
+the tray icon. Below it is the **whole conversation**, scrollable, newest at the bottom.
+- Buttons: **Talk** (wake JARVIS), **Sleep** (like saying "go to sleep"), **Mute**, and **Stop**
+  (JARVIS stops talking and the music pauses). A button flashes when it registers a click.
+- **Click the orb to talk.** Drag the orb or title bar to move the window, and drag the **◢**
+  corner to resize it. Size and position are remembered.
+- Right-click for *Always on top*, *Compact (orb only)*, *Hide*, *Open log* and *Quit*. The **–**
+  button hides it; bring it back from the tray menu (**Show JARVIS window**).
+
+**Music while you talk** (`ducking`): while JARVIS is awake, other apps (your music) drop to 30% of
+their volume so you can hear each other, and go back up when JARVIS sleeps. JARVIS's own voice is
+never lowered. "Turn the music down to 20" changes only the music (`set_music_volume`); "set the
+volume to 20" changes the whole PC, including JARVIS.
 
 **Tray icon** (`features.tray`): JARVIS's ring by the clock is grey when asleep, blue when listening,
 bright cyan when speaking and red when muted. **Left-click it to talk** (wakes JARVIS without the wake
@@ -350,6 +358,7 @@ Blocking work runs in a thread automatically. Use `async def` for async tools.
 | `voice.name` | Gemini voice (e.g. Charon, Puck, Kore) |
 | `listening.mode` | `wake_word`, `always_on` or `push_to_talk` |
 | `wake_word.*` | Thresholds, gain, beep volume, personal verifier |
+| `ducking.enabled`, `ducking.level` | Lower the music while JARVIS is awake (0.3 = 30%) |
 | `noise_suppression.enabled`, `.strength` | Clean background noise from what Gemini hears (RNNoise, on this PC) |
 | `window.always_on_top`, `window.opacity` | The JARVIS window |
 | `audio.input_device` | `null` = Windows default, or part of a device name |
@@ -450,6 +459,7 @@ jarvis/
 │   ├── tray.py, shortcut.py, app_mode.py  # tray icon, desktop shortcut, running without a terminal
 │   ├── face.py          # the animated JARVIS window
 │   ├── denoise.py       # RNNoise background-noise suppression
+│   ├── ducking.py       # lowers other apps' volume while JARVIS is awake
 │   ├── prompts.py       # system instruction
 │   └── briefing.py      # morning briefing
 ├── actions/             # one module per capability (see "What each capability does")

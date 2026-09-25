@@ -439,7 +439,8 @@ def register(registry: Registry, config: dict, services=None) -> None:
         ))
     registry.register(Tool(
         name="set_volume",
-        description="Set the computer's master volume, 0 to 100.",
+        description=("Set the whole computer's master volume, 0 to 100. This also changes your own voice; "
+                     "for 'turn the music down' use set_music_volume instead."),
         func=set_volume,
         tier=Tier.SAFE,
         parameters={

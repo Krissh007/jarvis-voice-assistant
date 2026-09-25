@@ -52,8 +52,9 @@ def save_ico(path: Path) -> Path:
 class Tray:
     def __init__(self, *, on_talk: Callable[[], None], on_stop: Callable[[], None], on_mute: Callable[[], None],
                  on_quit: Callable[[], None], is_muted: Callable[[], bool],
-                 on_show: Callable[[], None] | None = None) -> None:
+                 on_show: Callable[[], None] | None = None, on_sleep: Callable[[], None] | None = None) -> None:
         self._callbacks = (on_talk, on_stop, on_mute, on_quit)
+        self._on_sleep = on_sleep
         self._on_show = on_show
         self._is_muted = is_muted
         self._images = {name: draw_icon(name) for name in STATES}
@@ -66,7 +67,8 @@ class Tray:
         on_talk, on_stop, on_mute, on_quit = self._callbacks
         menu = pystray.Menu(
             pystray.MenuItem("Talk to JARVIS", lambda: on_talk(), default=True),  # left-click
-            pystray.MenuItem("Stop talking", lambda: on_stop()),
+            *([pystray.MenuItem("Go to sleep", lambda: self._on_sleep())] if self._on_sleep else []),
+            pystray.MenuItem("Stop (JARVIS and the music)", lambda: on_stop()),
             pystray.MenuItem("Mute microphone", lambda: on_mute(), checked=lambda item: self._is_muted()),
             *([pystray.MenuItem("Show JARVIS window", lambda: self._on_show())] if self._on_show else []),
             pystray.Menu.SEPARATOR,
