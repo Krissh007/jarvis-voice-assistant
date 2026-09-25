@@ -14,7 +14,7 @@ import logging
 from core.llm import USAGE_LIMIT_MESSAGE, LLMUnavailable
 from core.privacy import redact_reversible, restore, secret_in_text
 from core.registry import NeedsConfirmation, Registry, Tier, Tool
-from core.untrusted import wrap
+from core.untrusted import unwrap, wrap
 
 log = logging.getLogger(__name__)
 
@@ -97,7 +97,7 @@ class Clipboard:
             result = await self.llm.generate(prompt, system="You help with text the user copied.", max_tokens=1200)
         except LLMUnavailable:
             return USAGE_LIMIT_MESSAGE
-        return note + restore(result, mapping)
+        return note + restore(unwrap(result), mapping)
 
     async def clipboard_fix(self, instructions: str = "Fix spelling, grammar and punctuation") -> str | NeedsConfirmation:
         """Rewrite the copied text and put it back on the clipboard. Rung 2 + Flash. The new text is
@@ -112,7 +112,7 @@ class Clipboard:
             fixed = await self.llm.generate(prompt, system="You edit text the user copied.", max_tokens=4000)
         except LLMUnavailable:
             return USAGE_LIMIT_MESSAGE
-        fixed = restore(fixed.strip(), mapping)
+        fixed = restore(unwrap(fixed), mapping)
         if fixed == text.strip():
             return "It already looks right; I didn't change anything."
 

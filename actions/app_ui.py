@@ -12,6 +12,9 @@ Safety, enforced in code:
 from __future__ import annotations
 
 import asyncio
+import warnings
+
+warnings.filterwarnings("ignore", message="Revert to STA COM threading mode")
 import logging
 import re
 from dataclasses import dataclass, field
@@ -29,7 +32,16 @@ log = logging.getLogger(__name__)
 CONTROL_TYPES = {"Edit", "Document", "Button", "MenuItem", "TabItem", "ListItem", "Hyperlink", "CheckBox",
                  "ComboBox", "RadioButton", "SplitButton"}
 TYPEABLE = {"Edit", "Document", "ComboBox"}
-ALLOWED_KEYS = {"enter": "{ENTER}", "tab": "{TAB}", "escape": "{ESC}"}
+ALLOWED_KEYS = {"enter": "{ENTER}", "tab": "{TAB}", "escape": "{ESC}",
+                "ctrl+v": "^v", "ctrl+a": "^a", "ctrl+z": "^z"}  # never ctrl+s: saving isn't allowed
+TEXT_KEYS = {"ctrl+v", "ctrl+a"}  # change the document, so the secret-document rule applies like typing
+KEY_WORDS = {"ctrl+v": "paste the clipboard (Ctrl+V)", "ctrl+a": "select all the text (Ctrl+A)",
+             "ctrl+z": "undo (Ctrl+Z)"}
+
+
+def normalize_key(key: str) -> str:
+    k = key.lower().replace(" ", "").replace("control", "ctrl").replace("-", "+")
+    return {"esc": "escape", "return": "enter", "paste": "ctrl+v", "selectall": "ctrl+a", "undo": "ctrl+z"}.get(k, k)
 MAX_STEPS = 5
 DESTRUCTIVE = re.compile(
     r"\b(delete|remove|erase|format|send|pay|purchase|buy|checkout|sign in|sign out|log ?in|log ?out|account|"
@@ -85,10 +97,14 @@ def classify_steps(steps: list[dict], snap: Snapshot, app: str) -> tuple[Tier, l
     for step in steps:
         kind = step.get("action")
         if kind == "key":
-            key = str(step.get("key", "")).lower()
+            key = normalize_key(str(step.get("key", "")))
             if key not in ALLOWED_KEYS:
                 return Tier.BLOCKED, lines, f"the key {key!r} isn't allowed"
-            lines.append(f"press {key.capitalize()}")
+            if key in TEXT_KEYS and not fresh_document:
+                return Tier.BLOCKED, lines, (f"the open document '{snap.active_document}' looks like it holds "
+                                             "secrets; open a new tab first")
+            step["key"] = key
+            lines.append(KEY_WORDS.get(key, f"press {key.capitalize()}"))
             continue
         ctrl = snap.get(step.get("id"))
         if ctrl is None or kind not in {"click", "type"}:
@@ -182,7 +198,7 @@ def run_steps(command: str, steps: list[dict], planned: Snapshot) -> None:
     win.set_focus()
     for step in steps:
         if step["action"] == "key":
-            send_keys(ALLOWED_KEYS[step["key"].lower()])
+            send_keys(ALLOWED_KEYS[normalize_key(step["key"])])
             continue
         target = planned.get(step["id"])
         live = {c.signature: w for c, w in _elements(win)}  # re-find: the UI may have changed
@@ -267,8 +283,10 @@ class AppUI:
             f"Active document: {redact(snap.active_document)}"
             + (" (looks like it holds secrets: open a new tab/document before typing)" if secret else "") + "\n\n"
             f"Plan at most {MAX_STEPS} steps as JSON: {{\"steps\": [...]}} using\n"
-            '{"action":"click","id":N} | {"action":"type","id":N,"text":"..."} | {"action":"key","key":"enter|tab|escape"}\n'
-            "Type into a Document or Edit control. Don't save, send, delete or change settings.\n\n"
+            '{"action":"click","id":N} | {"action":"type","id":N,"text":"..."} | '
+            '{"action":"key","key":"enter|tab|escape|ctrl+v|ctrl+a|ctrl+z"}\n'
+            "Type into a Document or Edit control. To paste the clipboard, click the Document then press ctrl+v "
+            "(ctrl+a first to replace everything). Don't save, send, delete or change settings.\n\n"
             "Controls on screen:\n" + wrap(app, "\n".join(rows))
         )
         raw = await self.llm.generate(prompt, system="You plan short, safe UI steps for a desktop app. Reply "

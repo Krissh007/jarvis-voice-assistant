@@ -175,3 +175,12 @@ async def test_says_when_nothing_new_was_copied(board, monkeypatch) -> None:
     seq["n"] = 8  # a real copy happened
     board["text"] = "Hello"
     assert "nothing new has been copied" not in await clip.clipboard_action("translate", "Telugu")
+
+
+async def test_echoed_wrapper_tags_never_reach_the_clipboard(board) -> None:
+    board["text"] = "helo from jarvis"
+    echo = '<untrusted_content source="clipboard">\nHello from JARVIS.\n</untrusted_content>'
+    paused = await clipboard.Clipboard(Services(llm=FakeLLM(echo))).clipboard_fix()
+    assert "untrusted_content" not in paused.summary
+    await paused.resume()
+    assert board["text"] == "Hello from JARVIS."

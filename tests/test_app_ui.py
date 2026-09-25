@@ -111,3 +111,16 @@ async def test_blocked_plan_is_refused_without_asking(fake_uia) -> None:
 
 async def test_unlisted_app_is_refused(fake_uia) -> None:
     assert "isn't on my list" in await app_ui.AppUI(CONFIG, Services(llm=Planner([]))).app_ui_action("regedit", "x")
+
+
+def test_paste_and_select_all_are_allowed_but_never_save() -> None:
+    steps = [{"action": "click", "id": 1}, {"action": "key", "key": "Control+A"}, {"action": "key", "key": "ctrl+v"}]
+    tier, lines, _ = classify_steps(steps, notepad(), "notepad")
+    assert tier == Tier.CONFIRM
+    assert lines == ["click 'Text editor'", "select all the text (Ctrl+A)", "paste the clipboard (Ctrl+V)"]
+    assert classify_steps([{"action": "key", "key": "ctrl+s"}], notepad(), "notepad")[0] == Tier.BLOCKED
+
+
+def test_paste_into_a_secret_document_is_blocked() -> None:
+    tier, _, why = classify_steps([{"action": "key", "key": "ctrl+v"}], notepad(".env. Unmodified."), "notepad")
+    assert tier == Tier.BLOCKED and "secrets" in why
