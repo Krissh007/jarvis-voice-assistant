@@ -26,6 +26,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", help="log tool calls instead of executing side effects")
     parser.add_argument("--text", action="store_true", help="type instead of speak")
     parser.add_argument("--mic-test", action="store_true", help="show live mic level and wake-word score, then exit")
+    parser.add_argument("--train-wake", action="store_true",
+                        help="record your voice to make the wake word recognise you better, then exit")
     parser.add_argument("--mic", metavar="NAME",
                         help='use this microphone (part of its name, e.g. "Nord Buds") instead of audio.input_device')
     parser.add_argument("--browser-login", action="store_true",
@@ -102,6 +104,11 @@ def main(argv: list[str] | None = None) -> int:
     config = load_config()
     if args.mic:
         config["audio"]["input_device"] = args.mic
+    if args.train_wake:
+        from actions import Services
+        from core.wake_training import run_wake_training
+
+        return run_wake_training(config, Services().data_dir)
     if args.mic_test:
         from core.mictest import run_mic_test
 

@@ -347,3 +347,90 @@ def test_mic_test_suggests_the_smallest_gain_that_wakes_most() -> None:
     assert suggest_gain({1.0: 5, 2.0: 5}, 1.0) == 1.0
     assert suggest_gain({1.0: 4, 2.0: 5, 3.0: 5}, 3.0) == 3.0  # current already ties the best
     assert suggest_gain({1.0: 0, 2.0: 0}, 1.0) is None
+
+
+def _bare_detector(threshold=0.5):
+    from core.wakeword import WakeWordDetector
+
+    class Model:
+        def reset(self):
+            pass
+
+    det = WakeWordDetector.__new__(WakeWordDetector)
+    det._model, det.threshold, det.gain, det.personal = Model(), threshold, 1.0, False
+    det._peak, det._quiet, det.missed = 0.0, 0, None
+    return det
+
+
+def test_near_miss_is_reported_once_after_the_attempt_fades() -> None:
+    det = _bare_detector(0.25)
+    for s in [0.0, 0.12, 0.19, 0.08] + [0.0] * 6:
+        assert det.update(s) is False
+    assert det.missed is None  # not quiet long enough yet
+    det.update(0.0)
+    assert det.missed == 0.19
+    det.missed = None
+    for s in [0.05, 0.02] + [0.0] * 10:  # background noise never counts as an attempt
+        det.update(s)
+    assert det.missed is None
+
+
+def test_a_wake_is_not_also_reported_as_a_near_miss() -> None:
+    det = _bare_detector(0.25)
+    assert [det.update(s) for s in [0.15, 0.3]] == [False, True]
+    for _ in range(10):
+        det.update(0.0)
+    assert det.missed is None
+
+
+def test_personal_verifier_is_used_only_when_trained(tmp_path, monkeypatch) -> None:
+    from core.wakeword import WakeWordDetector, verifier_path
+
+    made = []
+    monkeypatch.setattr(WakeWordDetector, "__init__",
+                        lambda self, name, threshold, gain, verifier=None: made.append((threshold, gain, verifier)))
+    ww = {"model": "hey_jarvis", "threshold": 0.25, "verifier_threshold": 0.6, "gain": 2.0}
+    WakeWordDetector.from_config(ww, tmp_path)
+    path = verifier_path(tmp_path, "hey_jarvis")
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"x")
+    WakeWordDetector.from_config(ww, tmp_path, gain=3.0)
+    WakeWordDetector.from_config({**ww, "personal_verifier": False}, tmp_path)
+    assert made == [(0.25, 2.0, None), (0.6, 3.0, path), (0.25, 2.0, None)]
+
+
+def test_train_from_clips_saves_a_working_verifier(tmp_path) -> None:
+    import pickle
+
+    import numpy as np
+    import pytest
+
+    from core.wake_training import PAD_S, pad, train_from_clips
+
+    rng = np.random.default_rng(0)
+
+    class FakeModel:
+        def reset(self):
+            pass
+
+    def extract(clip, oww, name, threshold, N):
+        assert len(clip) > PAD_S * 16000  # padded with leading silence
+        loud = int(np.abs(clip).max()) > 1000
+        if threshold > 0 and not loud:
+            return np.empty((0, 16, 96))
+        centre = 1.0 if loud and threshold > 0 else -1.0
+        return rng.normal(centre, 0.3, size=(N * 3, 16, 96))
+
+    pos = [np.full(32000, 5000, dtype=np.int16) for _ in range(4)]
+    neg = [np.full(64000, 200, dtype=np.int16) for _ in range(3)]
+    out = tmp_path / "wake" / "v.pkl"
+    stats = train_from_clips(pos, neg, "hey_jarvis", out, extract=extract, new_model=FakeModel)
+    assert stats["clips_used"] == 4 and out.exists()
+    model = pickle.loads(out.read_bytes())
+    assert model.predict_proba(rng.normal(1.0, 0.3, size=(1, 16, 96)))[0][-1] > 0.5
+    assert model.predict_proba(rng.normal(-1.0, 0.3, size=(1, 16, 96)))[0][-1] < 0.5
+    assert len(pad(np.zeros(10, dtype=np.int16))) == 10 + 24000
+
+    quiet = [np.full(32000, 100, dtype=np.int16) for _ in range(4)]
+    with pytest.raises(ValueError, match="sounded like the wake word"):
+        train_from_clips(quiet, neg, "hey_jarvis", out, extract=extract, new_model=FakeModel)

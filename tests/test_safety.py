@@ -218,7 +218,7 @@ async def test_go_to_sleep_tool_in_wake_word_mode(tmp_path, monkeypatch) -> None
     from core import wakeword
     from core.runtime import Assistant, Options
 
-    monkeypatch.setattr(wakeword, "WakeWordDetector", lambda *a, **k: object())
+    monkeypatch.setattr(wakeword.WakeWordDetector, "from_config", classmethod(lambda cls, *a, **k: object()))
     cfg = main.load_config()
     cfg["listening"]["mode"] = "wake_word"
     cfg["features"]["wake_word"] = True

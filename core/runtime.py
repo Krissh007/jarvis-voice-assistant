@@ -84,7 +84,7 @@ class Assistant:
 
             ww = config["wake_word"]
             self.wake = WakeState(active_window_s=ww["active_window_s"])
-            self.detector = WakeWordDetector(ww["model"], ww["threshold"], float(ww.get("gain", 1.0)))
+            self.detector = WakeWordDetector.from_config(ww, Services().data_dir)
             self.wake_chime = chime(volume=float(ww.get("chime_volume", 0.06))) if ww.get("chime_volume", 0.06) else b""
 
         models = config["models"]
@@ -153,6 +153,8 @@ class Assistant:
         )
         self._loop: asyncio.AbstractEventLoop | None = None
         self._mic: Mic | None = None
+        self._main_task: asyncio.Task | None = None
+        self._input_closed = False
 
     # ---- lifecycle ----
 
@@ -173,8 +175,12 @@ class Assistant:
         if self.config["features"].get("morning_briefing"):
             tasks.append(asyncio.create_task(self._briefing(), name="briefing"))
         self._print_banner()
+        self._main_task = asyncio.current_task()
         try:
             await asyncio.gather(*tasks)
+        except asyncio.CancelledError:
+            if not self._input_closed:
+                raise  # a real cancellation; only end-of-typed-input is a normal exit
         finally:
             if self.services.reminders is not None:
                 self.services.reminders.stop()
@@ -217,7 +223,12 @@ class Assistant:
 
     def _on_mic_chunk(self, pcm: bytes) -> None:
         if self.wake and not self.wake.awake:
-            if self.detector.detect(pcm):
+            woke = self.detector.detect(pcm)
+            if self.detector.missed is not None:
+                print(f"  (heard something like \"hey jarvis\", score {self.detector.missed:.2f}: "
+                      f"not sure enough, need {self.detector.threshold:.2f})", flush=True)
+                self.detector.missed = None
+            if woke:
                 self.wake.wake()
                 if self.wake_chime:
                     self.player.enqueue(self.wake_chime)
@@ -231,8 +242,17 @@ class Assistant:
             for line in sys.stdin:
                 if line.strip():
                     asyncio.run_coroutine_threadsafe(self._on_typed(line.strip()), self._loop)
+            # Input closed (piped text ran out): let the last reply finish, then exit cleanly.
+            asyncio.run_coroutine_threadsafe(self._exit_after_input(), self._loop)
 
         threading.Thread(target=reader, name="stdin", daemon=True).start()
+
+    async def _exit_after_input(self, grace_s: float = 8.0) -> None:
+        await asyncio.sleep(grace_s)
+        self._input_closed = True
+        print("(input ended)", flush=True)
+        if self._main_task is not None:
+            self._main_task.cancel()
 
     async def _on_typed(self, text: str) -> None:
         if not await self.dispatcher.on_user_input(text, "text"):

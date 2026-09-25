@@ -47,9 +47,14 @@ def run_mic_test(config: dict, seconds: float = 30.0) -> int:
         from core.wakeword import WakeWordDetector
 
         current = float(ww.get("gain", 1.0))
-        detectors = {g: WakeWordDetector(ww["model"], ww["threshold"], g) for g in gains_to_try(current)}
+        from actions import Services
+
+        detectors = {g: WakeWordDetector.from_config(ww, Services().data_dir, gain=g) for g in gains_to_try(current)}
+        threshold = next(iter(detectors.values())).threshold
+        if next(iter(detectors.values())).personal:
+            print("Using your personal voice model (from --train-wake).")
         print(f'Say "hey jarvis" about 5 times in your NORMAL voice, a few seconds apart. {seconds:.0f} seconds...')
-        print(f"Scores are shown at each gain; {ww['threshold']} or more wakes JARVIS.\n")
+        print(f"Scores are shown at each gain; {threshold} or more wakes JARVIS.\n")
     else:
         print(f"Speak normally. {seconds:.0f} seconds...\n")
 
@@ -74,7 +79,7 @@ def run_mic_test(config: dict, seconds: float = 30.0) -> int:
                 peak = max(window)
                 loudest = max(loudest, peak)
                 bar = "#" * min(30, peak * 30 // 8000)
-                cols = "  ".join(f"x{g:g} {window_score[g]:.2f}" + ("*" if window_score[g] >= ww["threshold"] else " ")
+                cols = "  ".join(f"x{g:g} {window_score[g]:.2f}" + ("*" if window_score[g] >= threshold else " ")
                                  for g in detectors)
                 print(f"  level {peak:>5} |{bar:<30}| {cols}", flush=True)
                 window, window_score, last_print = [], dict.fromkeys(detectors, 0.0), time.monotonic()
