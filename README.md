@@ -1,162 +1,422 @@
 # JARVIS
 
-A personal voice assistant for Windows, built on the Gemini Live API. The full README comes in Phase 10.
+A personal voice assistant for Windows, built on the Gemini Live API. You talk to it naturally
+(or say "hey jarvis"), and it can:
 
-## Setup
+- answer questions and **research** them on the web, and save notes
+- **open and close apps**, open websites, change the volume, control media
+- **play a specific song** in your YouTube Music app, or a video on YouTube
+- do **simple tasks on websites** in its own Chrome profile
+- **look at your screen** when you ask, and act on **text you copied** (summarise, translate, fix)
+- carry out **multi-step plans** you approve once
+- **remember** what you ask it to, and set **reminders** that survive a restart
 
-1. Python 3.12 and [uv](https://docs.astral.sh/uv/).
-2. `copy .env.example .env` and add your `GOOGLE_API_KEY` (free from Google AI Studio).
-3. `uv sync` (add `--extra wakeword` if you want "hey jarvis").
-4. `uv run pytest`
-5. `uv run main.py` to talk, or `uv run main.py --text` to type.
+Every action that changes something is confirmed by **your own voice or hotkey**. Content from the
+web, the screen or the clipboard can never trigger an action by itself, and every tool call is logged.
 
-## Listening modes (`listening.mode` in config.yaml)
+## Contents
 
-| Mode | How it works |
+- [How it works](#how-it-works)
+- [Setup on Windows](#setup-on-windows)
+- [Getting free API keys](#getting-free-api-keys)
+- [Using JARVIS](#using-jarvis)
+- [Safety model](#safety-model)
+- [Wake word setup](#wake-word-setup)
+- [What each capability does](#what-each-capability-does)
+- [Adding an action module](#adding-an-action-module)
+- [Configuration](#configuration)
+- [Troubleshooting](#troubleshooting)
+- [Project layout](#project-layout)
+
+## How it works
+
+```mermaid
+flowchart LR
+    Mic[Microphone] --> Wake{Wake word<br/>offline}
+    Wake -->|"hey jarvis"| Gate[Mic gate<br/>echo + mute]
+    Gate -->|16 kHz PCM| Live[Gemini Live<br/>voice session]
+    Live -->|24 kHz audio| Speaker[Headphones / speakers]
+    Live -->|function call| Disp[Dispatcher<br/>tiers · taint · audit]
+    Keys[Hotkeys<br/>confirm / cancel / stop] --> Disp
+    Disp -->|SAFE| Tools
+    Disp -->|CONFIRM| Confirm[Code-written summary<br/>read aloud, wait for YOUR yes]
+    Confirm --> Tools
+    Tools[actions/*<br/>system · web · browser · media<br/>app_ui · screen · clipboard<br/>memory · reminders · agent mode] --> Disp
+    Tools -.heavy text / planning / vision.-> Flash[Gemini Flash<br/>text model]
+    Tools -.untrusted output wrapped.-> Disp
+    Disp --> Log[(logs/actions.jsonl)]
+    Disp -->|result / system notice| Live
+```
+
+- **Gemini Live** handles the conversation and decides which tool to call. It hears 16 kHz audio,
+  speaks 24 kHz audio, transcribes both sides, and resumes the session after network drops.
+- The **dispatcher** (`core/dispatcher.py`) sits between the model and every tool. It enforces
+  the safety tiers in code, holds at most one pending confirmation, and logs every call.
+- **Action modules** in `actions/` each register their own tools. Heavy one-shot work (summarising
+  pages, planning, screen vision) goes to a cheaper Gemini **Flash** text call, with fallbacks.
+- The **wake word** runs offline (openWakeWord). No audio leaves your PC until it hears "hey jarvis".
+
+## Setup on Windows
+
+You need Windows 10/11, **Google Chrome** installed, and about 2 GB of disk space.
+
+1. **Install uv** (the Python package manager). It also installs Python 3.12 for you.
+   ```bash
+   pip install --user uv
+   ```
+   If you don't have Python at all, use the installer from https://docs.astral.sh/uv/ instead.
+2. **Get the code** and open a terminal in the `jarvis` folder.
+3. **Install the dependencies** (with the wake word):
+   ```bash
+   python -m uv sync --extra wakeword
+   ```
+4. **Add your key.** Copy `.env.example` to `.env` and put your Gemini key after `GOOGLE_API_KEY=`
+   (see [Getting free API keys](#getting-free-api-keys)). Never share `.env`; it's git-ignored.
+5. **Check everything works:**
+   ```bash
+   python -m uv run pytest
+   ```
+6. **Test your microphone** and the wake word:
+   ```bash
+   .\run.bat --mic-test
+   ```
+7. **Optional: sign JARVIS's browser into your YouTube Premium account** (no ads, your
+   recommendations). This opens JARVIS's own Chrome profile, never your everyday one:
+   ```bash
+   .\run.bat --browser-login
+   ```
+   Sign in, pick **your own** YouTube profile, choose **No thanks** to sync and password saving, then
+   close the window.
+8. **Start JARVIS:**
+   ```bash
+   .\run.bat
+   ```
+   Use `.\run.bat --text` to type instead of speaking, or `.\run.bat --dry-run` to log actions
+   without doing them.
+
+`run.bat` uses the project's `.venv` directly, so it works even if `uv` isn't on your PATH.
+
+## Getting free API keys
+
+| Key | Needed? | Where | What for |
+|---|---|---|---|
+| `GOOGLE_API_KEY` | **Yes** | https://aistudio.google.com/apikey (sign in, **Create API key**) | Gemini Live voice and Flash text |
+| `TAVILY_API_KEY` | Optional | https://tavily.com (free plan) | Better web search. Without it, DuckDuckGo is used |
+| `OPENROUTER_API_KEY` | Optional | https://openrouter.ai/keys | A fallback text model when Gemini is busy. Also set `models.openrouter` |
+
+Free-tier limits are set per account and change often. Check yours at
+https://aistudio.google.com/rate-limit. If a Flash model's daily quota runs out, JARVIS skips it for
+an hour and uses the next model in `models.flash_fallbacks`.
+
+## Using JARVIS
+
+| You say | What happens |
 |---|---|
-| `always_on` | Mic streams all the time; Gemini detects when you speak. Interrupt it just by talking. |
-| `push_to_talk` | Hold `ctrl+alt+space` while speaking. Pressing it while JARVIS talks interrupts it. |
-| `wake_word` | Say "hey jarvis" (detected offline). Needs `features.wake_word: true` and `uv sync --extra wakeword`. Goes back to sleep after 15 s of quiet. |
+| "Hey Jarvis" | Wakes up (a soft beep). It goes back to sleep after 15 s of quiet, or "go to sleep" |
+| "What's the weather in Hyderabad?" | Answers straight away |
+| "Research the best budget headphones" | Searches, reads up to 3 pages, answers, offers to save notes |
+| "Open Notepad" / "Close Notepad" | Opens straight away / asks first, then closes |
+| "Play Believer by Imagine Dragons" | Plays it in your YouTube Music app |
+| "Pause" / "Next" / "What's playing?" | Controls YouTube Music |
+| "What's on my screen?" | Looks once, with private windows blacked out |
+| "Translate what I copied into Telugu" | Reads the clipboard and translates it aloud |
+| "Research X, open its official page and tell me the price" | Reads you a plan and waits for one "yes" |
+| "Remember that my car is on level 3" | Saves it to memory |
+| "Remind me in 20 minutes to call Mom" | Says it aloud and shows a notification when it's due |
 
-Hotkeys: `ctrl+alt+m` mute/unmute, `ctrl+alt+s` stop it talking. Change them under `hotkeys:`.
+When JARVIS asks "Should I go ahead?", answer **yes / yeah / sure / okay / confirm / go ahead**, or
+press **Ctrl+Alt+Y**. Anything else, **Ctrl+Alt+N**, or 20 seconds of silence cancels it.
 
-## Why headphones
+| Hotkey | Does |
+|---|---|
+| Ctrl+Alt+M | Mute / unmute the mic |
+| Ctrl+Alt+Space | Push-to-talk (in `push_to_talk` mode), or talk without the wake word |
+| Ctrl+Alt+S | Stop JARVIS talking |
+| Ctrl+Alt+Y / Ctrl+Alt+N | Confirm / cancel the pending action |
 
-With speakers, the mic hears JARVIS's own voice. In `always_on` mode that sounds like you
-interrupting, so it cuts itself off. Headphones fix it. Without them, use `push_to_talk`
-or set `audio.mute_mic_while_speaking: true` (you then can't interrupt by voice).
+**Listening modes** (`listening.mode`): `wake_word` (default: say "hey jarvis"), `always_on` (the
+mic always streams to Gemini), or `push_to_talk` (hold Ctrl+Alt+Space).
 
-## Safety model (Phase 2)
+## Safety model
 
-Every tool declares a tier; `core/dispatcher.py` enforces it, not the prompt.
+The rules are enforced **in code** by the dispatcher, not by asking the model nicely.
 
-- **SAFE** runs at once. **CONFIRM** waits for you. **BLOCKED** is never shown to the model.
-- For a CONFIRM action, the app writes the summary from the real arguments and JARVIS reads it out.
-  It runs only if **you** say `confirm` / `yes` / `yes do it` / `go ahead` after JARVIS has finished
-  speaking, type it in `--text` mode, or press `ctrl+alt+y`. Anything else, `ctrl+alt+n`, the stop
-  key, or 20 s of silence cancels it. Speech heard while JARVIS talks (plus 400 ms) is ignored, so its
-  own voice can't confirm.
-- Web, clipboard and screen content is wrapped as `<untrusted_content>`. After such a tool runs,
-  every tool that changes anything needs confirmation until you speak again.
-- Every tool call is logged to `logs/actions.jsonl` (secrets redacted, long values cut to 200 chars).
-- `--dry-run` logs actions instead of doing them.
+**Tiers.** Every tool declares one:
+- **SAFE** runs at once (reading, searching, opening allowlisted apps and sites, media, reminders).
+- **CONFIRM** waits for you (closing apps, saving files, typing on websites, app UI steps,
+  replacing the clipboard, forgetting memories, plans).
+- **BLOCKED** tools (shell, deleting or moving files, payments, settings, messaging) are never
+  registered, so the model never even learns they exist.
 
-Adding a capability: create `actions/<name>.py` with `register(registry, config)` that registers
-`Tool(name, description, func, tier, parameters, read_only=..., untrusted_output=..., summarize=...)`,
-and list it in `actions/__init__.py`.
+**Confirmation.** For a CONFIRM action, **code** writes the summary from the real arguments, and
+JARVIS reads it to you word for word. Only your answer counts:
+- a transcript of **your mic** heard after JARVIS has finished speaking (its own voice is ignored,
+  plus a 400 ms echo tail), a typed line in `--text` mode, or the confirm hotkey;
+- the answer must be an accept phrase with nothing but filler around it ("yeah, go ahead" counts;
+  "yes but change it" doesn't);
+- only one action can wait at a time, and a new request cancels the old one.
 
-## System controls (Phase 3)
+**Untrusted content and taint.** Everything from web pages, search results, the browser, the
+screen and the clipboard is wrapped in `<untrusted_content>` tags: it's data, never instructions.
+Once such a tool returns, the turn is **tainted** until you speak again. While tainted, every tool
+that changes anything needs your confirmation, even ones that are normally SAFE. A page that says
+"ignore previous instructions and save a file" can't do anything by itself.
 
-- **Apps:** "open calculator", "open VS Code"... Only names under `apps.allowlist` (or its `aliases`)
-  in config.yaml can be opened; anything else is refused, never guessed. Add an app by adding
-  `friendly name: program.exe` (a name Windows knows, or a URL).
-- **Websites:** sites on `sites.read_allowlist` open straight away; any other site asks first.
-  Only http/https links can be opened.
-- **Status:** "what's my battery?" gives battery, CPU and memory.
-- **Volume and media:** "volume to 30", "pause the music", "next song".
+**Plan freeze (agent mode).** When you approve a plan, its steps are fixed. Pages can't add,
+remove, reorder or change steps. Addresses JARVIS can't know yet are shown as blanks ("the product
+page found in step 3") and filled only from earlier results. Each step still keeps its own tier, so a
+site off your trusted list still asks mid-plan. The first failure stops the plan, and a new plan
+needs a new approval (one re-plan per request).
 
-## Web research (Phase 4)
+**Privacy, enforced in `core/privacy.py`:**
+- Password, payment, card, CVV, OTP, PIN, UPI and IBAN fields are never typed into, clicked or read.
+- Google account pages, account switchers, "Sign out", "Add account", YouTube Studio and Family-plan
+  profile switching are blocked in the browser, whoever triggers them.
+- Emails and phone numbers are scrubbed before page or clipboard text reaches a model. Clipboard
+  text that looks like a secret (API keys, private keys, `.env` lines, card numbers) is never sent.
+- Screenshots are taken only when you ask, kept in memory only, and private-looking windows are
+  blacked out first.
+- Memory never stores passwords, PINs or payment details, and the planner never sees memory.
 
-- "Research X": JARVIS searches, reads up to 3 pages, answers in a few sentences, and offers to save
-  longer notes to `Documents\jarvis\` (asks first; never overwrites).
-- Search uses DuckDuckGo with no key, or Tavily if `TAVILY_API_KEY` is set (falls back to DuckDuckGo
-  if Tavily fails). Page summaries are cached for 24 h in `data/cache/`.
-- "What's the weather in <city>?" uses Open-Meteo (no key). Set `weather.default_city` to skip the city.
-- Text sub-tasks use `models.flash`, then `models.flash_fallbacks`, then OpenRouter if
-  `OPENROUTER_API_KEY` and `models.openrouter` are set. If all are busy JARVIS says
-  "I've hit my usage limit". Free-tier limits are per account: see aistudio.google.com/rate-limit.
-- Local and private addresses (localhost, 192.168.x.x) are never fetched.
+**Audit log.** Every call goes to `logs/actions.jsonl`: tool, arguments, tier, effective tier,
+taint, confirmation outcome, result and time. Secrets are redacted and long values cut to 200 chars.
 
-## Browser control (Phase 5)
+## Wake word setup
 
-JARVIS drives your installed Google Chrome with **its own profile** (`data/browser_profile`), never
-your everyday Chrome profile.
+The wake word runs offline with openWakeWord's `hey_jarvis` model (`uv sync --extra wakeword`,
+`listening.mode: wake_word`).
 
-**One-time sign-in (for YouTube Premium):** run `run.bat --browser-login`, sign in with your own
-Google account, pick your own YouTube profile, choose **No thanks** to sync and to saving passwords,
-then close that window. Close it before starting JARVIS: one profile can't be open twice.
+1. **Check it hears you:** `.\run.bat --mic-test`. Say "hey jarvis" about 5 times at your normal
+   volume. It shows your mic level and the score at several boost levels (`wake_word.gain`), and
+   suggests a value. Use `--mic "Nord Buds"` to test a different microphone.
+2. **If it only wakes when you shout**, the stock model probably doesn't match your accent well.
+   Teach it your voice (about 2 minutes):
+   ```bash
+   .\run.bat --train-wake
+   ```
+   You say "hey jarvis" 8 times, then talk normally for 40 seconds. It trains a small personal
+   *verifier* (`data/wake/hey_jarvis_verifier.pkl`): the stock model proposes, your verifier decides.
+   Recordings stay in `data/wake/` and are never uploaded. Run `--mic-test` again to compare. To go
+   back, delete that file or set `wake_word.personal_verifier: false`.
+3. While JARVIS is asleep, a line like `(heard something like "hey jarvis", score 0.18...)` means it
+   heard you but wasn't sure. No line at all means the mic isn't picking you up.
 
-Tools: `play_youtube` (search and play the Nth video, no confirmation), `site_search`,
-`browser_open`, `read_current_page`, and `browser_task` for short multi-step jobs.
+Settings: `threshold` (stock model, lower = wakes more easily), `verifier_threshold` (with your
+personal verifier), `gain`, `chime_volume` (the wake beep, 0 = silent), `active_window_s`.
 
-Privacy rules, enforced in code (`core/privacy.py`):
-- Password, payment, card, CVV, OTP, PIN, UPI and IBAN fields are never typed into, clicked or read;
-  the planner model never even sees them. Chrome's password saving and card/address autofill are off
-  in this profile.
-- Account pages can't be opened: Google account, account chooser, Families, Pay, Gmail, Drive,
-  Photos, Passwords, YouTube Studio, YouTube account settings, channel switcher, memberships.
-  Navigation to them is aborted inside the browser, whoever triggers it.
-- "Switch account", "Add account", "Sign out", "Manage your Google Account" and similar controls
-  are never clicked, so other Family-plan members' profiles stay out of reach.
-- Emails and phone numbers are scrubbed from page text before any model sees it; form values are
-  never read.
-- In `browser_task`: links and play buttons on the same site run straight away; typing (only on
+## What each capability does
+
+Each module can be switched off under `features:` in `config.yaml`.
+
+**System** (`actions/system.py`)
+- Opens only apps under `apps.allowlist` (and `aliases`); anything else is refused, never guessed.
+- Closes apps with confirmation, like clicking X (apps may ask to save; say "don't save" to discard).
+- Brings a window to the front; battery, CPU and memory status; volume and media keys.
+
+**Web research** (`actions/web.py`)
+- Uses Tavily or DuckDuckGo, and reads up to 3 pages per question. Summaries are cached for 24 hours.
+- A site that refuses plain downloads is retried once in a throwaway headless Chrome.
+- Notes are saved to `Documents\jarvis\` after confirmation, and never overwrite an existing file.
+- Weather comes from Open-Meteo. Local and private network addresses are never fetched.
+
+**Browser** (`actions/browser.py`)
+- Uses your installed Chrome with JARVIS's own profile (`data/browser_profile`), opened maximised.
+- Tools: `browser_open`, `site_search`, `read_current_page`, `play_youtube`, `browser_close`, and
+  `browser_task` for short jobs of at most 10 steps.
+- In `browser_task`, links and play buttons on the same site run straight away. Typing (only on
   `sites.action_allowlist`), other clicks and leaving the site ask first.
 
-## Music and app control (Phase 6)
+**Music** (`actions/media.py`)
+- Finds the song with ytmusicapi (originals over covers) and plays it in your installed YouTube
+  Music app, closing the previous song's window first.
+- Pause, next and "what's playing" use Windows' media session.
 
-- **"Play Believer by Imagine Dragons"**: JARVIS finds the song on YouTube Music (ytmusicapi, no login),
-  picks the best title/artist match (originals over covers and remixes unless you ask), and opens it
-  in your installed **YouTube Music app** (found automatically from its Start-menu shortcut). The
-  previous app window is closed first so two songs never play at once. Playback is confirmed through
-  Windows' media sessions. Without the app, songs play in JARVIS's browser instead.
-- **"Pause" / "next" / "previous" / "what's playing?"** control the YouTube Music session directly
-  (so "pause" really pauses, instead of toggling), falling back to the media keys.
-- **"Close Notepad"**: `close_app` asks first, then closes like clicking X (apps can ask to save).
-- **app_ui_action** (rung 4, UI Automation) for apps with no other tool: JARVIS plans the exact steps,
-  reads them to you, and runs them only after you confirm. It never reads text inside apps, never
-  touches password boxes, account, settings or destructive controls, and won't type into a document
-  that looks like it holds secrets (`.env`, keys, passwords...) unless the plan opens a new tab first.
+**App UI** (`actions/app_ui.py`)
+- For apps with no other tool: JARVIS plans the exact UI Automation steps, reads them to you, and
+  runs them only after you confirm.
+- It never reads text inside apps, never touches password, account, settings or destructive
+  controls, and never presses Ctrl+S.
 
-## Screen and clipboard (Phase 7)
+**Screen and clipboard** (`actions/screen.py`, `actions/clipboard.py`)
+- The screen is captured once per request, with private windows blacked out.
+- Copied text can be summarised, explained or translated. "Fix what I copied" shows a preview and
+  replaces the clipboard only after you confirm, and not if you've copied something else since.
 
-- **"What's on my screen?"**: one frame, only when you ask, shrunk and sent to Flash. It is never
-  saved or logged. Windows that look private (`.env`, keys, passwords, banking, password managers)
-  are **blacked out** before the image leaves your PC, and JARVIS tells you when it hid something.
-  "What window is in front?" reads the title (hidden if it looks private).
-- **Copied text**: "summarise / explain / translate what I copied into Hindi". Emails and phone
-  numbers are replaced with placeholders before the model sees the text, then put back.
-  **"Fix what I copied"** writes the corrected text, reads you a preview, and only replaces your
-  clipboard after you confirm (and not if you've copied something else meanwhile).
-- If the clipboard looks like it holds a secret (API keys, private keys, `KEY=value` lines, card
-  numbers, long random tokens), JARVIS refuses to send it anywhere.
+**Agent mode** (`actions/agent_mode.py`)
+- `run_plan`: a Flash planner drafts steps from the real tool list, and code validates every step.
+  The plan is read to you once and then frozen (see [Safety model](#safety-model)).
 
-## Agent mode (Phase 8)
+**Memory** (`actions/memory.py`, `data/memory.json`)
+- Stores only what you explicitly ask, up to 100 facts, with duplicates merged.
+- If your words didn't ask it to remember, or the turn is tainted, it asks first. Forgetting always
+  asks, and names the exact fact.
+- Facts are added to JARVIS's instructions at each start. A fact like "call me Krishna" sets the name
+  it uses.
 
-For goals that need several tools in a row ("research three budget headphones, open the best one's
-product page and tell me the price"):
+**Reminders** (`actions/reminders.py`, `data/reminders.sqlite`)
+- "In 20 minutes" or "at 5:30 pm", up to 30 days ahead.
+- When due, JARVIS speaks the reminder (waking up if asleep) and shows a Windows notification.
+- Reminders survive restarts. One that came due while JARVIS was closed is delivered at the next
+  start and flagged as late. Cancelling asks first.
 
-1. JARVIS drafts a plan (max 10 steps) using only its real, allowed tools; code checks every step.
-   Web addresses it can't know yet must be **blanks** ("the product page found in step 3"); a guessed
-   address is rejected.
-2. It reads the numbered plan to you and waits for **one approval**.
-3. The approved plan is **frozen**: pages, the screen or the clipboard can't add, remove, reorder or
-   change steps. Blanks are filled from earlier results (values only), and if a filled value fails
-   (e.g. a site that blocks readers) it may pick another value up to twice, for the same step.
-4. Every step keeps its own safety rules: a site off your trusted list, saving a file, or typing
-   still asks you mid-plan.
-5. The first failure stops the plan and JARVIS asks what to do. A new plan needs a new approval
-   (one re-plan per request).
+**Morning briefing** (`core/briefing.py`, off by default)
+- Set `features.morning_briefing: true` for a spoken summary of under 45 seconds on your first
+  launch each day.
+- Covers the date, weather (needs `weather.default_city`), three headlines (`briefing.news_query`)
+  and today's reminders.
 
-Sites that refuse plain downloads (403) are retried once in a throwaway headless Chrome with no
-profile; some sites block all automated readers, and JARVIS says so.
+## Adding an action module
 
-## Memory, reminders and briefing (Phase 9)
+A capability is one file in `actions/`. Tools must never crash the session: always return a short,
+speakable string, and `raise ToolError("...")` when the message itself is what the user should hear.
 
-- **Memory** (`data/memory.json`, max 100 facts): "remember that…", "what do you remember about…",
-  "forget…". JARVIS stores only what you explicitly ask. If your words didn't ask it to remember, or
-  it has just read a page, the screen or the clipboard, it asks you first. Forgetting always asks and
-  names the exact fact. Passwords, PINs and payment details are refused. Remembered facts are added to
-  JARVIS's instructions at each start; "call me Krishna" style facts set the name it uses. The Flash
-  planner and browser never see memory.
-- **Reminders** (`data/reminders.sqlite`): "remind me in 20 minutes to…" or "at 5:30 pm…". When due,
-  JARVIS says it aloud (waking up if asleep) and shows a Windows notification. They survive a
-  restart; one that came due while JARVIS was closed is delivered at the next start and flagged as
-  late. "What reminders do I have?" and "cancel the dentist reminder" (asks first). A reminder's
-  text is only read out: it can't trigger an action without your confirmation.
-- **Morning briefing** (off by default: `features.morning_briefing: true`): on the first launch of
-  the day, a spoken summary under 45 seconds of the date, weather (needs `weather.default_city`),
-  three headlines (`briefing.news_query`) and today's reminders.
+```python
+# actions/notes.py
+from core.registry import Registry, Tier, Tool, ToolError
 
-Wake word: `--mic-test` scores your voice at several gains (`wake_word.gain`) and suggests one;
-`--mic "Nord Buds"` tests or uses another microphone. `wake_word.chime_volume` sets the wake beep.
+
+def register(registry: Registry, config: dict, services) -> None:
+    def read_notes() -> str:
+        """Read my notes file. Rung 2 (local file). Tier SAFE, read-only."""
+        ...
+
+    def add_note(text: str) -> str:
+        """Append a note. Rung 2 (local file). Tier CONFIRM."""
+        if not text.strip():
+            raise ToolError("What should the note say?")
+        ...
+        return "Added the note."
+
+    registry.register(Tool(
+        name="read_notes",
+        description="Read the user's notes file.",  # the model reads this: say when to use it
+        func=read_notes,
+        tier=Tier.SAFE,
+        read_only=True,          # changes nothing, so taint never escalates it
+        untrusted_output=False,  # True if the output contains outside content (web, files others wrote)
+    ))
+    registry.register(Tool(
+        name="add_note",
+        description="Add a note for the user.",
+        func=add_note,
+        tier=Tier.CONFIRM,       # or a function of the args, e.g. SAFE for allowlisted sites
+        summarize=lambda a: f'Add a note saying: "{a.get("text", "")[:200]}"',  # read aloud before confirming
+        parameters={"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
+    ))
+```
+
+Then add `"actions.notes": "notes"` to `MODULES` in `actions/__init__.py`, add `notes: true` under
+`features:` in `config.yaml`, and add tests in `tests/`. The key choices:
+
+- **`tier`**: SAFE only if it can't cause harm or cost. Anything that writes, sends, types or closes
+  is CONFIRM. Never register anything that should be BLOCKED.
+- **`untrusted_output=True`** for anything returning outside content. The dispatcher then wraps
+  the output and taints the turn.
+- **`read_only=True`** only if it changes nothing at all.
+- **`summarize`** writes the confirmation text from the real arguments. Without it, a generic
+  summary is used.
+- **`self_gated=True`** only for multi-step tools that apply their own per-step tiers and return
+  `NeedsConfirmation` (like `browser_task`).
+
+Blocking work runs in a thread automatically. Use `async def` for async tools.
+
+## Configuration
+
+`config.yaml` is commented throughout. The parts you're most likely to change:
+
+| Setting | What it does |
+|---|---|
+| `user.name` | What JARVIS calls you (a remembered "call me…" overrides it) |
+| `voice.name` | Gemini voice (e.g. Charon, Puck, Kore) |
+| `listening.mode` | `wake_word`, `always_on` or `push_to_talk` |
+| `wake_word.*` | Thresholds, gain, beep volume, personal verifier |
+| `audio.input_device` | `null` = Windows default, or part of a device name |
+| `audio.echo_mode` | `auto`, `headphones` or `speakers` (see Troubleshooting) |
+| `confirm.accept_phrases`, `confirm.timeout_s` | What counts as "yes", and how long it waits |
+| `apps.allowlist`, `apps.aliases` | Apps JARVIS may open |
+| `sites.read_allowlist` / `sites.action_allowlist` | Sites opened without asking / where it may type |
+| `weather.default_city` | City for weather and the briefing |
+| `models.*` | Live and Flash models, fallbacks, thinking levels |
+| `limits.*` | Request limits, research and agent caps |
+| `features.*` | Switch whole modules on or off |
+
+Command-line options: `--text`, `--dry-run`, `--mic-test`, `--mic NAME`, `--train-wake`,
+`--browser-login`.
+
+## Troubleshooting
+
+**JARVIS doesn't hear me at all**
+- Run `.\run.bat --mic-test`. If the level stays near 0:
+  - Windows **Settings > Privacy & security > Microphone**: turn on *Microphone access* and
+    *Let desktop apps access your microphone*.
+  - Check the mic isn't muted (a keyboard mic key, or Settings > System > Sound > Input).
+  - Pick the right mic: `--mic "part of its name"` to test, then set `audio.input_device`.
+- If the level is fine but it won't wake, see [Wake word setup](#wake-word-setup).
+
+**JARVIS interrupts itself, or answers its own voice (echo)**
+- With speakers, the mic hears JARVIS. With `audio.echo_mode: auto`, JARVIS guesses from the output
+  device's name. On speakers it stops listening while it talks, and you interrupt it with Ctrl+Alt+S.
+  With headphones you can interrupt just by talking.
+- If it guesses wrong, set `echo_mode` to `headphones` or `speakers` yourself.
+- Bluetooth earbuds: using their mic switches them to call-quality sound, so the laptop mic is
+  usually the better choice.
+- JARVIS follows the Windows default output. If sound goes silent after unplugging a device, wait a
+  couple of seconds for it to switch.
+
+**"I've hit my usage limit"**
+- The free Flash quota is small (e.g. 20 requests a day for some models).
+- JARVIS falls back through `models.flash_fallbacks`, then OpenRouter if configured.
+- Check your limits at https://aistudio.google.com/rate-limit. Research and planning use the most
+  Flash calls.
+
+**The session keeps dropping / reconnecting**
+- JARVIS reconnects on its own using session resumption, and handles Google's "going away" notices.
+- After 3 failures in 5 minutes it tells you and backs off. Check your internet connection and
+  `logs/app.log`.
+- A bad resume handle is dropped after 2 failures, and a fresh session starts.
+
+**"The JARVIS browser profile is open in another Chrome window"**
+- Only one Chrome can use `data/browser_profile` at a time. Close the `--browser-login` window, or
+  any Chrome JARVIS left open, then try again.
+- If no window is visible, end the leftover `chrome.exe` processes in Task Manager.
+
+**A website says "blocked" / can't be read**
+- Some sites block automated readers. JARVIS says so and tries another source.
+- Account, payment and password pages are blocked on purpose.
+
+**A song doesn't play in the YouTube Music app**
+- JARVIS finds the app from its Start-menu shortcut. If you reinstalled it, restart JARVIS.
+- Without the app, it plays in JARVIS's browser instead.
+
+**Logs**
+- `logs/app.log`: everything that happened, including the conversation and errors.
+- `logs/actions.jsonl`: the audit log of every tool call.
+
+## Project layout
+
+```
+jarvis/
+├── main.py              # entry point and command-line options
+├── run.bat              # starts JARVIS with the project's .venv
+├── config.yaml          # all settings (commented)
+├── .env.example         # copy to .env and add your keys
+├── core/
+│   ├── runtime.py       # the assistant: audio, wake word, session, hotkeys, reminders
+│   ├── session.py       # Gemini Live connection, resumption, reconnects
+│   ├── dispatcher.py    # tiers, taint, confirmation, audit log
+│   ├── confirm.py       # accept phrases, echo-safe utterances, timeouts
+│   ├── registry.py      # Tool, Tier, ToolError, NeedsConfirmation
+│   ├── privacy.py       # blocked sites/controls, sensitive fields, secret detection, redaction
+│   ├── untrusted.py     # <untrusted_content> wrapping
+│   ├── llm.py           # Flash text calls with fallbacks and quota handling
+│   ├── audio.py, hotkeys.py, wakeword.py, mictest.py, wake_training.py
+│   ├── prompts.py       # system instruction
+│   └── briefing.py      # morning briefing
+├── actions/             # one module per capability (see "What each capability does")
+├── tests/               # offline tests; tests/fakes/fake_live.py simulates the Live session
+├── data/                # git-ignored: memory, reminders, browser profile, caches, wake clips
+└── logs/                # git-ignored
+```
+
+Run the tests with `python -m uv run pytest`. The browser tests use your installed Chrome in
+headless mode against local fixture pages.
