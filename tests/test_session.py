@@ -145,3 +145,15 @@ async def test_bad_resumption_handle_is_dropped_after_two_failures() -> None:
     await run_briefly(make_session(client, policy=policy), 0.2)
     handles = [c["config"].session_resumption.handle for c in client.connects]
     assert handles[:3] == [None, "h1", "h1"] and handles[3] is None
+
+
+async def test_a_failing_event_handler_does_not_drop_the_connection() -> None:
+    class Grumpy(fl.RecordingEvents):
+        def on_output_transcript(self, text: str) -> None:
+            raise UnicodeEncodeError("charmap", text, 0, 1, "can't print")
+
+    events = Grumpy()
+    client = fl.FakeClient([[fl.output_transcript("नमस्ते"), fl.audio(b"\x01\x00"), fl.turn_complete()]])
+    await run_briefly(make_session(client, events))
+    assert len(client.connects) == 1  # no reconnect
+    assert [c[0] for c in events.calls] == ["audio", "turn_complete"]

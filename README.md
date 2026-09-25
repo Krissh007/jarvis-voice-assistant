@@ -107,3 +107,16 @@ Privacy rules, enforced in code (`core/privacy.py`):
   reads them to you, and runs them only after you confirm. It never reads text inside apps, never
   touches password boxes, account, settings or destructive controls, and won't type into a document
   that looks like it holds secrets (`.env`, keys, passwords...) unless the plan opens a new tab first.
+
+## Screen and clipboard (Phase 7)
+
+- **"What's on my screen?"**: one frame, only when you ask, shrunk and sent to Flash. It is never
+  saved or logged. Windows that look private (`.env`, keys, passwords, banking, password managers)
+  are **blacked out** before the image leaves your PC, and JARVIS tells you when it hid something.
+  "What window is in front?" reads the title (hidden if it looks private).
+- **Copied text**: "summarise / explain / translate what I copied into Hindi". Emails and phone
+  numbers are replaced with placeholders before the model sees the text, then put back.
+  **"Fix what I copied"** writes the corrected text, reads you a preview, and only replaces your
+  clipboard after you confirm (and not if you've copied something else meanwhile).
+- If the clipboard looks like it holds a secret (API keys, private keys, `KEY=value` lines, card
+  numbers, long random tokens), JARVIS refuses to send it anywhere.

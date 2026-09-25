@@ -204,6 +204,14 @@ class LiveSession:
             if not got_any:
                 raise ConnectionError("live connection closed by server")
 
+    @staticmethod
+    def _emit(callback, *args) -> None:
+        """A bug in a handler (e.g. printing a transcript) must never drop the Live connection."""
+        try:
+            callback(*args)
+        except Exception:
+            log.exception("event handler %s failed", getattr(callback, "__name__", callback))
+
     def _handle_message(self, msg: types.LiveServerMessage) -> bool:
         """Dispatch one server message. Returns True when the connection should be recycled."""
         update = msg.session_resumption_update
@@ -220,7 +228,7 @@ class LiveSession:
                 self._tool_tasks.add(task)
                 task.add_done_callback(self._tool_tasks.discard)
         if msg.tool_call_cancellation and msg.tool_call_cancellation.ids:
-            self._events.on_tool_cancellation(list(msg.tool_call_cancellation.ids))
+            self._emit(self._events.on_tool_cancellation, list(msg.tool_call_cancellation.ids))
 
         content = msg.server_content
         if content is None:
@@ -228,17 +236,17 @@ class LiveSession:
         self._consecutive_failures = 0  # the connection is healthy
         # The user's words first, so they are judged before the model's reply starts playing.
         if content.input_transcription and content.input_transcription.text:
-            self._events.on_input_transcript(content.input_transcription.text)
+            self._emit(self._events.on_input_transcript, content.input_transcription.text)
         if content.interrupted:
-            self._events.on_interrupted()
+            self._emit(self._events.on_interrupted)
         if content.model_turn and content.model_turn.parts:
             for part in content.model_turn.parts:
                 if part.inline_data and part.inline_data.data:
-                    self._events.on_audio(part.inline_data.data)
+                    self._emit(self._events.on_audio, part.inline_data.data)
         if content.output_transcription and content.output_transcription.text:
-            self._events.on_output_transcript(content.output_transcription.text)
+            self._emit(self._events.on_output_transcript, content.output_transcription.text)
         if content.turn_complete:
-            self._events.on_turn_complete()
+            self._emit(self._events.on_turn_complete)
         return False
 
     async def _answer_tool_call(self, call: types.FunctionCall) -> None:

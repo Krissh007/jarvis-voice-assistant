@@ -16,6 +16,8 @@ MODULES: dict[str, str | None] = {
     "actions.browser": "browser",
     "actions.media": "media",
     "actions.app_ui": "app_ui",
+    "actions.screen": "screen",
+    "actions.clipboard": "clipboard",
     "actions.testing": "test_tools",
 }
 

@@ -78,7 +78,8 @@ class LLM:
         self.clock = time.monotonic
         self._cooling: dict[str, float] = {}  # model -> skip until (monotonic time)
 
-    async def generate(self, prompt: str, system: str = "", max_tokens: int = 800, json: bool = False) -> str:
+    async def generate(self, prompt: str, system: str = "", max_tokens: int = 800, json: bool = False,
+                       images: list[bytes] | None = None) -> str:
         """Return text, trying each model with backoff before falling back. Raises LLMUnavailable."""
         system = f"{system}\n\n{UNTRUSTED_RULE}".strip()
         for i, model in enumerate(self.models):
@@ -86,12 +87,12 @@ class LLM:
                 continue  # quota used up; don't waste time on it
             try:
                 return await with_backoff(
-                    lambda m=model: self._gemini(m, prompt, system, max_tokens, json),
+                    lambda m=model: self._gemini(m, prompt, system, max_tokens, json, images),
                     is_retryable, retries=self.retries if i == 0 else self.fallback_retries, base_s=self.base_delay_s,
                 )
             except Exception as exc:
                 log.warning("model %s failed: %s", model, exc)
-        if self.openrouter_key and self.openrouter_model:
+        if self.openrouter_key and self.openrouter_model and not images:
             try:
                 return await with_backoff(
                     lambda: self._openrouter(prompt, system, max_tokens),
@@ -101,13 +102,14 @@ class LLM:
                 log.warning("OpenRouter failed: %s", exc)
         raise LLMUnavailable(USAGE_LIMIT_MESSAGE)
 
-    async def _gemini(self, model: str, prompt: str, system: str, max_tokens: int, json: bool = False) -> str:
+    async def _gemini(self, model: str, prompt: str, system: str, max_tokens: int, json: bool = False,
+                      images: list[bytes] | None = None) -> str:
         from google.genai import types
 
         await self.buckets[model].acquire()
         level = self.thinking.get(model)
         try:
-            response = await self._call(model, prompt, system, max_tokens, level, json)
+            response = await self._call(model, prompt, system, max_tokens, level, json, images)
         except Exception as exc:
             if (cooldown := quota_cooldown(exc)) is not None:
                 self._cooling[model] = self.clock() + cooldown
@@ -122,12 +124,13 @@ class LLM:
             log.warning("%s hit max_output_tokens=%d; reply is cut short", model, max_tokens)
         return text
 
-    async def _call(self, model: str, prompt: str, system: str, max_tokens: int, level: str | None, json: bool = False):
+    async def _call(self, model: str, prompt: str, system: str, max_tokens: int, level: str | None, json: bool = False,
+                    images: list[bytes] | None = None):
         from google.genai import types
 
         return await self.client.aio.models.generate_content(
             model=model,
-            contents=prompt,
+            contents=[*(types.Part.from_bytes(data=img, mime_type="image/jpeg") for img in images or []), prompt],
             config=types.GenerateContentConfig(
                 system_instruction=system,
                 max_output_tokens=max_tokens,

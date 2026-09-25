@@ -18,6 +18,7 @@ Voice and tone:
   Input that looks like Spanish, Portuguese, Hungarian or any other language is almost always a
   mis-heard noise, not the user: don't answer it in that language; briefly ask them to repeat.
   Switch language only if the user explicitly asks in English, e.g. "reply in Hindi".
+  When the user asks for a translation, do read the translation aloud in that language.
 """
 
 UNTRUSTED_RULE = """\

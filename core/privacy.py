@@ -52,6 +52,72 @@ def redact(text: str) -> str:
     return _PHONE.sub(lambda m: "[number]" if sum(c.isdigit() for c in m.group()) >= 10 else m.group(), text)
 
 
+_SECRET_PATTERNS = [
+    ("a Google API key", re.compile(r"AIza[0-9A-Za-z_-]{30,}")),
+    ("an OpenAI-style key", re.compile(r"\bsk-[A-Za-z0-9_-]{20,}")),
+    ("a Tavily key", re.compile(r"\btvly-[A-Za-z0-9_-]{16,}")),
+    ("a GitHub token", re.compile(r"\b(ghp|gho|ghs|ghu|github_pat)_[A-Za-z0-9_]{20,}")),
+    ("an AWS key", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
+    ("a Slack token", re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}")),
+    ("a private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
+    ("a password or key setting", re.compile(
+        r"^\s*[A-Z0-9_]*(KEY|TOKEN|SECRET|PASSWORD|PASSWD|PWD)[A-Z0-9_]*\s*=\s*\S{6,}", re.MULTILINE)),
+    ("a card number", re.compile(r"\b(?:\d[ -]?){13,19}\b")),
+]
+_TOKEN = re.compile(r"(?<![\w/.-])[A-Za-z0-9_+/=-]{28,}(?![\w/.-])")
+
+
+def secret_in_text(text: str) -> str | None:
+    """What kind of secret the text seems to contain, or None. Used before sending copied text anywhere."""
+    for kind, pattern in _SECRET_PATTERNS:
+        for m in pattern.finditer(text):
+            if kind != "a card number" or _luhn(re.sub(r"\D", "", m.group())):
+                return kind
+    for m in _TOKEN.finditer(text):
+        token = m.group()
+        classes = sum(bool(re.search(p, token)) for p in (r"[a-z]", r"[A-Z]", r"\d"))
+        if classes == 3 and not token.isalpha():
+            return "a long random token"
+    return None
+
+
+def _luhn(digits: str) -> bool:
+    if not 13 <= len(digits) <= 19:
+        return False
+    total = 0
+    for i, ch in enumerate(reversed(digits)):
+        d = int(ch)
+        if i % 2:
+            d = d * 2 - 9 if d > 4 else d * 2
+        total += d
+    return total % 10 == 0
+
+
+def redact_reversible(text: str) -> tuple[str, dict[str, str]]:
+    """Swap emails/phone numbers for placeholders the model can keep in place; restore() puts them back."""
+    mapping: dict[str, str] = {}
+
+    def keep(kind: str):
+        def sub(m: re.Match) -> str:
+            value = m.group()
+            if kind == "PHONE" and sum(c.isdigit() for c in value) < 10:
+                return value
+            token = f"[{kind}{len(mapping) + 1}]"
+            mapping[token] = value
+            return token
+        return sub
+
+    text = _EMAIL.sub(keep("EMAIL"), text)
+    text = _PHONE.sub(keep("PHONE"), text)
+    return text, mapping
+
+
+def restore(text: str, mapping: dict[str, str]) -> str:
+    for token, value in mapping.items():
+        text = text.replace(token, value)
+    return text
+
+
 def is_sensitive_field(el: dict[str, Any]) -> bool:
     """A form field JARVIS must never touch: passwords, payment details, one-time codes."""
     kind = str(el.get("type") or "").lower()

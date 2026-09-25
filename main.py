@@ -95,7 +95,7 @@ def browser_login() -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    sys.stdout.reconfigure(line_buffering=True)
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)  # Hindi etc.
     setup_logging()
     config = load_config()
     if args.mic_test:
