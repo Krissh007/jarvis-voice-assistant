@@ -105,7 +105,9 @@ def orb_shapes(state: str, t: float, level: float, size: int = SIZE) -> list[tup
 class Face:
     def __init__(self, *, status: Callable[[], dict[str, Any]], on_talk: Callable[[], None],
                  on_stop: Callable[[], None], on_mute: Callable[[], None], on_quit: Callable[[], None],
-                 state_path: Path, always_on_top: bool = True, opacity: float = 1.0) -> None:
+                 state_path: Path, always_on_top: bool = True, opacity: float = 1.0,
+                 log_path: Path | None = None) -> None:
+        self._log_path = log_path
         self._status = status
         self._on_talk, self._on_stop, self._on_mute, self._on_quit = on_talk, on_stop, on_mute, on_quit
         self._state_path = Path(state_path)
@@ -204,6 +206,8 @@ class Face:
         self._menu.add_command(label="Talk to JARVIS", command=self._on_talk)
         self._menu.add_checkbutton(label="Always on top", variable=self._topmost_var, command=self._toggle_topmost)
         self._menu.add_command(label="Hide window (reopen from the tray)", command=self.hide)
+        if self._log_path is not None:
+            self._menu.add_command(label="Open log", command=self._open_log)
         self._menu.add_separator()
         self._menu.add_command(label="Quit JARVIS", command=self._on_quit)
 
@@ -257,6 +261,14 @@ class Face:
             self._save_position()
         elif event.widget is self._canvas:
             self._on_talk()  # a click (not a drag) on the orb = talk
+
+    def _open_log(self) -> None:
+        import os
+
+        try:
+            os.startfile(self._log_path)  # opens in the default text editor
+        except OSError:
+            log.exception("couldn't open the log")
 
     def _toggle_topmost(self) -> None:
         self._topmost = bool(self._topmost_var.get())

@@ -100,8 +100,14 @@ def browser_login() -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from core.app_mode import claim_single_instance, is_windowless, redirect_console, tell_user
+
+    windowless = is_windowless()  # started from the desktop icon (pythonw): no terminal
+    if windowless:
+        redirect_console(ROOT / "logs")
+    else:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)  # Hindi etc.
     args = parse_args(argv)
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)  # Hindi etc.
     setup_logging()
     config = load_config()
     if args.mic:
@@ -126,8 +132,16 @@ def main(argv: list[str] | None = None) -> int:
 
     api_key = env_key("GOOGLE_API_KEY")
     if not api_key:
-        print("GOOGLE_API_KEY is missing. Copy .env.example to .env and add your key.")
+        tell_user("GOOGLE_API_KEY is missing. Copy .env.example to .env and add your key.", windowless)
         return 1
+    if not args.text and not claim_single_instance():
+        tell_user("JARVIS is already running. Look for its window at the bottom-right of the screen, "
+                  "or its icon by the clock.", windowless, warning=False)
+        return 1
+    if windowless:
+        # Without a terminal, the window or the tray is the only way to reach (and quit) JARVIS.
+        if not (config["features"].get("window") or config["features"].get("tray")):
+            config["features"]["tray"] = True
 
     from google import genai
 
@@ -139,6 +153,10 @@ def main(argv: list[str] | None = None) -> int:
         asyncio.run(assistant.run())
     except KeyboardInterrupt:
         pass
+    except Exception:
+        logging.getLogger("jarvis").exception("JARVIS stopped because of an error")
+        tell_user(f"JARVIS stopped because of an error. Details are in {ROOT / 'logs' / 'app.log'}.", windowless)
+        return 1
     print("JARVIS offline.")
     return 0
 

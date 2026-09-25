@@ -57,7 +57,9 @@ def detect_ytm_app() -> YTMApp | None:
     """Read the app's Start-menu shortcut: launcher, --profile-directory, --app-id, and its app id."""
     try:
         raw = subprocess.run(["powershell", "-NoProfile", "-Command", DETECT_PS], capture_output=True,
-                             text=True, timeout=20).stdout.strip()
+                             text=True, timeout=20,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),  # no flash in app mode
+                             ).stdout.strip()
         info = json.loads(raw or "{}")
     except (OSError, ValueError, subprocess.SubprocessError):
         return None

@@ -200,6 +200,7 @@ class Assistant:
                 state_path=self.services.data_dir / "window.json",
                 always_on_top=bool(wcfg.get("always_on_top", True)),
                 opacity=float(wcfg.get("opacity", 1.0)),
+                log_path=options.log_dir / "app.log",
             )
         self.tray = None
         if config["features"].get("tray") and self.mode != "text":

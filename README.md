@@ -93,10 +93,14 @@ You need Windows 10/11, **Google Chrome** installed, and about 2 GB of disk spac
    ```
    Use `.\run.bat --text` to type instead of speaking, or `.\run.bat --dry-run` to log actions
    without doing them.
-9. **Optional: a desktop icon** that starts JARVIS (not auto-start; delete it any time):
+9. **Optional: a desktop icon** that starts JARVIS as an app, with just its window and tray icon and no
+   terminal (not auto-start; delete it any time):
    ```bash
    .\run.bat --install-shortcut
    ```
+   Only one JARVIS runs at a time; double-clicking again while it's running just tells you so. In app
+   mode, quit from the window's right-click menu or the tray. What the terminal would show goes to
+   `logs/console.txt`, and startup problems (like a missing key) appear in a pop-up.
 
 `run.bat` uses the project's `.venv` directly, so it works even if `uv` isn't on your PATH.
 
@@ -142,7 +146,7 @@ press **Ctrl+Alt+Y**. Anything else, **Ctrl+Alt+N**, or 20 seconds of silence ca
 animated orb. Its rings spin and its core pulses with your voice or JARVIS's, in the same colours as
 the tray icon. It shows live captions of what you and JARVIS say, and has **Talk**, **Mute** and
 **Stop** buttons. **Click the orb to talk**, drag it anywhere (the position is remembered), and
-right-click for *Always on top*, *Hide* and *Quit*. The **–** button hides it; bring it back from
+right-click for *Always on top*, *Hide*, *Open log* and *Quit*. The **–** button hides it; bring it back from
 the tray menu (**Show JARVIS window**).
 
 **Tray icon** (`features.tray`): JARVIS's ring by the clock is grey when asleep, blue when listening,
@@ -414,8 +418,15 @@ Command-line options: `--text`, `--dry-run`, `--mic-test`, `--mic NAME`, `--trai
 - JARVIS finds the app from its Start-menu shortcut. If you reinstalled it, restart JARVIS.
 - Without the app, it plays in JARVIS's browser instead.
 
+**Nothing appears after double-clicking the desktop icon**
+- Give it about 10 seconds: it loads the voice and noise models first.
+- Check `logs/console.txt` and `logs/app.log`. If you see "already running", look for its window at
+  the bottom-right and its icon by the clock (it may be under the **^** arrow).
+- To see everything live, start it with `.\run.bat` in a terminal instead.
+
 **Logs**
 - `logs/app.log`: everything that happened, including the conversation and errors.
+- `logs/console.txt`: what the terminal would have shown, when JARVIS runs from the desktop icon.
 - `logs/actions.jsonl`: the audit log of every tool call.
 
 ## Project layout
@@ -436,7 +447,7 @@ jarvis/
 │   ├── untrusted.py     # <untrusted_content> wrapping
 │   ├── llm.py           # Flash text calls with fallbacks and quota handling
 │   ├── audio.py, hotkeys.py, wakeword.py, mictest.py, wake_training.py
-│   ├── tray.py, shortcut.py  # tray icon, desktop shortcut
+│   ├── tray.py, shortcut.py, app_mode.py  # tray icon, desktop shortcut, running without a terminal
 │   ├── face.py          # the animated JARVIS window
 │   ├── denoise.py       # RNNoise background-noise suppression
 │   ├── prompts.py       # system instruction

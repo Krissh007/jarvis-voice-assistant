@@ -120,3 +120,39 @@ async def test_quit_is_a_clean_exit(assistant) -> None:
     await asyncio.sleep(0)
     a.request_exit("tray")
     assert await task == "clean"
+
+
+def test_single_instance_lock() -> None:
+    import uuid
+
+    from core import app_mode
+
+    name = f"Local\JARVIS-test-{uuid.uuid4().hex}"
+    saved = app_mode._mutex_handle
+    try:
+        assert app_mode.claim_single_instance(name) is True
+        assert app_mode.claim_single_instance(name) is False  # a second JARVIS is refused
+    finally:
+        app_mode._mutex_handle = saved
+
+
+def test_desktop_icon_starts_jarvis_without_a_terminal() -> None:
+    from core.shortcut import ROOT, app_command, shortcut_script
+
+    target, arguments = app_command()
+    assert target.name == "pythonw.exe" and arguments == "main.py"
+    script = shortcut_script("x.lnk", target, ROOT, ROOT / "assets" / "jarvis.ico", arguments)
+    assert "$s.Arguments = 'main.py'" in script and "pythonw.exe" in script
+
+
+def test_windowless_console_goes_to_a_file(tmp_path, monkeypatch) -> None:
+    import sys
+
+    from core import app_mode
+
+    monkeypatch.setattr(sys, "stdout", sys.stdout)
+    monkeypatch.setattr(sys, "stderr", sys.stderr)
+    path = app_mode.redirect_console(tmp_path)
+    print("JARVIS online (नमस्ते)")
+    sys.stdout.close()
+    assert "JARVIS online (नमस्ते)" in path.read_text(encoding="utf-8")
