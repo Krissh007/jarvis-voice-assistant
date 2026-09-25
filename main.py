@@ -26,6 +26,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", help="log tool calls instead of executing side effects")
     parser.add_argument("--text", action="store_true", help="type instead of speak")
     parser.add_argument("--mic-test", action="store_true", help="show live mic level and wake-word score, then exit")
+    parser.add_argument("--mic", metavar="NAME",
+                        help='use this microphone (part of its name, e.g. "Nord Buds") instead of audio.input_device')
     parser.add_argument("--browser-login", action="store_true",
                         help="open JARVIS's Chrome profile normally so you can sign in to YouTube once")
     return parser.parse_args(argv)
@@ -98,6 +100,8 @@ def main(argv: list[str] | None = None) -> int:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)  # Hindi etc.
     setup_logging()
     config = load_config()
+    if args.mic:
+        config["audio"]["input_device"] = args.mic
     if args.mic_test:
         from core.mictest import run_mic_test
 
