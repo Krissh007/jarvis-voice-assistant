@@ -31,6 +31,18 @@ wheels = [
 ]
 
 [[package]]
+name = "apscheduler"
+version = "3.11.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "tzlocal" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8c/6b/eeff360196bb20b312c9e762a820fd1b2c6d809466c755ef57863478e454/apscheduler-3.11.3.tar.gz", hash = "sha256:cd2fcc9330039a81a5893472ad49facf23a6d5604cbe1d918c835c6de7834d5a", size = 110312, upload-time = "2026-06-28T19:39:22.493Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/42/c9/8638db32514dbb9157b3d82680c6faea89283523edf9ed2415ea3884f2ae/apscheduler-3.11.3-py3-none-any.whl", hash = "sha256:bbeb2ec02d23d3c06a6c07ed7f0f3939ada6680eb121fae809a69bb42c537a30", size = 66024, upload-time = "2026-06-28T19:39:20.982Z" },
+]
+
+[[package]]
 name = "babel"
 version = "2.18.0"
 source = { registry = "https://pypi.org/simple" }
@@ -317,6 +329,7 @@ name = "jarvis"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "apscheduler" },
     { name = "ddgs" },
     { name = "google-genai" },
     { name = "httpx" },
@@ -332,7 +345,9 @@ dependencies = [
     { name = "pywinauto" },
     { name = "pyyaml" },
     { name = "sounddevice" },
+    { name = "sqlalchemy" },
     { name = "trafilatura" },
+    { name = "winotify" },
     { name = "winrt-runtime" },
     { name = "winrt-windows-foundation" },
     { name = "winrt-windows-foundation-collections" },
@@ -353,6 +368,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "apscheduler", specifier = ">=3.11,<4" },
     { name = "ddgs", specifier = ">=9.16.0" },
     { name = "google-genai", specifier = ">=2.25.0" },
     { name = "httpx", specifier = ">=0.28.1" },
@@ -369,7 +385,9 @@ requires-dist = [
     { name = "pywinauto", specifier = ">=0.6.9" },
     { name = "pyyaml" },
     { name = "sounddevice", specifier = ">=0.5.6" },
+    { name = "sqlalchemy", specifier = ">=2.1.0" },
     { name = "trafilatura", specifier = ">=2.2.0" },
+    { name = "winotify", specifier = ">=1.1.0" },
     { name = "winrt-runtime", specifier = ">=3.2.1" },
     { name = "winrt-windows-foundation", specifier = ">=3.2.1" },
     { name = "winrt-windows-foundation-collections", specifier = ">=3.2.1" },
@@ -883,6 +901,21 @@ wheels = [
 ]
 
 [[package]]
+name = "sqlalchemy"
+version = "2.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ba/29/8de56a7f78fb0d71fe4f91ee43401a24ba8777e6d4f72683f268c9e0c72e/sqlalchemy-2.1.0.tar.gz", hash = "sha256:37600e4641c435a7e4549f4e6df79d9dfc096bb9712a10dba8925921bc87bc3c", size = 10502427, upload-time = "2026-09-24T20:12:49.737Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/99/39/232e7853085158edcceda128e05c0e3a7570be606f4bde270247281c945f/sqlalchemy-2.1.0-cp312-cp312-win32.whl", hash = "sha256:ba8462d6e178af73a24c5eaea20fa325ac24c2941c6367ef59d5ccb20d6b9169", size = 2369272, upload-time = "2026-09-24T20:36:43.329Z" },
+    { url = "https://files.pythonhosted.org/packages/d4/48/512fdd8a9c2078abc8378195051d7a1d7c2f15545c453138052030b80534/sqlalchemy-2.1.0-cp312-cp312-win_amd64.whl", hash = "sha256:46c7fcf4b3aac35947572c9598a35e101c2c8e01999ada5c7097a7666dd0ccf2", size = 2421594, upload-time = "2026-09-24T20:36:44.815Z" },
+    { url = "https://files.pythonhosted.org/packages/0f/06/e274c2fa3d64e61bd55ab5de254ad31b07b9bfe108f33c24ff9de2465df1/sqlalchemy-2.1.0-cp312-cp312-win_arm64.whl", hash = "sha256:b87ed75fd74f49da2d637348ff2ef4453e15a8b3e798b06f52c5e57357fa49da", size = 2381171, upload-time = "2026-09-24T20:27:15.52Z" },
+    { url = "https://files.pythonhosted.org/packages/25/8a/9178cd9411c57f16a1e73b0a75bca9270cd471aafdccae2dd8b0b491c9bd/sqlalchemy-2.1.0-py3-none-any.whl", hash = "sha256:8728cbc7544d05c5cab9bf50749636f128e4db4828a20ce5952355c4f33d6e2e", size = 2047583, upload-time = "2026-09-24T20:36:44.055Z" },
+]
+
+[[package]]
 name = "tenacity"
 version = "9.1.4"
 source = { registry = "https://pypi.org/simple" }
@@ -999,6 +1032,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/37/a1/4cf892007778eaf84ad162bfc98046e0ed89b63ac55949e3236626b2a23f/websockets-16.1.1-cp312-cp312-win32.whl", hash = "sha256:1d27fa8462ad6a1cb36206a3d0640b2333340def181fae11ed7f9adeaa5c0747", size = 179943, upload-time = "2026-07-17T22:49:36.213Z" },
     { url = "https://files.pythonhosted.org/packages/d9/de/6abe251d28c3a3f217096575400b27750b18e0b1d2fff3a2a239960fea07/websockets-16.1.1-cp312-cp312-win_amd64.whl", hash = "sha256:b436f6ec4fc3a6b4237c84d3f83170ed2b40bb584222f0ac47a0c8a5921980c7", size = 180243, upload-time = "2026-07-17T22:49:37.626Z" },
     { url = "https://files.pythonhosted.org/packages/be/4d/2d0d67834092e354d2b0498f014a41249a89556bc406cf86f3e1557bb463/websockets-16.1.1-py3-none-any.whl", hash = "sha256:6abbd3e82c731c8e531714466acd5d87b5e88ac3243465337ba71d68e23ae7e3", size = 173814, upload-time = "2026-07-17T22:51:04.184Z" },
+]
+
+[[package]]
+name = "winotify"
+version = "1.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a1/b0/1b304fdd8fd810f1f8e81a2708f8bf72e0987de1a763f0ee81f6d08bcae7/winotify-1.1.0.tar.gz", hash = "sha256:f8a0d6ff00cb2c1b3dcdfe825431f46f6aa5dc8ce84ffc59e8fda8c7e36687fe", size = 10101, upload-time = "2022-02-07T12:34:46.236Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/72/85/6cc4c738080d60b62cad59d0f32386b8277d40e2bf8c06fd1e4101a17238/winotify-1.1.0-py3-none-any.whl", hash = "sha256:13aa9b1196b02ab3e699645b4407371ca73348421f8662565100d70c7cf552d9", size = 15034, upload-time = "2022-02-07T12:34:44.341Z" },
 ]
 
 [[package]]

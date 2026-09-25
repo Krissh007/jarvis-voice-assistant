@@ -140,3 +140,23 @@ product page and tell me the price"):
 
 Sites that refuse plain downloads (403) are retried once in a throwaway headless Chrome with no
 profile; some sites block all automated readers, and JARVIS says so.
+
+## Memory, reminders and briefing (Phase 9)
+
+- **Memory** (`data/memory.json`, max 100 facts): "remember that…", "what do you remember about…",
+  "forget…". JARVIS stores only what you explicitly ask. If your words didn't ask it to remember, or
+  it has just read a page, the screen or the clipboard, it asks you first. Forgetting always asks and
+  names the exact fact. Passwords, PINs and payment details are refused. Remembered facts are added to
+  JARVIS's instructions at each start; "call me Krishna" style facts set the name it uses. The Flash
+  planner and browser never see memory.
+- **Reminders** (`data/reminders.sqlite`): "remind me in 20 minutes to…" or "at 5:30 pm…". When due,
+  JARVIS says it aloud (waking up if asleep) and shows a Windows notification. They survive a
+  restart; one that came due while JARVIS was closed is delivered at the next start and flagged as
+  late. "What reminders do I have?" and "cancel the dentist reminder" (asks first). A reminder's
+  text is only read out: it can't trigger an action without your confirmation.
+- **Morning briefing** (off by default: `features.morning_briefing: true`): on the first launch of
+  the day, a spoken summary under 45 seconds of the date, weather (needs `weather.default_city`),
+  three headlines (`briefing.news_query`) and today's reminders.
+
+Wake word: `--mic-test` scores your voice at several gains (`wake_word.gain`) and suggests one;
+`--mic "Nord Buds"` tests or uses another microphone. `wake_word.chime_volume` sets the wake beep.

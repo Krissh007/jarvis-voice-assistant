@@ -58,12 +58,17 @@ def capabilities_section(tool_summaries: list[str]) -> str:
     )
 
 
-def build_system_instruction(user_name: str | None, tool_summaries: list[str] | None = None) -> str:
-    """Assemble the system instruction for the Live session."""
+def build_system_instruction(user_name: str | None, tool_summaries: list[str] | None = None,
+                             memory: str = "") -> str:
+    """Assemble the system instruction for the Live session. `memory` is the remembered-facts section."""
     parts = [PERSONA, capabilities_section(tool_summaries or [])]
     if tool_summaries:
         parts.append(CONFIRMATION_RULES)
+    if memory:
+        parts.append(memory)
     if user_name:
-        parts.append(f'Address the user as "{user_name}" now and then, not in every sentence.\n')
+        override = (" If a remembered fact above says what to call the user, use that name instead and never "
+                    f'"{user_name}".') if memory else ""
+        parts.append(f'Address the user as "{user_name}" now and then, not in every sentence.{override}\n')
     parts.append(UNTRUSTED_RULE)
     return "\n".join(parts)

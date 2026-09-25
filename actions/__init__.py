@@ -18,6 +18,8 @@ MODULES: dict[str, str | None] = {
     "actions.app_ui": "app_ui",
     "actions.screen": "screen",
     "actions.clipboard": "clipboard",
+    "actions.memory": "memory",
+    "actions.reminders": "reminders",
     "actions.testing": "test_tools",
     "actions.agent_mode": "agent_mode",  # last: it plans over every tool registered before it
 }
@@ -31,6 +33,9 @@ class Services:
     data_dir: Path = Path(__file__).resolve().parent.parent / "data"
     browser: Any = None  # actions.browser.BrowserTools, shared with media
     dispatcher: Any = None  # core.dispatcher.Dispatcher, set by the runtime (agent mode runs steps through it)
+    web: Any = None  # actions.web.Web, for the morning briefing
+    memory: Any = None  # actions.memory.MemoryStore, for the system instruction
+    reminders: Any = None  # actions.reminders.Reminders, started by the runtime
 
 
 def load_actions(registry: Registry, config: dict, services: Services | None = None) -> Registry:

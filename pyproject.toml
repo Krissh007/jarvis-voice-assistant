@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Personal voice assistant for Windows on the Gemini Live API"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "apscheduler>=3.11,<4",
     "ddgs>=9.16.0",
     "google-genai>=2.25.0",
     "httpx>=0.28.1",
@@ -19,7 +20,9 @@ dependencies = [
     "pywinauto>=0.6.9",
     "pyyaml",
     "sounddevice>=0.5.6",
+    "sqlalchemy>=2.1.0",
     "trafilatura>=2.2.0",
+    "winotify>=1.1.0",
     "winrt-runtime>=3.2.1",
     "winrt-windows-foundation>=3.2.1",
     "winrt-windows-foundation-collections>=3.2.1",

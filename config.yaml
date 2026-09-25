@@ -21,7 +21,7 @@ listening:
 
 wake_word:
   model: hey_jarvis
-  threshold: 0.3                # lowered from 0.5: best score in the first mic test was 0.41
+  threshold: 0.25               # mic tests: your "hey jarvis" scores 0.2-0.5, silence stays under 0.05
   gain: 1.0                     # boosts your voice for wake detection only; --mic-test suggests a value
   active_window_s: 15
   chime_volume: 0.06            # wake beep loudness, 0 = silent, 0.25 = the old level
@@ -102,6 +102,12 @@ limits:
   agent_replans_max: 1
   browser_task_steps_max: 10
   page_cache_ttl_h: 24
+
+memory:
+  max_facts: 100                # remember() refuses when full; facts are listed in the system prompt
+
+briefing:                       # used when features.morning_briefing is true
+  news_query: "top news today"  # e.g. "India news today"; weather needs weather.default_city
 
 features:
   test_tools: true              # Phase 2 safety-test tools; turn off once real tools exist

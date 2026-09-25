@@ -318,6 +318,7 @@ class Web:
 
 def register(registry: Registry, config: dict, services) -> None:
     web = Web(config, services)
+    services.web = web
     registry.on_user_turn(lambda: web.state.new_turn())  # late-bound: the state object is replaced per question
     cap = web.page_cap
     registry.register(Tool(

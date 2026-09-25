@@ -80,6 +80,7 @@ class Registry:
     def __init__(self) -> None:
         self._tools: dict[str, Tool] = {}
         self._turn_hooks: list[Callable[[], None]] = []
+        self.last_user_text = ""  # the user's own latest utterance or typed line (never model/tool text)
 
     def on_user_turn(self, hook: Callable[[], None]) -> None:
         """Run `hook` whenever the user starts a new turn (e.g. to reset per-question caps)."""

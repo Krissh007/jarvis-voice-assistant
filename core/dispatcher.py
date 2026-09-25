@@ -207,6 +207,7 @@ class Dispatcher:
     async def on_user_input(self, text: str, source: str) -> bool:
         """A finished utterance ('voice') or typed line ('text'). True if it answered a pending action."""
         self.tainted = False  # a new user turn clears taint
+        self.registry.last_user_text = text
         pending = self.confirmer.pending
         if pending is None:
             self.registry.user_turn()
