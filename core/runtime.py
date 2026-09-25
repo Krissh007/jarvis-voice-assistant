@@ -12,6 +12,8 @@ from pathlib import Path
 
 import os
 
+import numpy as np
+
 from actions import Services, load_actions
 from core.audio import (
     Mic, MicGate, PlaybackState, Player, chime, default_output_name, refresh_portaudio, resolve_echo_mode,
@@ -28,6 +30,14 @@ from core.session import LiveSession, build_live_config
 from core.wakeword import WakeState
 
 log = logging.getLogger(__name__)
+def rms_level(pcm: bytes, full_scale: float) -> float:
+    """Loudness of an int16 chunk as 0..1 (full_scale RMS = 1), for the window's pulse."""
+    samples = np.frombuffer(pcm, dtype=np.int16)
+    if not len(samples):
+        return 0.0
+    return min(1.0, float(np.sqrt(np.mean(samples.astype(np.float32) ** 2))) / full_scale)
+
+
 WORKING_MAX_S = 90  # stay awake this long after a tool call if the model's turn hasn't finished
 
 
@@ -44,6 +54,14 @@ class Transcript:
     def __init__(self, user_label: str) -> None:
         self._labels = {"user": user_label, "jarvis": "JARVIS"}
         self._buf = {"user": "", "jarvis": ""}
+        self.last: tuple[str, str] = ("", "")  # (label, line) of the last finished line
+
+    def caption(self) -> tuple[str, str]:
+        """What's being said right now, else the last finished line (for the JARVIS window)."""
+        for w in ("jarvis", "user"):
+            if self._buf[w].strip():
+                return self._labels[w], self._buf[w]
+        return self.last
 
     def add(self, who: str, text: str) -> None:
         if who == "jarvis":
@@ -55,6 +73,7 @@ class Transcript:
             line = " ".join(self._buf[w].split())
             if line:
                 print(f"{self._labels[w]}: {line}", flush=True)
+                self.last = (self._labels[w], line)
                 log.info("%s: %s", w, line)
             self._buf[w] = ""
 
@@ -158,6 +177,30 @@ class Assistant:
         self._main_task: asyncio.Task | None = None
         self._exiting = False  # Quit from the tray, or typed input ran out: a normal exit
         self._last_tool_at = 0.0  # keeps JARVIS awake while a tool is still working
+        self._mic_level = 0.0  # 0..1, for the window's pulse
+        self._out_level = 0.0
+        self._out_level_at = 0.0
+        self._denoiser = None
+        if self.mode != "text":
+            from core.denoise import make_denoiser
+
+            self._denoiser = make_denoiser(config)
+        self._denoise_worker = None
+        self.face = None
+        if config["features"].get("window") and self.mode != "text":
+            from core.face import Face
+
+            wcfg = config.get("window") or {}
+            self.face = Face(
+                status=self._face_status,
+                on_talk=lambda: self._from_thread(self.talk),
+                on_stop=lambda: self._from_thread(self.on_hotkey, "stop", True),
+                on_mute=lambda: self._from_thread(self.on_hotkey, "mute", True),
+                on_quit=lambda: self._from_thread(self.request_exit, "window"),
+                state_path=self.services.data_dir / "window.json",
+                always_on_top=bool(wcfg.get("always_on_top", True)),
+                opacity=float(wcfg.get("opacity", 1.0)),
+            )
         self.tray = None
         if config["features"].get("tray") and self.mode != "text":
             from core.tray import Tray
@@ -168,6 +211,7 @@ class Assistant:
                 on_mute=lambda: self._from_thread(self.on_hotkey, "mute", True),
                 on_quit=lambda: self._from_thread(self.request_exit, "tray"),
                 is_muted=lambda: self.gate.muted,
+                on_show=self.face.show if self.face is not None else None,
             )
 
     # ---- lifecycle ----
@@ -189,8 +233,16 @@ class Assistant:
         if self.config["features"].get("morning_briefing"):
             tasks.append(asyncio.create_task(self._briefing(), name="briefing"))
         self._print_banner()
+        if self._denoiser is not None:
+            from core.denoise import DenoiseWorker
+
+            loop = self._loop
+            self._denoise_worker = DenoiseWorker(
+                self._denoiser, lambda clean: loop.call_soon_threadsafe(self._send_mic_audio, clean))
         if self.tray is not None:
             self.tray.start()
+        if self.face is not None:
+            self.face.start()
         self._main_task = asyncio.current_task()
         try:
             await asyncio.gather(*tasks)
@@ -200,6 +252,10 @@ class Assistant:
         finally:
             if self.tray is not None:
                 self.tray.stop()
+            if self.face is not None:
+                self.face.stop()
+            if self._denoise_worker is not None:
+                self._denoise_worker.stop()
             if self.services.reminders is not None:
                 self.services.reminders.stop()
             for t in tasks:
@@ -241,7 +297,8 @@ class Assistant:
     # ---- input ----
 
     def _on_mic_chunk(self, pcm: bytes) -> None:
-        if self.wake and not self.wake.awake:
+        self._mic_level = rms_level(pcm, 3000)
+        if self.wake and not self.wake.awake:  # the wake word always hears raw audio (it was trained on it)
             woke = self.detector.detect(pcm)
             if self.detector.missed is not None:
                 print(f"  (heard something like \"hey jarvis\", score {self.detector.missed:.2f}: "
@@ -254,7 +311,25 @@ class Assistant:
                 print("(awake)", flush=True)
             return
         if self.gate.allows():
+            if self._denoise_worker is not None:
+                self._denoise_worker.submit(pcm)  # comes back through _send_mic_audio
+            else:
+                self.session.send_audio(pcm)
+
+    def _send_mic_audio(self, pcm: bytes) -> None:
+        if self.gate.allows():  # re-check: the mic may have been muted while it was being cleaned
             self.session.send_audio(pcm)
+
+    def _face_status(self) -> dict:
+        """Read by the window's thread ~30 times a second: plain attribute reads only."""
+        state = self._tray_state()
+        if state == "speaking":
+            level = self._out_level if time.monotonic() - self._out_level_at < 0.3 else 0.0
+        elif state == "listening":
+            level = self._mic_level
+        else:
+            level = 0.0
+        return {"state": state, "level": level, "caption": self.transcript.caption()}
 
     def _start_stdin_reader(self) -> None:
         def reader() -> None:
@@ -445,6 +520,8 @@ class Assistant:
             self.wake.touch()
         if not self._drop_reply:
             self.player.enqueue(pcm)
+            self._out_level = rms_level(pcm, 5000)
+            self._out_level_at = time.monotonic()
 
     def on_interrupted(self) -> None:
         self.player.clear()

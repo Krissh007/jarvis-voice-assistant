@@ -138,6 +138,13 @@ press **Ctrl+Alt+Y**. Anything else, **Ctrl+Alt+N**, or 20 seconds of silence ca
 | Ctrl+Alt+S | Stop JARVIS talking |
 | Ctrl+Alt+Y / Ctrl+Alt+N | Confirm / cancel the pending action |
 
+**JARVIS window** (`features.window`): a small always-on-top panel (bottom-right at first) with an
+animated orb. Its rings spin and its core pulses with your voice or JARVIS's, in the same colours as
+the tray icon. It shows live captions of what you and JARVIS say, and has **Talk**, **Mute** and
+**Stop** buttons. **Click the orb to talk**, drag it anywhere (the position is remembered), and
+right-click for *Always on top*, *Hide* and *Quit*. The **–** button hides it; bring it back from
+the tray menu (**Show JARVIS window**).
+
 **Tray icon** (`features.tray`): JARVIS's ring by the clock is grey when asleep, blue when listening,
 bright cyan when speaking and red when muted. **Left-click it to talk** (wakes JARVIS without the wake
 word, and unmutes). Right-click for **Talk to JARVIS**, **Stop talking**, **Mute microphone** and
@@ -339,6 +346,8 @@ Blocking work runs in a thread automatically. Use `async def` for async tools.
 | `voice.name` | Gemini voice (e.g. Charon, Puck, Kore) |
 | `listening.mode` | `wake_word`, `always_on` or `push_to_talk` |
 | `wake_word.*` | Thresholds, gain, beep volume, personal verifier |
+| `noise_suppression.enabled`, `.strength` | Clean background noise from what Gemini hears (RNNoise, on this PC) |
+| `window.always_on_top`, `window.opacity` | The JARVIS window |
 | `audio.input_device` | `null` = Windows default, or part of a device name |
 | `audio.echo_mode` | `auto`, `headphones` or `speakers` (see Troubleshooting) |
 | `confirm.accept_phrases`, `confirm.timeout_s` | What counts as "yes", and how long it waits |
@@ -361,6 +370,14 @@ Command-line options: `--text`, `--dry-run`, `--mic-test`, `--mic NAME`, `--trai
   - Check the mic isn't muted (a keyboard mic key, or Settings > System > Sound > Input).
   - Pick the right mic: `--mic "part of its name"` to test, then set `audio.input_device`.
 - If the level is fine but it won't wake, see [Wake word setup](#wake-word-setup).
+
+**JARVIS reacts to background noise (fans, TV, traffic)**
+- Noise suppression (`noise_suppression.enabled: true`, the default) runs RNNoise on this PC and
+  removes steady background noise from the audio sent to Gemini once JARVIS is awake. It uses about
+  15% of one CPU core while JARVIS is listening, and nothing while it's asleep.
+- `--mic-test` shows your room's background noise before and after cleaning.
+- The wake word always hears the raw mic, because your personal voice model was trained on raw audio.
+- If your voice sounds clipped or robotic to Gemini, lower `noise_suppression.strength` (e.g. 0.7).
 
 **JARVIS interrupts itself, or answers its own voice (echo)**
 - With speakers, the mic hears JARVIS. With `audio.echo_mode: auto`, JARVIS guesses from the output
@@ -420,6 +437,8 @@ jarvis/
 │   ├── llm.py           # Flash text calls with fallbacks and quota handling
 │   ├── audio.py, hotkeys.py, wakeword.py, mictest.py, wake_training.py
 │   ├── tray.py, shortcut.py  # tray icon, desktop shortcut
+│   ├── face.py          # the animated JARVIS window
+│   ├── denoise.py       # RNNoise background-noise suppression
 │   ├── prompts.py       # system instruction
 │   └── briefing.py      # morning briefing
 ├── actions/             # one module per capability (see "What each capability does")

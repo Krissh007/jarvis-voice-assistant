@@ -28,6 +28,15 @@ wake_word:
   active_window_s: 15
   chime_volume: 0.06            # wake beep loudness, 0 = silent, 0.25 = the old level
 
+noise_suppression:              # RNNoise, runs on this PC: cleans the audio sent to Gemini
+  enabled: true
+  strength: 1.0                 # 0..1; lower keeps more of the original sound
+                                # the wake word always uses the raw mic (your voice model was trained on it)
+
+window:                         # used when features.window is true
+  always_on_top: true
+  opacity: 1.0                  # below 1 lets windows behind show through
+
 audio:
   transcription_languages: [en-IN]   # BCP-47 hints for your speech; [] = auto-detect
   input_device: null            # null = Windows default; or part of a device name, e.g. "Nord Buds"
@@ -125,4 +134,5 @@ features:
   agent_mode: true
   morning_briefing: false
   tray: true                    # tray icon: click to talk, Stop, Mute, Quit
+  window: true                  # animated JARVIS window with captions and Talk / Mute / Stop
   wake_word: true

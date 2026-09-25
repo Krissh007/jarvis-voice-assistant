@@ -20,6 +20,19 @@ def list_input_devices() -> None:
             print(f" {mark} {i:>2}  {d['name']}  ({api})")
 
 
+def block_rms(samples: np.ndarray) -> float:
+    return float(np.sqrt(np.mean(samples.astype(np.float64) ** 2))) if len(samples) else 0.0
+
+
+def background(levels: list[float]) -> float:
+    """The room's noise floor: the quiet 20% of blocks (speech is louder, so it doesn't count)."""
+    return float(np.percentile(levels, 20)) if levels else 0.0
+
+
+def reduction_db(before: float, after: float) -> float:
+    return 20 * float(np.log10(max(before, 1.0) / max(after, 1.0)))
+
+
 def gains_to_try(current: float) -> list[float]:
     return sorted({current, 1.0, 2.0, 3.0, 4.0})
 
@@ -62,12 +75,20 @@ def run_mic_test(config: dict, seconds: float = 30.0) -> int:
     best = dict.fromkeys(detectors, 0.0)
     window_score = dict.fromkeys(detectors, 0.0)
     loudest, window = 0, []
+    from core.denoise import make_denoiser
+
+    denoiser = make_denoiser(config)
+    raw_rms, clean_rms = [], []
     started = last_print = time.monotonic()
     with sd.InputStream(samplerate=INPUT_RATE, channels=1, dtype="int16", blocksize=MIC_BLOCK, device=device) as stream:
         while time.monotonic() - started < seconds:
             block, _ = stream.read(MIC_BLOCK)
             pcm = block[:, 0]
             window.append(int(np.abs(pcm.astype(np.int32)).max()))
+            if denoiser is not None:
+                clean = np.frombuffer(denoiser.process(pcm.tobytes()), dtype=np.int16)
+                raw_rms.append(block_rms(pcm))
+                clean_rms.append(block_rms(clean))
             for g, det in detectors.items():
                 score = det.score(pcm)
                 window_score[g] = max(window_score[g], score)
@@ -85,6 +106,10 @@ def run_mic_test(config: dict, seconds: float = 30.0) -> int:
                 window, window_score, last_print = [], dict.fromkeys(detectors, 0.0), time.monotonic()
 
     print(f"\nLoudest: {loudest} (normal speech is usually 2000+).")
+    if raw_rms:
+        before, after = background(raw_rms), background(clean_rms)
+        print(f"Background noise: {before:.0f} before noise suppression, {after:.0f} after "
+              f"({reduction_db(before, after):.0f} dB quieter). This is what Gemini hears once I'm awake.")
     if loudest < 300:
         print("Almost no sound. Check the mic isn't muted (keyboard mic key, Windows Sound settings > Input),")
         print("or set audio.input_device in config.yaml to another device from the list above.")
