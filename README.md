@@ -98,7 +98,9 @@ You need Windows 10/11, **Google Chrome** installed, and about 2 GB of disk spac
    ```bash
    .\run.bat --install-shortcut
    ```
-   Only one JARVIS runs at a time; double-clicking again while it's running just tells you so. In app
+   Only one JARVIS runs at a time: double-clicking again while it's running brings its window to the
+   front, and relaunching right after Quit just works (the old one lets go as soon as it has put your
+   music volume back). The window appears at once with "Starting up…" while the models load. In app
    mode, quit from the window's right-click menu or the tray. What the terminal would show goes to
    `logs/console.txt`, and startup problems (like a missing key) appear in a pop-up.
 
@@ -145,7 +147,7 @@ press **Ctrl+Alt+Y**. Anything else, **Ctrl+Alt+N**, or 20 seconds of silence ca
 **JARVIS window** (`features.window`): an always-on-top panel (bottom-right at first) with an
 animated orb. Its rings spin and its core pulses with your voice or JARVIS's, in the same colours as
 the tray icon. Below it is the **whole conversation**, scrollable, newest at the bottom.
-- Buttons: **Talk** (wake JARVIS), **Sleep** (like saying "go to sleep"), **Mute**, and **Stop**
+- Buttons: **Talk** (wake JARVIS; if it's already awake it answers "Yes?"), **Sleep** (like saying "go to sleep"), **Mute**, and **Stop**
   (JARVIS stops talking and the music pauses). A button flashes when it registers a click.
 - **Click the orb to talk.** Drag the orb or title bar to move the window, and drag the **◢**
   corner to resize it. Size and position are remembered.

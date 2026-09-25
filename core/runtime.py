@@ -47,6 +47,7 @@ class Options:
     text_mode: bool = False
     dry_run: bool = False
     log_dir: Path = Path(__file__).resolve().parent.parent / "logs"
+    early_window: bool = False  # show the window ("Starting up…") before the slow model loading
 
 
 class Transcript:
@@ -100,6 +101,25 @@ class Assistant:
         self.options = options
         mode = config["listening"]["mode"]
         self.mode = "text" if options.text_mode else mode
+        self.face = None
+        if config["features"].get("window") and self.mode != "text":
+            from core.face import Face
+
+            wcfg = config.get("window") or {}
+            self.face = Face(
+                status=self._face_status,
+                on_talk=lambda: self.ui("window: Talk", self.talk),
+                on_stop=lambda: self.ui("window: Stop", self.stop_all),
+                on_mute=lambda: self.ui("window: Mute", self.on_hotkey, "mute", True),
+                on_quit=lambda: self.ui("window: Quit", self.request_exit, "window"),
+                on_sleep=lambda: self.ui("window: Sleep", self.sleep_now),
+                state_path=Services().data_dir / "window.json",
+                always_on_top=bool(wcfg.get("always_on_top", True)),
+                opacity=float(wcfg.get("opacity", 1.0)),
+                log_path=options.log_dir / "app.log",
+            )
+        if self.face is not None and options.early_window:
+            self.face.start()  # "Starting up…" while the models load
         audio_cfg = config["audio"]
 
         self.playback = PlaybackState(tail_s=audio_cfg["echo_tail_ms"] / 1000)
@@ -212,23 +232,6 @@ class Assistant:
 
             self._denoiser = make_denoiser(config)
         self._denoise_worker = None
-        self.face = None
-        if config["features"].get("window") and self.mode != "text":
-            from core.face import Face
-
-            wcfg = config.get("window") or {}
-            self.face = Face(
-                status=self._face_status,
-                on_talk=lambda: self.ui("window: Talk", self.talk),
-                on_stop=lambda: self.ui("window: Stop", self.stop_all),
-                on_mute=lambda: self.ui("window: Mute", self.on_hotkey, "mute", True),
-                on_quit=lambda: self.ui("window: Quit", self.request_exit, "window"),
-                on_sleep=lambda: self.ui("window: Sleep", self.sleep_now),
-                state_path=self.services.data_dir / "window.json",
-                always_on_top=bool(wcfg.get("always_on_top", True)),
-                opacity=float(wcfg.get("opacity", 1.0)),
-                log_path=options.log_dir / "app.log",
-            )
         self.tray = None
         if config["features"].get("tray") and self.mode != "text":
             from core.tray import Tray
@@ -270,8 +273,9 @@ class Assistant:
                 self._denoiser, lambda clean: loop.call_soon_threadsafe(self._send_mic_audio, clean))
         if self.tray is not None:
             self.tray.start()
-        if self.face is not None:
+        if self.face is not None and not self.face.started:
             self.face.start()
+        self._ready = True
         if self.services.ducker is not None:
             self.services.ducker.start()
         self._main_task = asyncio.current_task()
@@ -281,25 +285,46 @@ class Assistant:
             if not self._exiting:
                 raise  # a real cancellation; Quit and end-of-typed-input are normal exits
         finally:
-            if self.tray is not None:
-                self.tray.stop()
-            if self.face is not None:
-                self.face.stop()
-            if self._denoise_worker is not None:
-                self._denoise_worker.stop()
+            steps = []
+
+            def timed(name, fn):
+                t0 = time.monotonic()
+                try:
+                    fn()
+                except Exception:
+                    log.exception("shutdown step %s failed", name)
+                steps.append(f"{name} {time.monotonic() - t0:.2f}s")
+
+            t_start = time.monotonic()
             if self.services.ducker is not None:
-                self.services.ducker.stop()  # puts the music volume back
+                timed("music volume", self.services.ducker.stop)  # first: puts the music volume back
+            from core.app_mode import release_single_instance
+
+            release_single_instance()  # a relaunch can start now, while the rest shuts down
+            if self.face is not None:
+                self.face.hide()  # looks closed at once
+            if self.tray is not None:
+                timed("tray", self.tray.stop)
+            if self.face is not None:
+                timed("window", self.face.stop)
+            if self._denoise_worker is not None:
+                timed("denoise", self._denoise_worker.stop)
             if self.services.reminders is not None:
-                self.services.reminders.stop()
+                timed("reminders", self.services.reminders.stop)
+            t0 = time.monotonic()
             for t in tasks:
                 t.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
+            steps.append(f"tasks {time.monotonic() - t0:.2f}s")
             if self.services.browser is not None:
+                t0 = time.monotonic()
                 try:
                     await self.services.browser.session.close()
                 except Exception as exc:  # expected after Ctrl+C: it also stops Chrome's driver
                     log.info("browser already closed (%s)", type(exc).__name__)
-            self.close()
+                steps.append(f"browser {time.monotonic() - t0:.2f}s")
+            timed("audio+hotkeys", self.close)
+            log.info("shutdown took %.2fs: %s", time.monotonic() - t_start, ", ".join(steps))
 
     def close(self) -> None:
         if self._mic:
@@ -355,6 +380,8 @@ class Assistant:
 
     def _face_status(self) -> dict:
         """Read by the window's thread ~30 times a second: plain attribute reads only."""
+        if not getattr(self, "_ready", False):
+            return {"state": "starting", "level": 0.0, "caption": ("", ""), "version": 0, "lines": []}
         state = self._tray_state()
         if state == "speaking":
             level = self._out_level if time.monotonic() - self._out_level_at < 0.3 else 0.0
@@ -389,8 +416,9 @@ class Assistant:
 
     def _from_thread(self, func, *args) -> None:
         """Run `func` on the asyncio loop (tray and hotkey callbacks come from other threads)."""
-        if self._loop is not None:
-            self._loop.call_soon_threadsafe(func, *args)
+        loop = getattr(self, "_loop", None)  # None while still starting up: the click is ignored
+        if loop is not None:
+            loop.call_soon_threadsafe(func, *args)
 
     def ui(self, what: str, func, *args) -> None:
         """A window or tray click (from its own thread): log it, then run it on the asyncio loop."""
@@ -422,16 +450,31 @@ class Assistant:
             self.transcript.flush()
             print("(sleeping)", flush=True)
 
+    def _acknowledge(self) -> None:
+        """Talk pressed while JARVIS is already awake: cut off any reply and answer "Yes?"."""
+        now = time.monotonic()
+        if now - getattr(self, "_last_ack", 0.0) < 3.0:
+            return  # a double click shouldn't get two "Yes?"s
+        self._last_ack = now
+        if self.playback.playing:
+            self._drop_reply = True  # the rest of the current reply
+            self.player.clear()
+        if self.dispatcher.awaiting_confirmation:
+            return  # it's waiting for a yes/no; a "Yes?" of its own would confuse that
+        self._notify('[system notice] The user pressed Talk while you were already listening. '
+                     'Reply with just: "Yes?"')
+
     def talk(self) -> None:
         """'Talk to JARVIS' without the wake word: tray click, or the push-to-talk key in wake-word mode."""
         if self.gate.muted:
             self.gate.muted = False
             print("(mic live)", flush=True)
+        if self.wake is not None and self.wake.awake:
+            self.wake.touch()
+            self._acknowledge()
+            return
         self.player.clear()  # if it was talking, let the user speak
         if self.wake is None:
-            return
-        if self.wake.awake:
-            self.wake.touch()
             return
         self.wake.wake()
         if self.wake_chime:
@@ -482,6 +525,12 @@ class Assistant:
                 self.tray.set_state(self._tray_state())
             if self.services.ducker is not None:
                 self.services.ducker.set_ducked(self._should_duck())
+            if self.face is not None:
+                from core.app_mode import show_requested
+
+                if show_requested():
+                    log.info("a second launch asked for the window")
+                    self.face.bring_to_front()
 
     def _should_duck(self) -> bool:
         """Lower other apps while the user and JARVIS are talking."""

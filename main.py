@@ -100,7 +100,14 @@ def browser_login() -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    from core.app_mode import claim_single_instance, is_windowless, redirect_console, tell_user
+    from core.app_mode import (
+        claim_single_instance,
+        create_show_event,
+        is_windowless,
+        redirect_console,
+        request_show,
+        tell_user,
+    )
 
     windowless = is_windowless()  # started from the desktop icon (pythonw): no terminal
     if windowless:
@@ -134,10 +141,15 @@ def main(argv: list[str] | None = None) -> int:
     if not api_key:
         tell_user("GOOGLE_API_KEY is missing. Copy .env.example to .env and add your key.", windowless)
         return 1
-    if not args.text and not claim_single_instance():
-        tell_user("JARVIS is already running. Look for its window at the bottom-right of the screen, "
-                  "or its icon by the clock.", windowless, warning=False)
-        return 1
+    if not args.text:
+        if not claim_single_instance():  # waits a few seconds if the running JARVIS is quitting
+            if request_show():
+                print("JARVIS was already running: brought its window to the front.", flush=True)
+                return 0
+            tell_user("JARVIS is already running. Look for its window at the bottom-right of the screen, "
+                      "or its icon by the clock.", windowless, warning=False)
+            return 1
+        create_show_event()
     if windowless:
         # Without a terminal, the window or the tray is the only way to reach (and quit) JARVIS.
         if not (config["features"].get("window") or config["features"].get("tray")):
@@ -147,8 +159,11 @@ def main(argv: list[str] | None = None) -> int:
 
     from core.runtime import Assistant, Options
 
-    assistant = Assistant(config, genai.Client(api_key=api_key), Options(text_mode=args.text, dry_run=args.dry_run))
+    assistant = Assistant(config, genai.Client(api_key=api_key),
+                          Options(text_mode=args.text, dry_run=args.dry_run, early_window=True))
     quiet_closed_pipe_noise()
+    import time as _time
+
     try:
         asyncio.run(assistant.run())
     except KeyboardInterrupt:
@@ -157,6 +172,12 @@ def main(argv: list[str] | None = None) -> int:
         logging.getLogger("jarvis").exception("JARVIS stopped because of an error")
         tell_user(f"JARVIS stopped because of an error. Details are in {ROOT / 'logs' / 'app.log'}.", windowless)
         return 1
+    finally:
+        _exit_started = _time.monotonic()
+        import atexit
+
+        atexit.register(lambda: logging.getLogger("jarvis").info(
+            "process exit %.2fs after the event loop ended", _time.monotonic() - _exit_started))
     print("JARVIS offline.")
     return 0
 

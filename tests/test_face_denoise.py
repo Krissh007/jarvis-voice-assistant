@@ -88,6 +88,8 @@ def test_window_status_follows_the_assistant(assistant) -> None:
 
     a = assistant
     assert a.face is not None
+    assert a._face_status()["state"] == "starting"  # until run() has started
+    a._ready = True
     assert a._face_status()["state"] == "asleep"
     a.talk()
     a.player.clear()

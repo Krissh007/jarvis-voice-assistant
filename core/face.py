@@ -30,6 +30,7 @@ WIDTH = 240
 FPS = 30
 CAPTION_CHARS = 140
 STATE_LABELS = {
+    "starting": "Starting up…",
     "asleep": 'Asleep · say "hey jarvis"',
     "listening": "Listening…",
     "speaking": "Speaking",
@@ -66,7 +67,7 @@ def orb_shapes(state: str, t: float, level: float, size: int = SIZE) -> list[tup
     """
     ring, core, _ = STATES[state]
     c, s = size / 2, size / 200
-    speed = {"asleep": 12, "listening": 40, "speaking": 90, "muted": 6}[state]
+    speed = {"starting": 25, "asleep": 12, "listening": 40, "speaking": 90, "muted": 6}[state]
     breathe = 0.5 + 0.5 * math.sin(t * (1.2 if state == "asleep" else 2.5))
     energy = level if state in {"listening", "speaking"} else 0.15 * breathe
     shapes: list[tuple] = []
@@ -131,8 +132,16 @@ class Face:
         self._thread = threading.Thread(target=self._run, name="face", daemon=True)
         self._thread.start()
 
+    @property
+    def started(self) -> bool:
+        return self._thread is not None
+
     def show(self) -> None:
         self._visible = True
+
+    def bring_to_front(self) -> None:
+        self._visible = True
+        self._raise = True
 
     def hide(self) -> None:
         self._visible = False
@@ -358,6 +367,13 @@ class Face:
             if self._visible != self._shown:
                 (self._root.deiconify if self._visible else self._root.withdraw)()
                 self._shown = self._visible
+            if getattr(self, "_raise", False):
+                self._raise = False
+                self._root.lift()
+                self._root.attributes("-topmost", True)
+                if not self._topmost:
+                    self._root.after(400, lambda: self._root.attributes("-topmost", False))
+                self._root.focus_force()
             if self._shown:
                 self._draw(self._status())
         except Exception:

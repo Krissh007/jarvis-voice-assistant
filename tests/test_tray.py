@@ -122,18 +122,52 @@ async def test_quit_is_a_clean_exit(assistant) -> None:
     assert await task == "clean"
 
 
-def test_single_instance_lock() -> None:
+def _other_process(code: str) -> str:
+    """Run app_mode code in a separate process (a real second launch), return what it prints."""
+    import subprocess
+    import sys
+
+    from core.shortcut import ROOT
+
+    out = subprocess.run([sys.executable, "-c", "from core import app_mode as m\n" + code], cwd=ROOT,
+                         capture_output=True, text=True, timeout=30)
+    return out.stdout.strip()
+
+
+def test_single_instance_lock_waits_for_a_quitting_jarvis() -> None:
     import uuid
 
     from core import app_mode
 
-    name = f"Local\JARVIS-test-{uuid.uuid4().hex}"
+    name = f"Local\\JARVIS-test-{uuid.uuid4().hex}"
     saved = app_mode._mutex_handle
     try:
         assert app_mode.claim_single_instance(name) is True
-        assert app_mode.claim_single_instance(name) is False  # a second JARVIS is refused
+        # a second launch while this "JARVIS" runs: refused after its short wait
+        assert _other_process(f"print(m.claim_single_instance({name!r}, wait_s=0.3))") == "False"
+        app_mode.release_single_instance()  # Quit: released as shutdown starts
+        assert _other_process(f"print(m.claim_single_instance({name!r}, wait_s=0.3))") == "True"
     finally:
+        app_mode.release_single_instance()
         app_mode._mutex_handle = saved
+
+
+def test_second_launch_brings_the_window_to_the_front() -> None:
+    import uuid
+
+    from core import app_mode
+
+    name = f"Local\\JARVIS-show-test-{uuid.uuid4().hex}"
+    saved = app_mode._show_event
+    try:
+        app_mode.create_show_event(name)
+        assert not app_mode.show_requested()
+        assert _other_process(f"print(m.request_show({name!r}))") == "True"
+        assert app_mode.show_requested() is True
+        assert app_mode.show_requested() is False  # auto-reset: one request, one bring-to-front
+        assert _other_process("print(m.request_show('JARVIS-no-such-event'))") == "False"
+    finally:
+        app_mode._show_event = saved
 
 
 def test_desktop_icon_starts_jarvis_without_a_terminal() -> None:
@@ -156,3 +190,27 @@ def test_windowless_console_goes_to_a_file(tmp_path, monkeypatch) -> None:
     print("JARVIS online (नमस्ते)")
     sys.stdout.close()
     assert "JARVIS online (नमस्ते)" in path.read_text(encoding="utf-8")
+
+
+def test_talk_while_awake_says_yes(assistant) -> None:
+    a = assistant
+    a._ready = True
+    notices = []
+    a._notify = notices.append
+    a.talk()  # asleep -> wakes, beeps, no "Yes?"
+    assert a.wake.awake and notices == []
+    a.player.clear()
+    a.talk()  # already awake -> "Yes?"
+    assert len(notices) == 1 and '"Yes?"' in notices[0]
+    a.talk()  # double click: only one "Yes?"
+    assert len(notices) == 1
+
+
+def test_talk_while_speaking_cuts_the_reply_off(assistant) -> None:
+    a = assistant
+    a.talk()
+    a._last_ack = 0.0
+    a._notify = lambda text: None
+    a.player.enqueue(b"\x00" * 4000)
+    a.talk()
+    assert a._drop_reply and not a.playback.playing

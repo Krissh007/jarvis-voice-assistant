@@ -18,6 +18,7 @@ log = logging.getLogger(__name__)
 
 # ring colour, core colour, label
 STATES: dict[str, tuple[str, str, str]] = {
+    "starting": ("#3a5568", "#6f8b9c", "starting up"),
     "asleep": ("#4a6b82", "#9fb4c4", 'asleep - say "hey jarvis" or click'),
     "listening": ("#00b4ff", "#e6f7ff", "listening"),
     "speaking": ("#00e0ff", "#ffffff", "speaking"),
