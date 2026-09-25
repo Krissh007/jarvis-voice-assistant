@@ -116,8 +116,22 @@ async def test_silence_times_out_after_20_seconds(h) -> None:
 
 async def test_timeout_fires_even_if_the_model_never_finishes_its_turn(h) -> None:
     await h.model_calls("test_write_note", text="buy milk")
-    await h.advance(60)
+    await h.advance(115)
     assert h.pending is None and h.audit()[-1]["confirmation"] == "timeout"
+
+
+async def test_long_summary_does_not_time_out_while_being_read(h) -> None:
+    await h.model_calls("test_write_note", text="buy milk")
+    h.playback.set_playing(True)  # a long plan is still being spoken
+    await h.advance(40)
+    assert h.pending is not None  # the 20 s clock hasn't started yet
+    h.playback.set_playing(False)
+    h.dispatcher.on_turn_complete()
+    await h.advance(0.5)  # arms
+    await h.advance(19)
+    assert h.pending is not None
+    await h.advance(1.5)
+    assert h.pending is None
 
 
 async def test_cancel_hotkey_cancels(h) -> None:

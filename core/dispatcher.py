@@ -155,6 +155,28 @@ class Dispatcher:
         self._audit(name, args, base.name, effective.name, "not_required", result, tainted=was_tainted)
         return {**response, "status": "ok", "result": result}
 
+    # ------------------------------------------------------------------ agent-mode steps
+
+    def effective_tier(self, tool: Tool, args: dict[str, Any]) -> tuple[Tier, Tier]:
+        """(base, effective) tier for a step right now, with the same taint rule as a direct call."""
+        base = Tier.BLOCKED if tool.statically_blocked else tool.base_tier(args)
+        effective = base
+        if self.tainted and not tool.read_only and not tool.self_gated:
+            effective = max(base, Tier.CONFIRM)
+        return base, effective
+
+    async def run_step(self, tool: Tool, args: dict[str, Any], outcome: str) -> str | NeedsConfirmation:
+        """Run one approved plan step: same execution, untrusted wrapping, taint and audit as a tool call."""
+        base, effective = self.effective_tier(tool, args)
+        was_tainted = self.tainted
+        result = await self._run(tool, args, None)
+        if isinstance(result, NeedsConfirmation):
+            self._audit(tool.name, args, base.name, effective.name, outcome, f"paused: {result.summary}",
+                        tainted=was_tainted)
+            return result
+        self._audit(tool.name, args, base.name, effective.name, outcome, result, tainted=was_tainted)
+        return result
+
     def on_turn_complete(self) -> None:
         self.confirmer.on_turn_complete()
 

@@ -19,6 +19,7 @@ MODULES: dict[str, str | None] = {
     "actions.screen": "screen",
     "actions.clipboard": "clipboard",
     "actions.testing": "test_tools",
+    "actions.agent_mode": "agent_mode",  # last: it plans over every tool registered before it
 }
 
 
@@ -29,6 +30,7 @@ class Services:
     llm: Any = None  # core.llm.LLM
     data_dir: Path = Path(__file__).resolve().parent.parent / "data"
     browser: Any = None  # actions.browser.BrowserTools, shared with media
+    dispatcher: Any = None  # core.dispatcher.Dispatcher, set by the runtime (agent mode runs steps through it)
 
 
 def load_actions(registry: Registry, config: dict, services: Services | None = None) -> Registry:

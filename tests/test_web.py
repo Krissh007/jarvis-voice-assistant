@@ -401,3 +401,38 @@ def test_ttl_cache_expires(tmp_path) -> None:
     assert cache.get("k") == "v"
     now[0] = 11
     assert cache.get("k") is None
+
+
+async def test_bot_blocked_pages_retry_in_a_throwaway_browser(w, monkeypatch) -> None:
+    monkeypatch.setattr(web, "_transport", httpx.MockTransport(lambda r: httpx.Response(403, text="no bots")))
+    calls = []
+
+    async def fake_browser_fetch(url):
+        calls.append(url)
+        return url, ARTICLE
+
+    monkeypatch.setattr(web, "browser_fetch", fake_browser_fetch)
+    out = await w.read_page("https://news.example/review")
+    assert calls == ["https://news.example/review"] and "Summary: summary #1" in out
+
+
+async def test_other_http_errors_do_not_open_a_browser(w, monkeypatch) -> None:
+    monkeypatch.setattr(web, "_transport", httpx.MockTransport(lambda r: httpx.Response(404, text="gone")))
+
+    async def boom(url):
+        raise AssertionError("should not be called")
+
+    monkeypatch.setattr(web, "browser_fetch", boom)
+    assert "Couldn't read that page" in await w.read_page("https://news.example/missing")
+
+
+async def test_account_pages_are_never_fetched() -> None:
+    with pytest.raises(ValueError):
+        await web.fetch_page("https://myaccount.google.com/personal-info")
+
+
+async def test_block_pages_are_reported_as_failures(w, monkeypatch) -> None:
+    denied = "<html><head><title>Access to this page has been denied</title></head><body></body></html>"
+    monkeypatch.setattr(web, "_transport", httpx.MockTransport(
+        lambda r: httpx.Response(200, headers={"content-type": "text/html"}, text=denied)))
+    assert "blocks automated readers" in await w.read_page("https://news.example/x")

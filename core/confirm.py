@@ -17,6 +17,7 @@ from typing import Any
 from core.audio import PlaybackState
 
 _ids = itertools.count(1)
+UNARMED_GRACE_S = 90  # extra time allowed for reading a long summary before the timeout starts
 
 
 def normalize(text: str) -> str:
@@ -88,9 +89,11 @@ class Confirmer:
         now = self.clock()
         if p.armed_at is None and p.turn_done and not self.playback.speaking_or_tail():
             p.armed_at = now
-        start = p.armed_at if p.armed_at is not None else p.created_at
-        hard_cap = p.created_at + self.timeout_s + 30  # if the model never finishes its turn
-        return now - start >= self.timeout_s or now >= hard_cap
+        if p.armed_at is not None:
+            return now - p.armed_at >= self.timeout_s  # 20 s from the end of the spoken summary
+        # Still being read out (a long plan can take 30 s+): only a safety cap, in case the model
+        # never finishes its turn.
+        return now - p.created_at >= self.timeout_s + UNARMED_GRACE_S
 
     @property
     def armed(self) -> bool:

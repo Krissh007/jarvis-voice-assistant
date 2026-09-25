@@ -120,3 +120,23 @@ Privacy rules, enforced in code (`core/privacy.py`):
   clipboard after you confirm (and not if you've copied something else meanwhile).
 - If the clipboard looks like it holds a secret (API keys, private keys, `KEY=value` lines, card
   numbers, long random tokens), JARVIS refuses to send it anywhere.
+
+## Agent mode (Phase 8)
+
+For goals that need several tools in a row ("research three budget headphones, open the best one's
+product page and tell me the price"):
+
+1. JARVIS drafts a plan (max 10 steps) using only its real, allowed tools; code checks every step.
+   Web addresses it can't know yet must be **blanks** ("the product page found in step 3"); a guessed
+   address is rejected.
+2. It reads the numbered plan to you and waits for **one approval**.
+3. The approved plan is **frozen**: pages, the screen or the clipboard can't add, remove, reorder or
+   change steps. Blanks are filled from earlier results (values only), and if a filled value fails
+   (e.g. a site that blocks readers) it may pick another value up to twice, for the same step.
+4. Every step keeps its own safety rules: a site off your trusted list, saving a file, or typing
+   still asks you mid-plan.
+5. The first failure stops the plan and JARVIS asks what to do. A new plan needs a new approval
+   (one re-plan per request).
+
+Sites that refuse plain downloads (403) are retried once in a throwaway headless Chrome with no
+profile; some sites block all automated readers, and JARVIS says so.

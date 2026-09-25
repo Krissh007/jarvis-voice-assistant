@@ -75,28 +75,69 @@ def _is_private_host(host: str) -> bool:
     return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
 
 
+BOT_BLOCK_STATUS = {401, 403, 429, 451}
+BLOCK_PAGE = re.compile(r"access (to this page )?(has been )?denied|\bforbidden\b|are you a robot|captcha|"
+                        r"attention required|just a moment|verify you are (a )?human|unusual traffic",
+                        re.IGNORECASE)
+_browser_fetch_enabled = True  # tests turn this off
+
+
+async def browser_fetch(url: str) -> tuple[str, str]:
+    """Load a page in a throwaway headless Chrome: no profile, no cookies, closed straight after.
+    For sites that refuse plain downloads. Returns (final_url, html)."""
+    from playwright.async_api import async_playwright
+
+    from core.privacy import is_blocked_url
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(channel="chrome", headless=True)
+        try:
+            page = await (await browser.new_context()).new_page()
+            await page.goto(url, wait_until="domcontentloaded", timeout=20_000)
+            if is_blocked_url(page.url) or _is_private_host(urlsplit(page.url).hostname or ""):
+                raise ValueError("that page redirected somewhere I don't read")
+            await page.wait_for_timeout(1500)  # let script-built articles render
+            return page.url, (await page.content())[: MAX_PAGE_BYTES]
+        finally:
+            await browser.close()
+
+
 async def fetch_page(url: str) -> tuple[str, str, str]:
     """Download a page and extract its main text. Returns (final_url, title, text)."""
     import trafilatura
+
+    from core.privacy import is_blocked_url
 
     normalized = normalize_url(url)
     if normalized is None:
         raise ValueError("not a web address")
     if not _allow_private and _is_private_host(urlsplit(normalized).hostname or ""):
         raise ValueError("private or local addresses can't be read")
-    async with _client() as http:
-        async with http.stream("GET", normalized) as response:
-            response.raise_for_status()
-            kind = response.headers.get("content-type", "")
-            if "html" not in kind and "text" not in kind:
-                raise ValueError(f"not a web page ({kind or 'unknown type'})")
-            body = b""
-            async for chunk in response.aiter_bytes():
-                body += chunk
-                if len(body) > MAX_PAGE_BYTES:
-                    break
-            final_url = str(response.url)
-    html = body.decode(response.encoding or "utf-8", errors="replace")
+    if is_blocked_url(normalized):
+        raise ValueError("account and payment pages can't be read")
+    try:
+        async with _client() as http:
+            async with http.stream("GET", normalized) as response:
+                response.raise_for_status()
+                kind = response.headers.get("content-type", "")
+                if "html" not in kind and "text" not in kind:
+                    raise ValueError(f"not a web page ({kind or 'unknown type'})")
+                body = b""
+                async for chunk in response.aiter_bytes():
+                    body += chunk
+                    if len(body) > MAX_PAGE_BYTES:
+                        break
+                final_url = str(response.url)
+        html = body.decode(response.encoding or "utf-8", errors="replace")
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code not in BOT_BLOCK_STATUS or not _browser_fetch_enabled:
+            raise
+        log.info("%s refused a plain download (%d); trying a headless browser", urlsplit(normalized).hostname,
+                 exc.response.status_code)
+        try:
+            final_url, html = await browser_fetch(normalized)
+        except Exception as browser_exc:
+            raise ValueError(f"the site blocked me ({exc.response.status_code})") from browser_exc
     text = trafilatura.extract(html, url=final_url, include_comments=False, include_tables=True) or ""
     match = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
     title = " ".join(match.group(1).split())[:200] if match else urlsplit(final_url).hostname or final_url
@@ -176,8 +217,10 @@ class Web:
             final_url, title, text = await fetch_page(url)
         except (httpx.HTTPError, ValueError) as exc:
             return f"Couldn't read that page ({exc})."
+        if BLOCK_PAGE.search(title) or (not text.strip() and BLOCK_PAGE.search(title + " " + final_url)):
+            return "Couldn't read that page (the site blocks automated readers). Try another result."
         if not text.strip():
-            return f"{title}: the page has no readable text."
+            return f"Couldn't read that page ({title} has no readable text)."
         question = question or self.state.question
         key = TTLCache.key(final_url, hashlib.sha256(text.encode("utf-8")).hexdigest(), question)
         summary = self.cache.get(key)
@@ -297,6 +340,7 @@ def register(registry: Registry, config: dict, services) -> None:
             },
             "required": ["query"],
         },
+        summarize=lambda a: f"Search the {'news' if a.get('mode') == 'news' else 'web'} for {a.get('query')!r}",
     ))
     registry.register(Tool(
         name="read_page",
@@ -314,6 +358,7 @@ def register(registry: Registry, config: dict, services) -> None:
             },
             "required": ["url"],
         },
+        summarize=lambda a: f"Read {a.get('url')}" + (f" to find: {a['question']}" if a.get('question') else ''),
     ))
     registry.register(Tool(
         name="get_weather",

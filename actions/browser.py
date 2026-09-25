@@ -654,6 +654,7 @@ def register(registry: Registry, config: dict, services) -> None:
         untrusted_output=True,
         rung=3,
         parameters={"type": "object", "properties": {"question": {"type": "string"}}},
+        summarize=lambda a: "Read the page that's open" + (f" to find: {a['question']}" if a.get('question') else ''),
     ))
     registry.register(Tool(
         name="browser_task",

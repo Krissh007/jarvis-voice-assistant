@@ -120,6 +120,7 @@ class Assistant:
             dry_run=options.dry_run,
         )
         self.gate.confirmation_pending = lambda: self.dispatcher.awaiting_confirmation
+        self.services.dispatcher = self.dispatcher
 
         instruction = build_system_instruction(config["user"].get("name"), self.registry.summaries())
         declarations = self.registry.declarations()
