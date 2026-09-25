@@ -104,7 +104,11 @@ def orb_shapes(state: str, t: float, level: float, size: int = SIZE) -> list[tup
 
 
 class Face:
-    """The window. Default 360 x 600 (resizable from the ◢ corner); size and position are remembered."""
+    """The window: a normal Windows window (dark title bar, minimise to the taskbar, resize, snap).
+
+    Default 360 x 600; size and position are remembered. The X button quits JARVIS (or hides the
+    window to the tray, with window.close_button: hide).
+    """
 
     DEFAULT_W, DEFAULT_H = 360, 600
     MIN_W, MIN_H = 300, 420
@@ -113,7 +117,10 @@ class Face:
     def __init__(self, *, status: Callable[[], dict[str, Any]], on_talk: Callable[[], None],
                  on_stop: Callable[[], None], on_mute: Callable[[], None], on_quit: Callable[[], None],
                  state_path: Path, always_on_top: bool = True, opacity: float = 1.0,
-                 log_path: Path | None = None, on_sleep: Callable[[], None] | None = None) -> None:
+                 log_path: Path | None = None, on_sleep: Callable[[], None] | None = None,
+                 icon_path: Path | None = None, close_hides: bool = False) -> None:
+        self._icon_path = icon_path
+        self._close_hides = close_hides
         self._status = status
         self._on_talk, self._on_stop, self._on_mute, self._on_quit = on_talk, on_stop, on_mute, on_quit
         self._on_sleep = on_sleep
@@ -183,30 +190,21 @@ class Face:
             pass
         root = self._root = tk.Tk()
         root.title("JARVIS")
-        root.overrideredirect(True)
         root.configure(bg=BG)
+        if self._icon_path is not None and Path(self._icon_path).exists():
+            try:
+                root.iconbitmap(default=str(self._icon_path))  # title bar and taskbar button
+            except tk.TclError:
+                log.warning("couldn't load the window icon")
+        root.protocol("WM_DELETE_WINDOW", self.hide if self._close_hides else self._on_quit)
         root.attributes("-topmost", self._topmost)
         root.attributes("-alpha", self._opacity)
         self._scale = max(1.0, root.winfo_fpixels("1i") / 96)
         px = self._px
 
-        # header: title, state, hide
-        bar = self._bar = tk.Frame(root, bg=PANEL)
-        bar.pack(fill="x", side="top")
-        title = tk.Label(bar, text="J.A.R.V.I.S.", bg=PANEL, fg=TEXT, font=("Segoe UI Semibold", 10))
-        title.pack(side="left", padx=px(10), pady=px(5))
-        hide = tk.Label(bar, text="–", bg=PANEL, fg=DIM, font=("Segoe UI", 13), cursor="hand2")
-        hide.pack(side="right", padx=px(10))
-        hide.bind("<Button-1>", lambda e: self.hide())
-
-        # bottom: buttons and the resize grip (packed before the chat so they never get squeezed out)
+        # bottom: the buttons (packed before the chat so they never get squeezed out)
         bottom = tk.Frame(root, bg=BG)
         bottom.pack(fill="x", side="bottom")
-        grip = tk.Label(bottom, text="◢", bg=BG, fg=DIM, font=("Segoe UI", 9), cursor="size_nw_se")
-        grip.pack(side="right", anchor="se")
-        grip.bind("<ButtonPress-1>", self._grip_press)
-        grip.bind("<B1-Motion>", self._grip_drag)
-        grip.bind("<ButtonRelease-1>", lambda e: self._save_geometry())
         buttons = tk.Frame(bottom, bg=BG)
         buttons.pack(pady=(px(6), px(8)))
         self._buttons = {}
@@ -255,22 +253,23 @@ class Face:
             self._menu.add_command(label="Go to sleep", command=self._on_sleep)
         self._menu.add_checkbutton(label="Always on top", variable=self._topmost_var, command=self._toggle_topmost)
         self._menu.add_checkbutton(label="Compact (orb only)", variable=self._compact_var, command=self._toggle_compact)
+        self._menu.add_command(label="Minimise to the taskbar", command=lambda: self._root.iconify())
         self._menu.add_command(label="Hide window (reopen from the tray)", command=self.hide)
         if self._log_path is not None:
             self._menu.add_command(label="Open log", command=self._open_log)
         self._menu.add_separator()
         self._menu.add_command(label="Quit JARVIS", command=self._on_quit)
 
-        for widget in (bar, title, self._canvas, self._state_label):
-            widget.bind("<ButtonPress-1>", self._press)
-            widget.bind("<B1-Motion>", self._drag)
-            widget.bind("<ButtonRelease-1>", self._release)
-        for widget in (root, bar, title, self._canvas, self._state_label, chat):
+        self._canvas.bind("<Button-1>", lambda e: self._on_talk())  # click the orb = talk
+        for widget in (root, self._canvas, self._state_label, chat):
             widget.bind("<Button-3>", lambda e: self._menu.tk_popup(e.x_root, e.y_root))
 
+        root.minsize(px(self.MIN_W), px(self.MIN_H))
         x, y, w, h = self._initial_geometry()
         root.geometry(f"{w}x{h}+{x}+{y}")
-        self._drag_from = None
+        root.bind("<Configure>", self._on_configure)
+        root.after(50, self._style_title_bar)
+        self._save_pending = None
         self._shown = True
         self._t0 = time.monotonic()
         root.after(1000 // FPS, self._tick)
@@ -286,46 +285,45 @@ class Face:
             h = max(self._px(self.MIN_H), int(saved.get("h", h)))
             x, y = clamp_position(int(saved["x"]), int(saved["y"]), w, h, sw, sh)
         except (OSError, ValueError, KeyError, TypeError):
-            x, y = clamp_position(sw - w - self._px(24), sh - h - self._px(64), w, h, sw, sh)
+            x, y = clamp_position(sw - w - self._px(24), sh - h - self._px(96), w, h, sw, sh)
         return x, y, w, h
 
     def _save_geometry(self) -> None:
+        self._save_pending = None
         r = self._root
+        if r is None or r.state() != "normal" or getattr(self, "_compact_var", None) is not None and self._compact_var.get():
+            return  # minimised, maximised or compact: keep the normal size
         try:
+            size, x, y = r.geometry().split("+")[0], *r.geometry().split("+")[1:3]
+            w, h = size.split("x")
             self._state_path.parent.mkdir(parents=True, exist_ok=True)
-            self._state_path.write_text(json.dumps({"x": r.winfo_x(), "y": r.winfo_y(), "w": r.winfo_width(),
-                                                    "h": r.winfo_height()}), encoding="utf-8")
-        except OSError:
+            self._state_path.write_text(json.dumps({"x": int(x), "y": int(y), "w": int(w), "h": int(h)}),
+                                        encoding="utf-8")
+        except (OSError, ValueError):
             log.exception("couldn't save the window position")
 
-    def _press(self, event) -> None:
-        self._drag_from = (event.x_root, event.y_root, self._root.winfo_x(), self._root.winfo_y(), False)
+    def _on_configure(self, event) -> None:
+        if event.widget is self._root:  # moved or resized: save once it settles
+            if self._save_pending is not None:
+                self._root.after_cancel(self._save_pending)
+            self._save_pending = self._root.after(600, self._save_geometry)
 
-    def _drag(self, event) -> None:
-        if not self._drag_from:
-            return
-        x0, y0, wx, wy, _ = self._drag_from
-        dx, dy = event.x_root - x0, event.y_root - y0
-        if abs(dx) + abs(dy) > 4:
-            self._drag_from = (x0, y0, wx, wy, True)
-            self._root.geometry(f"+{wx + dx}+{wy + dy}")
+    def _style_title_bar(self) -> None:
+        """Dark title bar in JARVIS's colours (Windows 11; Windows 10 just gets the dark mode flag)."""
+        try:
+            import ctypes
 
-    def _release(self, event) -> None:
-        moved = bool(self._drag_from and self._drag_from[4])
-        self._drag_from = None
-        if moved:
-            self._save_geometry()
-        elif event.widget is self._canvas:
-            self._on_talk()  # a click (not a drag) on the orb = talk
+            def colorref(hex_color: str) -> int:
+                r, g, b = (int(hex_color[i:i + 2], 16) for i in (1, 3, 5))
+                return r | g << 8 | b << 16
 
-    def _grip_press(self, event) -> None:
-        self._grip_from = (event.x_root, event.y_root, self._root.winfo_width(), self._root.winfo_height())
-
-    def _grip_drag(self, event) -> None:
-        x0, y0, w0, h0 = self._grip_from
-        w = max(self._px(self.MIN_W), w0 + event.x_root - x0)
-        h = max(self._px(self.MIN_H), h0 + event.y_root - y0)
-        self._root.geometry(f"{w}x{h}")
+            hwnd = ctypes.windll.user32.GetParent(self._root.winfo_id())
+            dwm = ctypes.windll.dwmapi
+            for attribute, value in [(20, 1), (35, colorref(PANEL)), (36, colorref(TEXT)), (34, colorref(PANEL))]:
+                v = ctypes.c_int(value)  # 20 dark mode, 35 caption colour, 36 caption text, 34 border
+                dwm.DwmSetWindowAttribute(hwnd, attribute, ctypes.byref(v), ctypes.sizeof(v))
+        except Exception:
+            log.debug("title bar styling not available")
 
     # ---- menu actions ----
 
@@ -369,12 +367,14 @@ class Face:
                 self._shown = self._visible
             if getattr(self, "_raise", False):
                 self._raise = False
+                if self._root.state() == "iconic":
+                    self._root.deiconify()  # restore from the taskbar
                 self._root.lift()
                 self._root.attributes("-topmost", True)
                 if not self._topmost:
                     self._root.after(400, lambda: self._root.attributes("-topmost", False))
                 self._root.focus_force()
-            if self._shown:
+            if self._shown and self._root.state() != "iconic":  # nothing to draw while minimised
                 self._draw(self._status())
         except Exception:
             log.exception("window frame failed")

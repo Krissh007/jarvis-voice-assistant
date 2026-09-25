@@ -40,6 +40,7 @@ noise_suppression:              # RNNoise, runs on this PC: cleans the audio sen
 window:                         # used when features.window is true
   always_on_top: true
   opacity: 1.0                  # below 1 lets windows behind show through
+  close_button: quit            # the window's X: quit JARVIS, or "hide" to keep it running in the tray
 
 audio:
   transcription_languages: [en-IN]   # BCP-47 hints for your speech; [] = auto-detect

@@ -109,6 +109,9 @@ def main(argv: list[str] | None = None) -> int:
         tell_user,
     )
 
+    from core.taskbar import set_process_app_id
+
+    set_process_app_id()  # before any window: groups JARVIS's window under its pinned taskbar icon
     windowless = is_windowless()  # started from the desktop icon (pythonw): no terminal
     if windowless:
         redirect_console(ROOT / "logs")
@@ -150,6 +153,13 @@ def main(argv: list[str] | None = None) -> int:
                       "or its icon by the clock.", windowless, warning=False)
             return 1
         create_show_event()
+        try:
+            from core.shortcut import desktop_shortcut
+            from core.taskbar import tag_shortcut
+
+            tag_shortcut(desktop_shortcut(), ROOT)  # so a pin made from it groups with the window
+        except Exception:
+            logging.getLogger("jarvis").exception("couldn't tag the desktop shortcut")
     if windowless:
         # Without a terminal, the window or the tray is the only way to reach (and quit) JARVIS.
         if not (config["features"].get("window") or config["features"].get("tray")):

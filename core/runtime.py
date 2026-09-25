@@ -117,6 +117,8 @@ class Assistant:
                 always_on_top=bool(wcfg.get("always_on_top", True)),
                 opacity=float(wcfg.get("opacity", 1.0)),
                 log_path=options.log_dir / "app.log",
+                icon_path=Path(__file__).resolve().parent.parent / "assets" / "jarvis.ico",
+                close_hides=str(wcfg.get("close_button", "quit")).lower() == "hide",
             )
         if self.face is not None and options.early_window:
             self.face.start()  # "Starting up…" while the models load

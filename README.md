@@ -98,6 +98,10 @@ You need Windows 10/11, **Google Chrome** installed, and about 2 GB of disk spac
    ```bash
    .\run.bat --install-shortcut
    ```
+   **To pin it to the taskbar**, right-click the desktop icon > *Show more options* > *Pin to taskbar*.
+   JARVIS's window then shares that taskbar button: minimising goes there and clicking it brings the
+   window back. (Pin from the desktop icon, not a running window. JARVIS never edits a pinned
+   shortcut, because Windows unpins shortcuts that change.)
    Only one JARVIS runs at a time: double-clicking again while it's running brings its window to the
    front, and relaunching right after Quit just works (the old one lets go as soon as it has put your
    music volume back). The window appears at once with "Starting up…" while the models load. In app
@@ -144,15 +148,16 @@ press **Ctrl+Alt+Y**. Anything else, **Ctrl+Alt+N**, or 20 seconds of silence ca
 | Ctrl+Alt+S | Stop JARVIS talking |
 | Ctrl+Alt+Y / Ctrl+Alt+N | Confirm / cancel the pending action |
 
-**JARVIS window** (`features.window`): an always-on-top panel (bottom-right at first) with an
-animated orb. Its rings spin and its core pulses with your voice or JARVIS's, in the same colours as
+**JARVIS window** (`features.window`): a normal window with a dark title bar (bottom-right at first)
+and an animated orb. Its rings spin and its core pulses with your voice or JARVIS's, in the same colours as
 the tray icon. Below it is the **whole conversation**, scrollable, newest at the bottom.
 - Buttons: **Talk** (wake JARVIS; if it's already awake it answers "Yes?"), **Sleep** (like saying "go to sleep"), **Mute**, and **Stop**
   (JARVIS stops talking and the music pauses). A button flashes when it registers a click.
-- **Click the orb to talk.** Drag the orb or title bar to move the window, and drag the **◢**
-  corner to resize it. Size and position are remembered.
-- Right-click for *Always on top*, *Compact (orb only)*, *Hide*, *Open log* and *Quit*. The **–**
-  button hides it; bring it back from the tray menu (**Show JARVIS window**).
+- **Click the orb to talk.** Move, resize, snap and **minimise it to the taskbar** like any window.
+  Size and position are remembered. The **X** quits JARVIS (`window.close_button: hide` keeps it
+  running in the tray instead).
+- Right-click for *Always on top*, *Compact (orb only)*, *Minimise*, *Hide* (bring it back from the
+  tray menu's **Show JARVIS window**), *Open log* and *Quit*.
 
 **Music while you talk** (`ducking`): while JARVIS is awake, other apps (your music) drop to 30% of
 their volume so you can hear each other, and go back up when JARVIS sleeps. JARVIS's own voice is
@@ -362,7 +367,7 @@ Blocking work runs in a thread automatically. Use `async def` for async tools.
 | `wake_word.*` | Thresholds, gain, beep volume, personal verifier |
 | `ducking.enabled`, `ducking.level` | Lower the music while JARVIS is awake (0.3 = 30%) |
 | `noise_suppression.enabled`, `.strength` | Clean background noise from what Gemini hears (RNNoise, on this PC) |
-| `window.always_on_top`, `window.opacity` | The JARVIS window |
+| `window.always_on_top`, `window.opacity`, `window.close_button` | The JARVIS window (X quits, or `hide` keeps it in the tray) |
 | `audio.input_device` | `null` = Windows default, or part of a device name |
 | `audio.echo_mode` | `auto`, `headphones` or `speakers` (see Troubleshooting) |
 | `confirm.accept_phrases`, `confirm.timeout_s` | What counts as "yes", and how long it waits |

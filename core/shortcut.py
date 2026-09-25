@@ -35,16 +35,26 @@ def app_command() -> tuple[Path, str]:
     return ROOT / "run.bat", ""
 
 
+def desktop_shortcut() -> Path:
+    """Where the desktop icon lives (the real Desktop folder, e.g. inside OneDrive)."""
+    import ctypes
+    from ctypes import wintypes
+
+    buf = ctypes.create_unicode_buffer(wintypes.MAX_PATH)
+    ctypes.windll.shell32.SHGetFolderPathW(None, 0x0010, None, 0, buf)  # CSIDL_DESKTOPDIRECTORY
+    return Path(buf.value) / "JARVIS.lnk"
+
+
 def install_shortcut() -> int:
+    from core.taskbar import set_shortcut_app_id
+
     icon = save_ico(ROOT / "assets" / "jarvis.ico")
-    desktop = subprocess.run(
-        ["powershell", "-NoProfile", "-Command", "[Environment]::GetFolderPath('Desktop')"],
-        capture_output=True, text=True, check=True,
-    ).stdout.strip()
-    lnk = str(Path(desktop) / "JARVIS.lnk")
+    lnk = str(desktop_shortcut())
     target, arguments = app_command()
     subprocess.run(["powershell", "-NoProfile", "-Command", shortcut_script(lnk, target, ROOT, icon, arguments)],
                    check=True)
+    set_shortcut_app_id(Path(lnk))  # a pin made from this icon groups with JARVIS's window
     print(f"Created {lnk}. Double-click it to start JARVIS (its window and tray icon, no terminal).")
+    print("To pin it: right-click the icon > Show more options > Pin to taskbar.")
     print("Delete it any time to remove it. For the terminal version, run run.bat.")
     return 0

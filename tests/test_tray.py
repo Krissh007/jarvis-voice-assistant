@@ -214,3 +214,43 @@ def test_talk_while_speaking_cuts_the_reply_off(assistant) -> None:
     a.player.enqueue(b"\x00" * 4000)
     a.talk()
     assert a._drop_reply and not a.playback.playing
+
+
+def test_taskbar_id_is_written_to_a_desktop_shortcut_but_never_a_pinned_one(tmp_path) -> None:
+    """Live lesson: editing a pinned taskbar shortcut makes Windows unpin it."""
+    import pytest
+
+    from core import taskbar
+    from core.shortcut import ROOT, app_command, shortcut_script
+
+    target, arguments = app_command()
+    lnk = tmp_path / "JARVIS.lnk"
+    import subprocess
+
+    subprocess.run(["powershell", "-NoProfile", "-Command",
+                    shortcut_script(str(lnk), target, ROOT, ROOT / "assets" / "jarvis.ico", arguments)], check=True)
+    assert taskbar.shortcut_app_id(lnk) is None
+    assert taskbar.tag_shortcut(lnk, ROOT) is True
+    assert taskbar.shortcut_app_id(lnk) == taskbar.APP_ID
+    assert taskbar.tag_shortcut(lnk, ROOT) is False  # already tagged: left alone
+
+    pinned = tmp_path / "User Pinned" / "TaskBar" / "JARVIS.lnk"
+    pinned.parent.mkdir(parents=True)
+    pinned.write_bytes(lnk.read_bytes())
+    assert taskbar.tag_shortcut(pinned, ROOT) is False
+    with pytest.raises(ValueError, match="unpin"):
+        taskbar.set_shortcut_app_id(pinned)
+
+
+def test_other_apps_shortcuts_are_not_jarvis(tmp_path) -> None:
+    import subprocess
+
+    from core import taskbar
+    from core.shortcut import ROOT, shortcut_script
+
+    lnk = tmp_path / "Notepad.lnk"
+    subprocess.run(["powershell", "-NoProfile", "-Command",
+                    shortcut_script(str(lnk), __import__("pathlib").Path(r"C:\Windows\notepad.exe"), tmp_path,
+                                    tmp_path / "x.ico")], check=True)
+    assert taskbar.is_jarvis_shortcut(lnk, ROOT) is False
+    assert taskbar.tag_shortcut(lnk, ROOT) is False
