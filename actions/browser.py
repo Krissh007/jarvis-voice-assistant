@@ -279,6 +279,14 @@ class BrowserTools:
             return USAGE_LIMIT_MESSAGE
         return f"Title: {redact(await page.title())}\nURL: {page.url}\nSummary: {summary}"
 
+    async def browser_close(self) -> str:
+        """Close JARVIS's own Chrome window (never the user's own Chrome). Rung 3. Tier SAFE.
+        The sign-in is kept; the window reopens the next time a browser tool is used."""
+        if self.session.context is None:
+            return "The JARVIS browser isn't open."
+        await self.session.close()
+        return "Closed the JARVIS browser window."
+
     async def play_youtube(self, query: str, result: int = 1) -> str:
         """Search YouTube and play the Nth video result (ads and Shorts skipped). Rung 3, no model calls.
         Tier SAFE: clicking search/play on youtube.com counts as media playback."""
@@ -589,7 +597,8 @@ def register(registry: Registry, config: dict, services) -> None:
     ))
     registry.register(Tool(
         name="browser_open",
-        description="Open a web page in JARVIS's own Chrome window (for browsing, reading or playing media).",
+        description=("Open a website or web page (e.g. 'naukri.com') in JARVIS's own Chrome window. "
+                     "Sites not on the trusted list need confirmation."),
         func=tools.browser_open,
         tier=lambda args: url_tier(str(args.get("url", "")), allow),
         read_only=True,  # navigation only (spec 0.3c); account pages are still BLOCKED
@@ -611,6 +620,14 @@ def register(registry: Registry, config: dict, services) -> None:
             "required": ["site", "query"],
         },
         summarize=lambda a: f"Search {a.get('site')} for {a.get('query')!r}",
+    ))
+    registry.register(Tool(
+        name="browser_close",
+        description="Close JARVIS's browser window (also stops anything playing in it). Not the user's own Chrome.",
+        func=tools.browser_close,
+        tier=Tier.SAFE,
+        read_only=True,  # only affects JARVIS's own window
+        rung=3,
     ))
     registry.register(Tool(
         name="read_current_page",

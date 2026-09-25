@@ -349,3 +349,24 @@ async def test_play_youtube_refuses_results_that_leave_youtube(youtube) -> None:
     session, page = youtube
     out = await tools_for(session, None).play_youtube("x", result=3)
     assert "won't open it" in out and "evil.example" not in page.url
+
+
+async def test_browser_close_closes_only_the_jarvis_window(browser) -> None:
+    session, page = browser
+    tools = tools_for(session, None)
+    assert await tools.browser_close() == "Closed the JARVIS browser window."
+    assert session.context is None
+    assert await tools.browser_close() == "The JARVIS browser isn't open."
+    reopened = await session.page()  # the next browser tool just reopens it
+    assert reopened is not None and session.context is not None
+
+
+def test_websites_open_in_the_jarvis_browser_when_it_is_enabled() -> None:
+    from actions import load_actions
+    from core.registry import Registry
+
+    base = {"sites": CFG["sites"], "apps": {"allowlist": {}}}
+    with_browser = load_actions(Registry(), {**base, "features": {"system": True, "browser": True}}, Services())
+    without = load_actions(Registry(), {**base, "features": {"system": True}}, Services())
+    assert with_browser.get("open_website") is None and with_browser.get("browser_open") is not None
+    assert without.get("open_website") is not None

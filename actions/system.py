@@ -200,19 +200,22 @@ def register(registry: Registry, config: dict, services=None) -> None:
         },
         summarize=app_summary,
     ))
-    open_website, site_summary, site_tier = make_open_website(config)
-    registry.register(Tool(
-        name="open_website",
-        description="Open a website in the user's browser. Sites not on the trusted list need confirmation.",
-        func=open_website,
-        tier=site_tier,
-        parameters={
-            "type": "object",
-            "properties": {"url": {"type": "string", "description": "Web address, e.g. 'naukri.com'."}},
-            "required": ["url"],
-        },
-        summarize=site_summary,
-    ))
+    # With the browser module on, websites open in JARVIS's own Chrome (browser_open) so it can read,
+    # control and close them; this rung-2 fallback (the user's default browser) is only for without it.
+    if not config.get("features", {}).get("browser"):
+        open_website, site_summary, site_tier = make_open_website(config)
+        registry.register(Tool(
+            name="open_website",
+            description="Open a website in the user's browser. Sites not on the trusted list need confirmation.",
+            func=open_website,
+            tier=site_tier,
+            parameters={
+                "type": "object",
+                "properties": {"url": {"type": "string", "description": "Web address, e.g. 'naukri.com'."}},
+                "required": ["url"],
+            },
+            summarize=site_summary,
+        ))
     registry.register(Tool(
         name="set_volume",
         description="Set the computer's master volume, 0 to 100.",
