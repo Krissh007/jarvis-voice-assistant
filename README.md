@@ -93,6 +93,10 @@ You need Windows 10/11, **Google Chrome** installed, and about 2 GB of disk spac
    ```
    Use `.\run.bat --text` to type instead of speaking, or `.\run.bat --dry-run` to log actions
    without doing them.
+9. **Optional: a desktop icon** that starts JARVIS (not auto-start; delete it any time):
+   ```bash
+   .\run.bat --install-shortcut
+   ```
 
 `run.bat` uses the project's `.venv` directly, so it works even if `uv` isn't on your PATH.
 
@@ -112,7 +116,7 @@ an hour and uses the next model in `models.flash_fallbacks`.
 
 | You say | What happens |
 |---|---|
-| "Hey Jarvis" | Wakes up (a soft beep). It goes back to sleep after 15 s of quiet, or "go to sleep" |
+| "Hey Jarvis" (or click the tray icon, or Ctrl+Alt+Space) | Wakes up (a soft beep). It goes back to sleep after 15 s of quiet, or "go to sleep" |
 | "What's the weather in Hyderabad?" | Answers straight away |
 | "Research the best budget headphones" | Searches, reads up to 3 pages, answers, offers to save notes |
 | "Open Notepad" / "Close Notepad" | Opens straight away / asks first, then closes |
@@ -130,9 +134,14 @@ press **Ctrl+Alt+Y**. Anything else, **Ctrl+Alt+N**, or 20 seconds of silence ca
 | Hotkey | Does |
 |---|---|
 | Ctrl+Alt+M | Mute / unmute the mic |
-| Ctrl+Alt+Space | Push-to-talk (in `push_to_talk` mode), or talk without the wake word |
+| Ctrl+Alt+Space | Wake JARVIS without saying "hey jarvis" (hold it to talk in `push_to_talk` mode) |
 | Ctrl+Alt+S | Stop JARVIS talking |
 | Ctrl+Alt+Y / Ctrl+Alt+N | Confirm / cancel the pending action |
+
+**Tray icon** (`features.tray`): JARVIS's ring by the clock is grey when asleep, blue when listening,
+bright cyan when speaking and red when muted. **Left-click it to talk** (wakes JARVIS without the wake
+word, and unmutes). Right-click for **Talk to JARVIS**, **Stop talking**, **Mute microphone** and
+**Quit JARVIS**. If you don't see it, click the **^** arrow by the clock and drag it out.
 
 **Listening modes** (`listening.mode`): `wake_word` (default: say "hey jarvis"), `always_on` (the
 mic always streams to Gemini), or `push_to_talk` (hold Ctrl+Alt+Space).
@@ -341,7 +350,7 @@ Blocking work runs in a thread automatically. Use `async def` for async tools.
 | `features.*` | Switch whole modules on or off |
 
 Command-line options: `--text`, `--dry-run`, `--mic-test`, `--mic NAME`, `--train-wake`,
-`--browser-login`.
+`--browser-login`, `--install-shortcut`.
 
 ## Troubleshooting
 
@@ -410,6 +419,7 @@ jarvis/
 │   ├── untrusted.py     # <untrusted_content> wrapping
 │   ├── llm.py           # Flash text calls with fallbacks and quota handling
 │   ├── audio.py, hotkeys.py, wakeword.py, mictest.py, wake_training.py
+│   ├── tray.py, shortcut.py  # tray icon, desktop shortcut
 │   ├── prompts.py       # system instruction
 │   └── briefing.py      # morning briefing
 ├── actions/             # one module per capability (see "What each capability does")
