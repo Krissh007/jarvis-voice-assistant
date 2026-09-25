@@ -126,7 +126,7 @@ briefing:                       # used when features.morning_briefing is true
   news_query: "top news today"  # e.g. "India news today"; weather needs weather.default_city
 
 features:
-  test_tools: true              # Phase 2 safety-test tools; turn off once real tools exist
+  test_tools: false             # Phase 2 safety-test tools (the test suite turns them on itself)
   system: true
   web: true
   browser: true

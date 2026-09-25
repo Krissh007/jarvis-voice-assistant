@@ -1,0 +1,5 @@
+# Normalise line endings in the repo; Windows checkouts get CRLF where it matters.
+* text=auto
+*.bat text eol=crlf
+*.png binary
+*.ico binary
