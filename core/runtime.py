@@ -6,6 +6,7 @@ import asyncio
 import logging
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -27,6 +28,7 @@ from core.session import LiveSession, build_live_config
 from core.wakeword import WakeState
 
 log = logging.getLogger(__name__)
+WORKING_MAX_S = 90  # stay awake this long after a tool call if the model's turn hasn't finished
 
 
 @dataclass
@@ -154,7 +156,19 @@ class Assistant:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._mic: Mic | None = None
         self._main_task: asyncio.Task | None = None
-        self._input_closed = False
+        self._exiting = False  # Quit from the tray, or typed input ran out: a normal exit
+        self._last_tool_at = 0.0  # keeps JARVIS awake while a tool is still working
+        self.tray = None
+        if config["features"].get("tray") and self.mode != "text":
+            from core.tray import Tray
+
+            self.tray = Tray(
+                on_talk=lambda: self._from_thread(self.talk),
+                on_stop=lambda: self._from_thread(self.on_hotkey, "stop", True),
+                on_mute=lambda: self._from_thread(self.on_hotkey, "mute", True),
+                on_quit=lambda: self._from_thread(self.request_exit, "tray"),
+                is_muted=lambda: self.gate.muted,
+            )
 
     # ---- lifecycle ----
 
@@ -175,13 +189,17 @@ class Assistant:
         if self.config["features"].get("morning_briefing"):
             tasks.append(asyncio.create_task(self._briefing(), name="briefing"))
         self._print_banner()
+        if self.tray is not None:
+            self.tray.start()
         self._main_task = asyncio.current_task()
         try:
             await asyncio.gather(*tasks)
         except asyncio.CancelledError:
-            if not self._input_closed:
-                raise  # a real cancellation; only end-of-typed-input is a normal exit
+            if not self._exiting:
+                raise  # a real cancellation; Quit and end-of-typed-input are normal exits
         finally:
+            if self.tray is not None:
+                self.tray.stop()
             if self.services.reminders is not None:
                 self.services.reminders.stop()
             for t in tasks:
@@ -215,7 +233,8 @@ class Assistant:
             else:
                 print(f"  Output: {self.output_name or 'unknown'} -> headphone mode: interrupt me just by talking.")
         if self.mode == "wake_word":
-            print('  Say "hey jarvis" to wake me.')
+            tray = " or click my tray icon" if self.tray is not None else ""
+            print(f'  Wake me: say "hey jarvis", press {keys["push_to_talk"]}{tray}.')
         if self.mode == "text":
             print("  Type a message and press Enter.")
 
@@ -249,10 +268,35 @@ class Assistant:
 
     async def _exit_after_input(self, grace_s: float = 8.0) -> None:
         await asyncio.sleep(grace_s)
-        self._input_closed = True
-        print("(input ended)", flush=True)
+        self.request_exit("input ended")
+
+    def request_exit(self, why: str) -> None:
+        """Shut down cleanly (same clean-up as Ctrl+C)."""
+        self._exiting = True
+        print(f"({why}: shutting down)", flush=True)
         if self._main_task is not None:
             self._main_task.cancel()
+
+    def _from_thread(self, func, *args) -> None:
+        """Run `func` on the asyncio loop (tray and hotkey callbacks come from other threads)."""
+        if self._loop is not None:
+            self._loop.call_soon_threadsafe(func, *args)
+
+    def talk(self) -> None:
+        """'Talk to JARVIS' without the wake word: tray click, or the push-to-talk key in wake-word mode."""
+        if self.gate.muted:
+            self.gate.muted = False
+            print("(mic live)", flush=True)
+        self.player.clear()  # if it was talking, let the user speak
+        if self.wake is None:
+            return
+        if self.wake.awake:
+            self.wake.touch()
+            return
+        self.wake.wake()
+        if self.wake_chime:
+            self.player.enqueue(self.wake_chime)
+        print("(awake)", flush=True)
 
     async def _on_typed(self, text: str) -> None:
         if not await self.dispatcher.on_user_input(text, "text"):
@@ -265,6 +309,8 @@ class Assistant:
         if name == "mute" and pressed:
             self.gate.muted = not self.gate.muted
             print("(mic muted)" if self.gate.muted else "(mic live)", flush=True)
+        elif name == "push_to_talk" and pressed and self.wake is not None:
+            self.talk()  # wake-word mode: the key works like saying "hey jarvis"
         elif name == "push_to_talk" and self.gate.push_to_talk:
             self.gate.ptt_held = pressed
             if pressed:
@@ -287,9 +333,20 @@ class Assistant:
                 await self.dispatcher.tick()
             except Exception:
                 log.exception("dispatcher tick failed")
-            if self.wake and self.wake.check_sleep(self.playback.playing or self.dispatcher.awaiting_confirmation):
+            working = time.monotonic() - self._last_tool_at < WORKING_MAX_S  # a tool call's turn isn't over
+            if self.wake and self.wake.check_sleep(self.playback.playing or self.dispatcher.awaiting_confirmation
+                                                   or working):
                 self.transcript.flush()
                 print("(sleeping)", flush=True)
+            if self.tray is not None:
+                self.tray.set_state(self._tray_state())
+
+    def _tray_state(self) -> str:
+        if self.gate.muted:
+            return "muted"
+        if self.wake is not None and not self.wake.awake:
+            return "asleep"
+        return "speaking" if self.playback.playing else "listening"
 
     # ---- audio devices ----
 
@@ -404,6 +461,7 @@ class Assistant:
 
     def on_turn_complete(self) -> None:
         self._drop_reply = False
+        self._last_tool_at = 0.0
         if self.wake:
             self.wake.touch()
         self.dispatcher.flush_utterance()
@@ -411,9 +469,11 @@ class Assistant:
         self.transcript.flush()
 
     async def on_tool_call(self, name: str, args: dict, call_id: str | None) -> dict:
+        self._last_tool_at = time.monotonic()
         self.transcript.flush()
         print(f"  [tool] {name}({', '.join(f'{k}={v!r}' for k, v in args.items())})", flush=True)
         result = await self.dispatcher.handle_call(name, args, call_id)
+        self._last_tool_at = time.monotonic()  # the model still has to answer with the result
         status = result.get("status")
         if status == "awaiting_confirmation":
             keys = self.config["hotkeys"]

@@ -16,6 +16,7 @@ dependencies = [
     "pycaw>=20260921",
     "pynput>=1.8.2",
     "pyperclip>=1.11.0",
+    "pystray>=0.19.5",
     "python-dotenv>=1.2.3",
     "pywinauto>=0.6.9",
     "pyyaml",

@@ -28,6 +28,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--mic-test", action="store_true", help="show live mic level and wake-word score, then exit")
     parser.add_argument("--train-wake", action="store_true",
                         help="record your voice to make the wake word recognise you better, then exit")
+    parser.add_argument("--install-shortcut", action="store_true",
+                        help="put a JARVIS icon on the desktop that starts JARVIS, then exit")
     parser.add_argument("--mic", metavar="NAME",
                         help='use this microphone (part of its name, e.g. "Nord Buds") instead of audio.input_device')
     parser.add_argument("--browser-login", action="store_true",
@@ -104,6 +106,10 @@ def main(argv: list[str] | None = None) -> int:
     config = load_config()
     if args.mic:
         config["audio"]["input_device"] = args.mic
+    if args.install_shortcut:
+        from core.shortcut import install_shortcut
+
+        return install_shortcut()
     if args.train_wake:
         from actions import Services
         from core.wake_training import run_wake_training

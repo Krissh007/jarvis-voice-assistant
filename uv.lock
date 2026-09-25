@@ -341,6 +341,7 @@ dependencies = [
     { name = "pycaw" },
     { name = "pynput" },
     { name = "pyperclip" },
+    { name = "pystray" },
     { name = "python-dotenv" },
     { name = "pywinauto" },
     { name = "pyyaml" },
@@ -381,6 +382,7 @@ requires-dist = [
     { name = "pycaw", specifier = ">=20260921" },
     { name = "pynput", specifier = ">=1.8.2" },
     { name = "pyperclip", specifier = ">=1.11.0" },
+    { name = "pystray", specifier = ">=0.19.5" },
     { name = "python-dotenv", specifier = ">=1.2.3" },
     { name = "pywinauto", specifier = ">=0.6.9" },
     { name = "pyyaml" },
@@ -703,6 +705,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/e8/52/d87eba7cb129b81563019d1679026e7a112ef76855d6159d24754dbd2a51/pyperclip-1.11.0.tar.gz", hash = "sha256:244035963e4428530d9e3a6101a1ef97209c6825edab1567beac148ccc1db1b6", size = 12185, upload-time = "2025-09-26T14:40:37.245Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/df/80/fc9d01d5ed37ba4c42ca2b55b4339ae6e200b456be3a1aaddf4a9fa99b8c/pyperclip-1.11.0-py3-none-any.whl", hash = "sha256:299403e9ff44581cb9ba2ffeed69c7aa96a008622ad0c46cb575ca75b5b84273", size = 11063, upload-time = "2025-09-26T14:40:36.069Z" },
+]
+
+[[package]]
+name = "pystray"
+version = "0.19.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pillow" },
+    { name = "six" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5c/64/927a4b9024196a4799eba0180e0ca31568426f258a4a5c90f87a97f51d28/pystray-0.19.5-py2.py3-none-any.whl", hash = "sha256:a0c2229d02cf87207297c22d86ffc57c86c227517b038c0d3c59df79295ac617", size = 49068, upload-time = "2023-09-17T13:44:26.872Z" },
 ]
 
 [[package]]
