@@ -43,8 +43,20 @@ def build_live_config(
     tools: list[types.FunctionDeclaration] | None = None,
     languages: list[str] | None = None,
     vocabulary: list[str] | None = None,
+    end_pause_ms: int | None = None,
 ) -> types.LiveConnectConfig:
-    """Session setup: audio out, both transcriptions, compression, resumption, VAD mode."""
+    """Session setup: audio out, both transcriptions, compression, resumption, VAD mode.
+
+    `end_pause_ms`: how long you must be quiet before Gemini treats your turn as finished. Its default
+    is short enough that a pause mid-sentence split one request into several (and repeated tool calls).
+    """
+    detection = types.AutomaticActivityDetection(disabled=push_to_talk)
+    if end_pause_ms and not push_to_talk:
+        detection = types.AutomaticActivityDetection(
+            disabled=False,
+            silence_duration_ms=int(end_pause_ms),
+            end_of_speech_sensitivity=types.EndSensitivity.END_SENSITIVITY_LOW,  # a short pause isn't the end
+        )
     speech = None
     if voice:
         speech = types.SpeechConfig(
@@ -62,7 +74,7 @@ def build_live_config(
         context_window_compression=types.ContextWindowCompressionConfig(sliding_window=types.SlidingWindow()),
         session_resumption=types.SessionResumptionConfig(handle=resume_handle),
         realtime_input_config=types.RealtimeInputConfig(
-            automatic_activity_detection=types.AutomaticActivityDetection(disabled=push_to_talk),
+            automatic_activity_detection=detection,
             activity_handling=types.ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
         ),
     )

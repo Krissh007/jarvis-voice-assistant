@@ -69,7 +69,7 @@ class Tray:
         menu = pystray.Menu(
             pystray.MenuItem("Talk to JARVIS", lambda: on_talk(), default=True),  # left-click
             *([pystray.MenuItem("Go to sleep", lambda: self._on_sleep())] if self._on_sleep else []),
-            pystray.MenuItem("Stop (JARVIS and the music)", lambda: on_stop()),
+            pystray.MenuItem("Stop JARVIS (again to pause the music)", lambda: on_stop()),
             pystray.MenuItem("Mute microphone", lambda: on_mute(), checked=lambda item: self._is_muted()),
             *([pystray.MenuItem("Show JARVIS window", lambda: self._on_show())] if self._on_show else []),
             pystray.Menu.SEPARATOR,

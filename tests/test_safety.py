@@ -421,3 +421,24 @@ async def test_model_re_calling_a_confirmed_tool_while_it_runs_is_refused(tmp_pa
     assert runs == ["a"]
     # once finished, a fresh request is allowed again
     assert (await h.model_calls("test_slow", text="b"))["status"] == "awaiting_confirmation"
+
+
+async def test_a_repeated_read_only_call_shares_the_running_one(tmp_path) -> None:
+    """Live log: split-up speech made the model ask to read the screen three times at once."""
+    runs, writes = [], []
+
+    async def look(question: str) -> str:
+        runs.append(question)
+        await asyncio.sleep(0.05)
+        return "a chat window"
+
+    reader = Tool(name="test_look", description="look", func=look, tier=Tier.SAFE, read_only=True,
+                  untrusted_output=True)
+    h = fl.SafetyHarness(tmp_path, extra_tools=[reader, safe_writer_tool(writes)])
+    same = [h.model_calls("test_look", question="what's on screen?") for _ in range(3)]
+    other = h.model_calls("test_look", question="something else")
+    results = await asyncio.gather(*same, other)
+    assert len(runs) == 2  # the three identical calls ran once
+    assert all(r["status"] == "ok" and "a chat window" in r["result"] for r in results)
+    assert [a["result"] for a in h.audit()].count("same call already running: shared its result") == 2
+    assert h.dispatcher._share_key(safe_writer_tool(writes), {}) is None  # anything that acts is never merged

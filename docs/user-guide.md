@@ -85,12 +85,20 @@ runs out, JARVIS skips it for an hour and uses the next model in `models.flash_f
 **Sleep:** say "go to sleep", click **Sleep**, or just stop talking: it sleeps after 15 seconds of
 quiet. While asleep, nothing you say leaves your PC.
 
+**Or type:** write in the box at the bottom of the window and press **Enter** (or click **Send**).
+JARVIS answers in the conversation and, normally, out loud too. Turn off *Speak replies to typed
+messages* in the right-click menu for silent, text-only answers, e.g. in a meeting. Typing never
+turns the microphone on. **Up** and **Down** bring back earlier messages, and **Esc** clears the box.
+
 | You say | What happens |
 |---|---|
 | "What's the weather in Hyderabad?" | Answers straight away |
 | "Research the best budget headphones" | Searches, reads up to 3 pages, answers, offers to save notes |
 | "Save that" | Saves the notes to `Documents\jarvis\` (asks first; never overwrites) |
 | "Open Notepad" / "Close Notepad" | Opens straight away / asks first, then closes |
+| "Open my resume" | Finds it in your folders and opens it; if several files match, asks which one |
+| "What did I download today?" / "Find my photos from last week" | Lists the newest matches |
+| "Show the second one in its folder" | Opens File Explorer with that file selected |
 | "Play Believer by Imagine Dragons" | Plays that song in your YouTube Music app |
 | "Play the Rolling Stones" | Plays that band's most popular song |
 | "Pause" / "Next" / "What's playing?" | Controls YouTube Music |
@@ -121,6 +129,7 @@ the clipboard, running a plan, forgetting a memory) is read to you first:
 - **Yes:** say *yes, yeah, yep, sure, okay, confirm* or *go ahead* (a few filler words are fine:
   "yeah, go ahead"), or press **Ctrl+Alt+Y**.
 - **No:** say anything else, press **Ctrl+Alt+N**, or stay silent for 20 seconds.
+- Or **type** *yes* in the window's box.
 - Your answer only counts once JARVIS has finished speaking, so its own voice can never confirm.
 - "Yes, but change it to…" is a no: ask again with the change.
 
@@ -138,16 +147,19 @@ the clipboard, running a plan, forgetting a memory) is read to you first:
 - **The orb** spins and pulses with your voice or JARVIS's. Its colour shows the state: grey is
   asleep, blue is listening, cyan is speaking, red is muted. Click it to talk.
 - **The conversation** below it shows everything you both said, scrollable, newest at the bottom.
+- **The typing box** under the conversation: type to JARVIS instead of talking (Enter sends).
 - **Buttons:**
   - **Talk** wakes JARVIS.
   - **Sleep** sends it to sleep.
   - **Mute** mutes the microphone.
-  - **Stop** stops JARVIS talking *and* pauses the music.
+  - **Stop** stops JARVIS talking (and anything it's doing); your music keeps playing. Press it
+    again while JARVIS is quiet to pause the music.
 - **Move, resize, snap and minimise** it like any window. Its size and position are remembered.
   Minimising sends it to its taskbar button.
 - **Right-click** for:
   - *Talk* and *Go to sleep*
   - *Always on top*
+  - *Speak replies to typed messages*
   - *Compact (orb only)*
   - *Minimise* and *Hide*
   - *Open log*
@@ -165,6 +177,13 @@ Each capability can be switched off under `features:` in `config.yaml`.
 **Apps.** JARVIS opens only the apps listed in `apps.allowlist` (plus their `aliases`), and never
 guesses. Closing asks first and works like clicking X; say "close it without saving" to discard
 changes. It can also switch to an open app.
+
+**Your files.** JARVIS searches file and folder *names* in Desktop, Documents, Downloads, Pictures,
+Music and Videos (following OneDrive), plus any `files.extra_folders`. It never reads what's inside a
+file. It opens a file with its usual app only when it's clearly the one you meant; otherwise it lists
+the matches and asks. Programs, scripts and shortcuts are never opened (it can show them in their
+folder instead), and names that look private (passwords, keys, 2FA codes, ID cards, card details) are
+never listed at all. New downloads show up at once; files deeper in folders within about 10 minutes.
 
 **Web research.** It searches with Tavily or DuckDuckGo, reads up to 3 pages per question, and keeps
 summaries for 24 hours. A site that refuses plain downloads gets one retry in a throwaway Chrome.
@@ -194,6 +213,16 @@ name it uses.
 **Reminders** (`data/reminders.sqlite`). You can set them up to 30 days ahead, and they survive
 restarts. One that falls due while JARVIS is closed is delivered at the next start, marked as late.
 
+**Job search.** Ask "how's my job search?", "what's shortlisted?", "anything waiting for my
+approval?", "what did I apply to today?", "any questions for me?" or "did my resume upload work?".
+JARVIS asks JobPilot's local API (`job_search.api_url`, `http://127.0.0.1:8000/api`) and answers in a
+few sentences: when the last search ran, new jobs, the shortlist and how many have tailored documents,
+applications waiting in JobPilot's review queue or stopped at a security check, applications sent,
+interviews and offers, and screening questions waiting for you. JobPilot's demo jobs are left out.
+The LinkedIn resume upload status still comes from `job_search.sync_dir`. JobPilot must be running
+(`E:\JobPilot\scripts\run_api.ps1`); if it isn't, JARVIS says so. It only reads: it never changes a
+status, approves or applies.
+
 **Morning briefing.** This is off by default; turn it on with `features.morning_briefing: true`. On
 your first launch each day you get a spoken summary of under 45 seconds: the date, the weather (set
 `weather.default_city`), three headlines and today's reminders.
@@ -210,11 +239,15 @@ The wake word runs offline, using openWakeWord's `hey_jarvis` model.
    .\run.bat --train-wake
    ```
    Say "hey jarvis" 8 times, then talk normally for 40 seconds. JARVIS trains a small personal
-   *verifier* (`data/wake/`): the stock model proposes, your verifier decides. The recordings never
-   leave your PC. To undo it, delete `data/wake/hey_jarvis_verifier.pkl` or set
-   `wake_word.personal_verifier: false`.
-3. While JARVIS is asleep, a log line such as `(heard something like "hey jarvis", score 0.18…)`
-   means it heard you but wasn't sure. No line at all means the mic isn't picking you up.
+   *verifier* (`data/wake/`) that decides whether it was you saying it. It's asked every time, and
+   needs to be a little surer when the stock model barely reacted (that happens with some accents).
+   The recordings never leave your PC. To undo it, delete `data/wake/hey_jarvis_verifier.pkl` or
+   set `wake_word.personal_verifier: false`.
+3. While JARVIS is asleep, a line such as `(heard something like "hey jarvis" but not sure enough:
+   stock model 0.30, your voice model 0.35; need 0.50)` means it heard you but wasn't sure; the two
+   scores say which model hesitated. Every attempt, including quieter ones, is in `logs/app.log`
+   as `wake word: woke …` or `wake word: no wake …`. Nothing at all means the mic isn't picking
+   you up.
 
 ## Troubleshooting
 

@@ -81,6 +81,12 @@ class Transcript:
         self._buf[who] += text
         self.version += 1
 
+    def add_typed(self, text: str) -> None:
+        """A message typed in the window: a whole line at once, after anything still being said."""
+        self.flush()
+        self._buf["user"] = text
+        self.flush("user")
+
     def flush(self, who: str | None = None) -> None:
         for w in [who] if who else ["user", "jarvis"]:
             line = " ".join(self._buf[w].split())
@@ -119,6 +125,8 @@ class Assistant:
                 log_path=options.log_dir / "app.log",
                 icon_path=Path(__file__).resolve().parent.parent / "assets" / "jarvis.ico",
                 close_hides=str(wcfg.get("close_button", "quit")).lower() == "hide",
+                on_send=self._typed_from_window,
+                speak_typed=bool(wcfg.get("speak_typed_replies", True)),
             )
         if self.face is not None and options.early_window:
             self.face.start()  # "Starting up…" while the models load
@@ -129,6 +137,7 @@ class Assistant:
         self._apply_echo_mode(default_output_name())
         self._audio_state: tuple[str, frozenset[str]] | None = None  # Windows devices at last check
         self._drop_reply = False  # set by the stop key: discard the rest of the current reply
+        self._quiet_reply = False  # a typed message asked for a silent (text-only) answer
         self.player = Player(self.playback)
         self.transcript = Transcript(config["user"].get("name") or "You")
 
@@ -212,7 +221,9 @@ class Assistant:
                 resume_handle=handle,
                 tools=declarations,
                 languages=audio_cfg.get("transcription_languages"),
-                vocabulary=["Jarvis", "hey Jarvis", *confirm_cfg["accept_phrases"]],
+                vocabulary=["Jarvis", "hey Jarvis", *confirm_cfg["accept_phrases"],
+                            *(config.get("apps", {}).get("allowlist") or {})],  # app names, e.g. "Claude"
+                end_pause_ms=config["listening"].get("end_pause_ms"),
             ),
             self,
         )
@@ -234,6 +245,11 @@ class Assistant:
 
             self._denoiser = make_denoiser(config)
         self._denoise_worker = None
+        self._voice = None
+        if self._denoiser is not None:
+            from core.denoise import VoiceActivity
+
+            self._voice = VoiceActivity()  # "the user is talking", from the cleaned mic audio
         self.tray = None
         if config["features"].get("tray") and self.mode != "text":
             from core.tray import Tray
@@ -264,6 +280,11 @@ class Assistant:
         tasks.append(asyncio.create_task(self._audio_watchdog(), name="audio-devices"))
         if self.services.reminders is not None:
             self.services.reminders.start(self._on_reminder)
+        for hook in self.services.on_start:
+            try:
+                hook()
+            except Exception:
+                log.exception("start-up hook failed")
         if self.config["features"].get("morning_briefing"):
             tasks.append(asyncio.create_task(self._briefing(), name="briefing"))
         self._print_banner()
@@ -361,8 +382,9 @@ class Assistant:
         if self.wake and not self.wake.awake:  # the wake word always hears raw audio (it was trained on it)
             woke = self.detector.detect(pcm)
             if self.detector.missed is not None:
-                print(f"  (heard something like \"hey jarvis\", score {self.detector.missed:.2f}: "
-                      f"not sure enough, need {self.detector.threshold:.2f})", flush=True)
+                print('  (heard something like "hey jarvis" but not sure enough: '
+                      f"{self.detector.missed.describe(self.detector.personal)}; need {self.detector.threshold:.2f})",
+                      flush=True)
                 self.detector.missed = None
             if woke:
                 self.wake.wake()
@@ -378,6 +400,10 @@ class Assistant:
 
     def _send_mic_audio(self, pcm: bytes) -> None:
         if self.gate.allows():  # re-check: the mic may have been muted while it was being cleaned
+            if self._voice is not None and self._voice.update(self._denoiser.speech_prob, pcm) and self.wake:
+                # You're talking: stay awake now. Gemini's transcript of it can arrive seconds later,
+                # and falling asleep in between cut people off mid-sentence.
+                self.wake.touch()
             self.session.send_audio(pcm)
 
     def _face_status(self) -> dict:
@@ -427,10 +453,22 @@ class Assistant:
         log.info("%s clicked", what)
         self._from_thread(func, *args)
 
+    def _busy(self) -> bool:
+        """JARVIS is talking, running something, waiting for a yes, or still answering after a tool."""
+        return (self.playback.playing or self.dispatcher._running is not None
+                or self.dispatcher.awaiting_confirmation or time.monotonic() - self._last_tool_at < WORKING_MAX_S)
+
     def stop_all(self) -> None:
-        """The Stop button: JARVIS stops talking (and any running action), and the music pauses."""
+        """The Stop button: stops JARVIS (talking, a running action, a pending one) and leaves the music alone.
+
+        Pressed while JARVIS has nothing to stop, it pauses the music instead.
+        """
+        busy = self._busy()
         self.on_hotkey("stop", True)
-        print("(stopped)", flush=True)
+        if busy:
+            print("(stopped)", flush=True)
+            return
+        print("(stopped: paused the music)", flush=True)
         media = self.registry.get("media_key")
         if media is not None and not self.options.dry_run:
             asyncio.ensure_future(self._pause_music(media))
@@ -482,6 +520,27 @@ class Assistant:
         if self.wake_chime:
             self.player.enqueue(self.wake_chime)
         print("(awake)", flush=True)
+
+    def _typed_from_window(self, text: str, speak: bool) -> None:
+        """The window's thread: a message was typed (the text itself is logged with the conversation)."""
+        log.info("window: typed message (%d characters, %s)", len(text), "spoken reply" if speak else "silent reply")
+        self._from_thread(self.send_typed, text, speak)
+
+    def send_typed(self, text: str, speak: bool = True) -> None:
+        """A message typed in the window: shown in the conversation and answered like speech.
+
+        It doesn't wake the microphone. A typed "yes" answers a pending confirmation, as in --text mode:
+        it comes from the user's own keyboard, in JARVIS's own window.
+        """
+        text = " ".join(text.split())
+        if not text:
+            return
+        self.transcript.add_typed(text)
+        self.player.clear()  # typing while JARVIS talks interrupts it, like speaking would
+        self._quiet_reply = not speak
+        if self.wake is not None and self.wake.awake:
+            self.wake.touch()
+        asyncio.ensure_future(self._on_typed(text))
 
     async def _on_typed(self, text: str) -> None:
         if not await self.dispatcher.on_user_input(text, "text"):
@@ -537,16 +596,18 @@ class Assistant:
     def _should_duck(self) -> bool:
         """Lower other apps while the user and JARVIS are talking."""
         if self.wake is not None:
-            return self.wake.awake
+            return self.wake.awake or self.playback.playing  # also answers to typed messages while asleep
         recent = time.monotonic() - self._last_heard < 4.0
         return self.playback.playing or recent or self.gate.ptt_held
 
     def _tray_state(self) -> str:
         if self.gate.muted:
             return "muted"
+        if self.playback.playing:
+            return "speaking"  # includes answers to typed messages while asleep
         if self.wake is not None and not self.wake.awake:
             return "asleep"
-        return "speaking" if self.playback.playing else "listening"
+        return "listening"
 
     # ---- audio devices ----
 
@@ -643,7 +704,7 @@ class Assistant:
         self.dispatcher.flush_utterance()
         if self.wake:
             self.wake.touch()
-        if not self._drop_reply:
+        if not self._drop_reply and not self._quiet_reply:
             self.player.enqueue(pcm)
             self._out_level = rms_level(pcm, 5000)
             self._out_level_at = time.monotonic()
@@ -664,6 +725,7 @@ class Assistant:
 
     def on_turn_complete(self) -> None:
         self._drop_reply = False
+        self._quiet_reply = False
         self._last_tool_at = 0.0
         self.transcript.version += 1
         if self.wake:

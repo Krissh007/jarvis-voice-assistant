@@ -1,6 +1,6 @@
 # Changelog
 
-How JARVIS was built, from the phases in the build spec to the finishing touches (24–25 September 2026).
+How JARVIS was built: the phases in the build spec and the finishing touches (24–25 September 2026), then the features added since.
 
 ## Phases
 
@@ -18,7 +18,7 @@ How JARVIS was built, from the phases in the build spec to the finishing touches
 | 9: Memory and reminders | Explicit-only memory, reminders that survive restarts with notifications, optional morning briefing |
 | 10: Polish | Full README and documentation |
 
-## After the phases
+## After the phases (24–25 September 2026)
 
 - **Wake word:** a mic test that compares gains, and a personal wake-word verifier trained on the
   user's voice (`--train-wake`), with near-miss hints.
@@ -45,3 +45,35 @@ How JARVIS was built, from the phases in the build spec to the finishing touches
   - staying awake while a tool is still working;
   - never re-running a call that was already confirmed;
   - shutdown timing in the log.
+
+## 26–29 September 2026
+
+- **Your files:** "open my resume", "what did I download today?", "show it in its folder". Searches
+  file names only, in your own folders, and never opens programs or private-looking files.
+- **Type to JARVIS:** a typing box in the window, with spoken or silent replies.
+- **No falling asleep mid-sentence:** JARVIS now notices you talking on your PC (RNNoise's voice
+  detection, louder than the room) instead of waiting for Gemini's transcript, which can lag.
+- **Pausing mid-sentence:** Gemini now waits for a second of quiet (and is less eager to decide
+  you've finished) before answering, so one request no longer arrives as several pieces.
+- **Wake word hears you more often:** your personal voice model is now always asked, with a
+  stricter bar when the stock model barely reacts (it scored about 1 in 3 of your own "hey jarvis"
+  near 0, so they never woke JARVIS). On your recordings: 7 of 8 wake, up from 5, with no false wakes.
+  Every attempt is logged with both models' scores.
+- **Stop leaves your music alone:** it stops JARVIS; a second press, with JARVIS quiet, pauses the music.
+- **Claude app:** "open Claude" (the Microsoft Store app; "cloud" is understood too).
+- **No repeated lookups:** when split-up speech makes JARVIS ask for the same screen reading or
+  search again while the first is still running, the repeats share its result.
+
+## Job search status (5 October 2026)
+
+- `job_search_status` (`actions/job_search.py`, `features.job_search`): a SAFE, read-only tool that
+  answers "how's my job search?" from the job search agent's `project_sync` folder: data freshness,
+  open jobs, Claude's shortlist, applications, the LinkedIn resume upload and waiting questions.
+
+## Job search from JobPilot (10 October 2026)
+
+- `job_search_status` now reads JobPilot's local API (`job_search.api_url`, GET only, loopback
+  addresses only) instead of the job search agent's `project_sync` files, which JobPilot no longer
+  updates. New `review` topic: applications waiting for approval or blocked at a security check.
+  Demo rows are excluded; a stopped JobPilot is a spoken error. The resume upload topic still reads
+  `project_sync/resume_upload_status.md`.

@@ -275,7 +275,8 @@ def test_sleep_button_cuts_off_the_reply(assistant) -> None:
     assert not a.wake.awake and a._drop_reply and not a.playback.playing
 
 
-async def test_stop_button_stops_jarvis_and_pauses_the_music(assistant) -> None:
+async def test_stop_button_stops_jarvis_but_not_the_music(assistant) -> None:
+    """Live: pressing Stop to cut JARVIS off also paused the song the user was listening to."""
     import asyncio
 
     a = assistant
@@ -287,9 +288,14 @@ async def test_stop_button_stops_jarvis_and_pauses_the_music(assistant) -> None:
 
     a.registry._tools["media_key"] = type("T", (), {"func": Media().func})()
     a.talk()
+    a.player.enqueue(b"\x00" * 2000)  # JARVIS is talking
     a.stop_all()
     await asyncio.sleep(0.01)
-    assert a._drop_reply and calls == ["pause"]
+    assert a._drop_reply and not a.playback.playing and calls == []  # the music keeps playing
+
+    a.stop_all()  # again, with JARVIS quiet: now it pauses the music
+    await asyncio.sleep(0.01)
+    assert calls == ["pause"]
 
 
 def test_conversation_snapshot_has_history_and_live_text(assistant) -> None:

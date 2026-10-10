@@ -1,4 +1,5 @@
-"""JARVIS's window (feature flag `window`): an animated orb, the conversation, and Talk / Sleep / Mute / Stop.
+"""JARVIS's window (feature flag `window`): an animated orb, the conversation, a box to type to JARVIS,
+and Talk / Sleep / Mute / Stop.
 
 A borderless always-on-top panel, resizable from its corner. The orb's rings spin and its core pulses with your voice
 (listening) or JARVIS's voice (speaking); its colours match the tray icon. Click the orb to talk,
@@ -25,6 +26,9 @@ BG = "#0a1520"
 PANEL = "#0f2230"
 TEXT = "#cfe8f5"
 DIM = "#6f8b9c"
+FIELD = "#13293a"
+PLACEHOLDER = "Type a message to JARVIS…"
+MAX_TYPED = 2000  # characters per typed message
 SIZE = 200  # orb canvas, in 96-dpi pixels
 WIDTH = 240
 FPS = 30
@@ -118,7 +122,11 @@ class Face:
                  on_stop: Callable[[], None], on_mute: Callable[[], None], on_quit: Callable[[], None],
                  state_path: Path, always_on_top: bool = True, opacity: float = 1.0,
                  log_path: Path | None = None, on_sleep: Callable[[], None] | None = None,
-                 icon_path: Path | None = None, close_hides: bool = False) -> None:
+                 icon_path: Path | None = None, close_hides: bool = False,
+                 on_send: Callable[[str, bool], None] | None = None, speak_typed: bool = True) -> None:
+        self._on_send = on_send  # (text, speak the reply aloud)
+        self._speak_typed = speak_typed
+        self._history: list[str] = []  # sent messages, for the Up key
         self._icon_path = icon_path
         self._close_hides = close_hides
         self._status = status
@@ -203,7 +211,7 @@ class Face:
         px = self._px
 
         # bottom: the buttons (packed before the chat so they never get squeezed out)
-        bottom = tk.Frame(root, bg=BG)
+        bottom = self._buttons_frame = tk.Frame(root, bg=BG)
         bottom.pack(fill="x", side="bottom")
         buttons = tk.Frame(bottom, bg=BG)
         buttons.pack(pady=(px(6), px(8)))
@@ -219,6 +227,11 @@ class Face:
             b.bind("<Enter>", lambda e, b=b: b.configure(bg=blend(PANEL, "#00b4ff", 0.35)))
             b.bind("<Leave>", lambda e, b=b: b.configure(bg=PANEL))
             self._buttons[label] = b
+
+        # typing box, just above the buttons
+        self._input_frame = None
+        if self._on_send is not None:
+            self._build_input(bottom)
 
         # orb and state
         self._canvas = tk.Canvas(root, width=px(self.ORB), height=px(self.ORB), bg=BG, highlightthickness=0,
@@ -240,7 +253,8 @@ class Face:
         chat.tag_configure("you", foreground="#7fd4ff", font=("Segoe UI Semibold", 10))
         chat.tag_configure("jarvis", foreground="#00e0ff", font=("Segoe UI Semibold", 10))
         chat.tag_configure("live", foreground=DIM)
-        chat.insert("end", 'Say "hey jarvis", or click the orb or Talk.', "live")
+        hint = 'Say "hey jarvis", click the orb or Talk' + (", or type below." if self._on_send else ".")
+        chat.insert("end", hint, "live")
         chat.configure(state="disabled")
         self._chat_version = -1
 
@@ -248,10 +262,13 @@ class Face:
         self._menu = tk.Menu(root, tearoff=0)
         self._topmost_var = tk.BooleanVar(value=self._topmost)
         self._compact_var = tk.BooleanVar(value=False)
+        self._speak_var = tk.BooleanVar(value=self._speak_typed)
         self._menu.add_command(label="Talk to JARVIS", command=self._on_talk)
         if self._on_sleep is not None:
             self._menu.add_command(label="Go to sleep", command=self._on_sleep)
         self._menu.add_checkbutton(label="Always on top", variable=self._topmost_var, command=self._toggle_topmost)
+        if self._on_send is not None:
+            self._menu.add_checkbutton(label="Speak replies to typed messages", variable=self._speak_var)
         self._menu.add_checkbutton(label="Compact (orb only)", variable=self._compact_var, command=self._toggle_compact)
         self._menu.add_command(label="Minimise to the taskbar", command=lambda: self._root.iconify())
         self._menu.add_command(label="Hide window (reopen from the tray)", command=self.hide)
@@ -273,6 +290,70 @@ class Face:
         self._shown = True
         self._t0 = time.monotonic()
         root.after(1000 // FPS, self._tick)
+
+    def _build_input(self, bottom) -> None:
+        import tkinter as tk
+
+        px = self._px
+        frame = self._input_frame = tk.Frame(self._root, bg=BG)
+        frame.pack(side="bottom", fill="x", padx=px(10), pady=(px(8), 0), after=bottom)
+        box = tk.Frame(frame, bg=FIELD, highlightthickness=1, highlightbackground=FIELD, highlightcolor="#00b4ff")
+        box.pack(fill="x")
+        entry = self._entry = tk.Entry(box, bg=FIELD, fg=DIM, insertbackground=TEXT, relief="flat", bd=0,
+                                       font=("Segoe UI", 10), disabledbackground=FIELD)
+        entry.pack(side="left", fill="x", expand=True, padx=(px(8), px(4)), pady=px(6))
+        send = tk.Label(box, text="Send", bg=FIELD, fg="#00e0ff", font=("Segoe UI Semibold", 10), cursor="hand2",
+                        padx=px(10))
+        send.pack(side="right", fill="y")
+        send.bind("<Button-1>", lambda e: self._send())
+        send.bind("<Enter>", lambda e: send.configure(bg=blend(FIELD, "#00b4ff", 0.3)))
+        send.bind("<Leave>", lambda e: send.configure(bg=FIELD))
+        entry.bind("<Return>", lambda e: self._send())
+        entry.bind("<KP_Enter>", lambda e: self._send())
+        entry.bind("<Escape>", lambda e: self._set_entry(""))
+        entry.bind("<Up>", lambda e: self._recall(-1))
+        entry.bind("<Down>", lambda e: self._recall(1))
+        entry.bind("<FocusIn>", lambda e: self._placeholder(False))
+        entry.bind("<FocusOut>", lambda e: self._placeholder(True))
+        self._history_pos = 0
+        self._placeholder(True)
+
+    def _typed_text(self) -> str:
+        return "" if getattr(self, "_showing_placeholder", False) else self._entry.get()
+
+    def _set_entry(self, text: str) -> None:
+        self._placeholder(False)
+        self._entry.delete(0, "end")
+        self._entry.insert(0, text)
+
+    def _placeholder(self, show: bool) -> None:
+        entry = self._entry
+        if show and not entry.get() and self._root.focus_get() is not entry:
+            entry.insert(0, PLACEHOLDER)
+            entry.configure(fg=DIM)
+            self._showing_placeholder = True
+        elif not show and getattr(self, "_showing_placeholder", False):
+            entry.delete(0, "end")
+            entry.configure(fg=TEXT)
+            self._showing_placeholder = False
+
+    def _send(self) -> str:
+        text = " ".join(self._typed_text().split())[:MAX_TYPED]
+        if text and str(self._entry.cget("state")) == "normal":
+            self._set_entry("")
+            if not self._history or self._history[-1] != text:
+                self._history.append(text)
+            self._history_pos = len(self._history)
+            self._on_send(text, bool(self._speak_var.get()))
+        return "break"
+
+    def _recall(self, step: int) -> str:
+        """Up/Down: earlier messages, like a terminal."""
+        if self._history:
+            self._history_pos = max(0, min(len(self._history), self._history_pos + step))
+            self._set_entry(self._history[self._history_pos] if self._history_pos < len(self._history) else "")
+            self._entry.icursor("end")
+        return "break"
 
     # ---- geometry: position and size are remembered ----
 
@@ -349,8 +430,13 @@ class Face:
         if self._compact_var.get():
             self._full_size = (r.winfo_width(), r.winfo_height())
             self._chat_frame.pack_forget()
+            if self._input_frame is not None:
+                self._input_frame.pack_forget()
             r.geometry(f"{self._px(self.MIN_W)}x{self._px(330)}")
         else:
+            if self._input_frame is not None:
+                self._input_frame.pack(side="bottom", fill="x", padx=self._px(10), pady=(self._px(8), 0),
+                                       after=self._buttons_frame)
             self._chat_frame.pack(side="top", fill="both", expand=True, padx=self._px(10))
             w, h = getattr(self, "_full_size", (self._px(self.DEFAULT_W), self._px(self.DEFAULT_H)))
             r.geometry(f"{w}x{h}")
@@ -391,6 +477,11 @@ class Face:
         label = STATE_LABELS[state]
         if self._state_label.cget("text") != label:
             self._state_label.configure(text=label, fg=STATES[state][0] if state != "asleep" else DIM)
+        entry = getattr(self, "_entry", None)
+        if entry is not None:  # nothing to send to until JARVIS is connected
+            wanted = "disabled" if state == "starting" else "normal"
+            if str(entry.cget("state")) != wanted:
+                entry.configure(state=wanted)
         mute = self._buttons.get("Mute")
         if mute is not None:
             text = "Unmute" if state == "muted" else "Mute"

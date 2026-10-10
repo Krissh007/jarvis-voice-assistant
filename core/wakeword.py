@@ -7,12 +7,15 @@ direction), then it goes back to sleep.
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -54,7 +57,8 @@ def amplify(samples: np.ndarray, gain: float) -> np.ndarray:
 
 NEAR_MISS = 0.1  # a score this high means "heard something like the wake word"
 NEAR_MISS_QUIET_CHUNKS = 8  # ~0.6 s below NEAR_MISS ends one attempt
-VERIFIER_GATE = 0.05  # base score at which the personal verifier is consulted
+VERIFIER_GATE = 0.05  # stock score above which your voice model's score counts as it is
+STRICT_MARGIN = 0.15  # below that, the stock model barely stirred: your voice model must be this much surer
 
 
 def verifier_path(data_dir: Path, model_name: str) -> Path:
@@ -64,27 +68,36 @@ def verifier_path(data_dir: Path, model_name: str) -> Path:
 class WakeWordDetector:
     """Wraps openWakeWord's pretrained ONNX model. Feed 16 kHz int16 chunks of 1280 samples.
 
-    With a personal verifier (made by `--train-wake` from the user's own voice), the stock model
-    only proposes candidates (score >= VERIFIER_GATE) and the verifier's probability is the score.
+    With a personal verifier (made by `--train-wake` from the user's own voice), the verifier's
+    probability is the score. openWakeWord only asks the verifier once the stock model scores 0.05,
+    but for this user's accent the stock model scored about 1 in 3 of their own recorded
+    "hey jarvis"es near 0, so those never woke JARVIS. Now the verifier is always asked, and must be
+    STRICT_MARGIN surer when the stock model barely reacted: that caught 7 of 8 recordings instead of 5,
+    with no extra false wakes in about 3 minutes of other speech.
+    Both scores are kept, so a miss says which model said no.
     """
 
     def __init__(self, model_name: str = "hey_jarvis", threshold: float = 0.5, gain: float = 1.0,
                  verifier: Path | None = None) -> None:
+        import pickle
+
         import openwakeword
         from openwakeword.model import Model
 
         openwakeword.utils.download_models([model_name])
-        extra = {}
+        self._model = Model(wakeword_models=[model_name], inference_framework="onnx")
+        self._verifier = None
         if verifier is not None:
-            extra = {"custom_verifier_models": {model_name: str(verifier)}, "custom_verifier_threshold": VERIFIER_GATE}
-        self._model = Model(wakeword_models=[model_name], inference_framework="onnx", **extra)
+            with open(verifier, "rb") as f:
+                self._verifier = pickle.load(f)  # our own file, written by --train-wake
         self._name = model_name
         self.threshold = threshold
         self.gain = gain
         self.personal = verifier is not None
-        self._peak = 0.0
-        self._quiet = 0
-        self.missed: float | None = None  # peak score of the last attempt that didn't wake
+        self.last_base = 0.0  # the stock model's score for the last chunk
+        self.last_verifier: float | None = None  # the voice model's, when it was asked
+        self._attempt = Attempt()
+        self.missed: Attempt | None = None  # the last attempt that didn't wake (for "near miss" hints)
 
     @classmethod
     def from_config(cls, ww: dict, data_dir: Path, gain: float | None = None) -> "WakeWordDetector":
@@ -97,21 +110,66 @@ class WakeWordDetector:
 
     def score(self, samples: np.ndarray) -> float:
         """Wake score for one chunk. `gain` boosts a quiet voice (wake detection only, never sent anywhere)."""
-        return float(max(self._model.predict(amplify(samples, self.gain)).values(), default=0.0))
+        base = float(max(self._model.predict(amplify(samples, self.gain)).values(), default=0.0))
+        self.last_base, self.last_verifier = base, None
+        if self._verifier is None or len(self._model.prediction_buffer[self._name]) < 5:
+            return base  # (the first frames after a reset are warm-up; openWakeWord zeroes them too)
+        features = self._model.preprocessor.get_features(self._model.model_inputs[self._name])
+        self.last_verifier = float(self._verifier.predict_proba(features)[0][-1])
+        if base >= VERIFIER_GATE:
+            return self.last_verifier
+        return max(0.0, self.last_verifier - STRICT_MARGIN)
 
     def detect(self, pcm: bytes) -> bool:
         return self.update(self.score(np.frombuffer(pcm, dtype=np.int16)))
+
+    def reset(self) -> None:
+        self._model.reset()
 
     def update(self, score: float) -> bool:
         """Feed one chunk's score. True = wake. Sets `missed` when an attempt fades out without waking."""
         if score >= self.threshold:
             self._model.reset()  # avoid re-triggering on the same utterance
-            self._peak, self._quiet = 0.0, 0
+            woke, self._attempt = self._attempt, Attempt()
+            woke.add(score, self.last_base, self.last_verifier)
+            log.info("wake word: woke (score %.2f, %s)", score, woke.describe(self.personal))
             return True
-        if score >= NEAR_MISS:
-            self._peak, self._quiet = max(self._peak, score), 0
-        elif self._peak:
-            self._quiet += 1
-            if self._quiet >= NEAR_MISS_QUIET_CHUNKS:
-                self.missed, self._peak, self._quiet = self._peak, 0.0, 0
+        if score >= NEAR_MISS or (self.personal and self.last_base >= FAINT):
+            self._attempt.add(score, self.last_base, self.last_verifier)
+        elif self._attempt.active:
+            self._attempt.quiet += 1
+            if self._attempt.quiet >= NEAR_MISS_QUIET_CHUNKS:
+                ended, self._attempt = self._attempt, Attempt()
+                log.info("wake word: no wake (need %.2f; %s)", self.threshold, ended.describe(self.personal))
+                close = ended.score >= CLOSE or ended.base >= VERIFIER_GATE if self.personal else                     ended.score >= NEAR_MISS
+                if close:
+                    self.missed = ended  # close enough to tell the user
         return False
+
+
+FAINT = 0.02  # the stock model stirring: logged, to diagnose "I had to say it several times"
+CLOSE = 0.25  # a miss this close is shown in the console too
+
+
+@dataclass
+class Attempt:
+    """One try at the wake word: the peak scores while it lasted."""
+
+    score: float = 0.0  # what's compared with the threshold
+    base: float = 0.0  # stock model
+    verifier: float | None = None  # your voice model (None: not in use)
+    quiet: int = 0
+
+    @property
+    def active(self) -> bool:
+        return self.score > 0 or self.base > 0
+
+    def add(self, score: float, base: float, verifier: float | None) -> None:
+        self.score, self.base, self.quiet = max(self.score, score), max(self.base, base), 0
+        if verifier is not None:
+            self.verifier = max(self.verifier or 0.0, verifier)
+
+    def describe(self, personal: bool) -> str:
+        if not personal:
+            return f"stock model {self.base:.2f}"
+        return f"stock model {self.base:.2f}, your voice model {self.verifier or 0.0:.2f}"

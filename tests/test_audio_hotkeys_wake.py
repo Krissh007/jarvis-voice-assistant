@@ -350,7 +350,7 @@ def test_mic_test_suggests_the_smallest_gain_that_wakes_most() -> None:
 
 
 def _bare_detector(threshold=0.5):
-    from core.wakeword import WakeWordDetector
+    from core.wakeword import Attempt, WakeWordDetector
 
     class Model:
         def reset(self):
@@ -358,29 +358,81 @@ def _bare_detector(threshold=0.5):
 
     det = WakeWordDetector.__new__(WakeWordDetector)
     det._model, det.threshold, det.gain, det.personal = Model(), threshold, 1.0, False
-    det._peak, det._quiet, det.missed = 0.0, 0, None
+    det._attempt, det.missed, det.last_base, det.last_verifier = Attempt(), None, 0.0, None
     return det
+
+
+def _feed(det, score, verifier=None):
+    """One chunk's scores: the stock model's, and the voice model's when it's in use."""
+    det.last_base, det.last_verifier = score if verifier is None else det.last_base, verifier
+    return det.update(score if verifier is None else verifier)
 
 
 def test_near_miss_is_reported_once_after_the_attempt_fades() -> None:
     det = _bare_detector(0.25)
     for s in [0.0, 0.12, 0.19, 0.08] + [0.0] * 6:
-        assert det.update(s) is False
+        assert _feed(det, s) is False
     assert det.missed is None  # not quiet long enough yet
-    det.update(0.0)
-    assert det.missed == 0.19
+    _feed(det, 0.0)
+    assert det.missed.score == 0.19 and det.missed.describe(False) == "stock model 0.19"
     det.missed = None
     for s in [0.05, 0.02] + [0.0] * 10:  # background noise never counts as an attempt
-        det.update(s)
+        _feed(det, s)
     assert det.missed is None
 
 
 def test_a_wake_is_not_also_reported_as_a_near_miss() -> None:
     det = _bare_detector(0.25)
-    assert [det.update(s) for s in [0.15, 0.3]] == [False, True]
+    assert [_feed(det, s) for s in [0.15, 0.3]] == [False, True]
     for _ in range(10):
-        det.update(0.0)
+        _feed(det, 0.0)
     assert det.missed is None
+
+
+def test_a_miss_says_which_model_said_no() -> None:
+    det = _bare_detector(0.5)
+    det.personal = True
+    det.last_base = 0.3  # the stock model heard "hey jarvis"...
+    for v in [0.2, 0.35, 0.3]:  # ...but your voice model wasn't sure enough
+        _feed(det, 0.0, verifier=v)
+    for _ in range(8):
+        det.last_base = 0.0
+        _feed(det, 0.0, verifier=0.0)
+    assert det.missed.describe(True) == "stock model 0.30, your voice model 0.35"
+
+
+def test_the_voice_model_is_asked_even_when_the_stock_model_barely_reacts(monkeypatch) -> None:
+    """Live: about 1 in 3 of the user's "hey jarvis" scored ~0 on the stock model, so it never woke."""
+    import numpy as np
+
+    from core import wakeword
+
+    det = _bare_detector(0.5)
+    det.personal, det._name = True, "hey_jarvis"
+
+    class Model:
+        prediction_buffer = {"hey_jarvis": [0.0] * 10}
+        model_inputs = {"hey_jarvis": None}
+        preprocessor = type("P", (), {"get_features": staticmethod(lambda _: None)})()
+        base = 0.0
+
+        def predict(self, _):
+            return {"hey_jarvis": self.base}
+
+    class Verifier:
+        p = 0.0
+
+        def predict_proba(self, _):
+            return [[1 - self.p, self.p]]
+
+    det._model, det._verifier = Model(), Verifier()
+    chunk = np.zeros(1280, np.int16)
+    det._model.base, det._verifier.p = 0.002, 0.72  # stock model barely stirred; your voice model is sure
+    assert det.score(chunk) == pytest.approx(0.72 - wakeword.STRICT_MARGIN) and det.score(chunk) >= 0.5
+    det._verifier.p = 0.55  # not sure enough without the stock model's support
+    assert det.score(chunk) < 0.5
+    det._model.base = 0.3  # with it, the usual threshold applies
+    assert det.score(chunk) == 0.55
 
 
 def test_personal_verifier_is_used_only_when_trained(tmp_path, monkeypatch) -> None:

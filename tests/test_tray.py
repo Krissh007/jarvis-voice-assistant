@@ -254,3 +254,68 @@ def test_other_apps_shortcuts_are_not_jarvis(tmp_path) -> None:
                                     tmp_path / "x.ico")], check=True)
     assert taskbar.is_jarvis_shortcut(lnk, ROOT) is False
     assert taskbar.tag_shortcut(lnk, ROOT) is False
+
+
+async def test_typed_message_is_shown_and_sent_without_waking_the_mic(assistant) -> None:
+    import asyncio
+
+    a = assistant
+    a.send_typed("  what's   the time  ")
+    await asyncio.sleep(0)
+    assert a.transcript.lines[-1] == (a.transcript._labels["user"], "what's the time")
+    assert a.session._outgoing.get_nowait() == ("text", "what's the time")
+    assert not a.wake.awake  # typing never opens the microphone
+
+
+def test_answer_to_a_typed_message_can_be_silent(assistant) -> None:
+    a = assistant
+    a._quiet_reply = True  # "Speak replies to typed messages" is off
+    a.on_audio(b"\x01\x00" * 480)
+    assert not a.playback.playing and not a.player._chunks
+    a.on_turn_complete()
+    assert not a._quiet_reply  # the next answer (e.g. to speech) is spoken again
+
+
+def test_answering_while_asleep_shows_speaking_and_lowers_music(assistant) -> None:
+    a = assistant
+    a.playback.set_playing(True)
+    assert not a.wake.awake and a._tray_state() == "speaking" and a._should_duck()
+    a.playback.set_playing(False)
+
+
+def test_talking_keeps_jarvis_awake_before_gemini_transcribes_it(assistant) -> None:
+    """Live log: JARVIS fell asleep while the user was still talking, and the rest was lost."""
+    import numpy as np
+    from types import SimpleNamespace
+
+    from core.denoise import VoiceActivity
+
+    a = assistant
+    a._denoiser, a._voice = SimpleNamespace(speech_prob=0.0), VoiceActivity()
+    quiet = (np.random.default_rng(0).normal(0, 50, 1280)).astype(np.int16).tobytes()
+    voice = (np.sin(np.arange(1280) / 5) * 3000).astype(np.int16).tobytes()
+    for _ in range(20):
+        a._send_mic_audio(quiet)  # the room
+    a.wake.wake()
+    a.wake._last_activity -= 14.5  # nearly the end of the quiet window
+    a._denoiser.speech_prob = 0.97  # the user starts talking; no transcript yet
+    for _ in range(5):
+        a._send_mic_audio(voice)
+    a.wake._last_activity -= 1.0
+    assert not a.wake.check_sleep(False)
+
+
+def test_steady_noise_does_not_keep_jarvis_awake() -> None:
+    import numpy as np
+
+    from core.denoise import VoiceActivity
+
+    va = VoiceActivity()
+    noise = (np.random.default_rng(1).normal(0, 300, 1280 * 200)).astype(np.int16)
+    fooled = [va.update(0.95, noise[i:i + 1280].tobytes()) for i in range(0, len(noise), 1280)]
+    assert not any(fooled[20:])  # sounds like a voice to RNNoise now and then, but it's no louder than the room
+    va2 = VoiceActivity()
+    for i in range(0, 1280 * 20, 1280):
+        va2.update(0.1, noise[i:i + 1280].tobytes())
+    loud = (noise[:1280] * 8).astype(np.int16).tobytes()
+    assert [va2.update(0.95, loud) for _ in range(4)] == [False, False, False, True]  # a moment of real speech

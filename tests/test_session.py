@@ -39,7 +39,8 @@ def test_config_enables_transcription_compression_and_resumption() -> None:
 
 
 def test_push_to_talk_disables_server_vad() -> None:
-    cfg = build_live_config(system_instruction="x", voice=None, push_to_talk=True, resume_handle=None)
+    cfg = build_live_config(system_instruction="x", voice=None, push_to_talk=True, resume_handle=None,
+                            end_pause_ms=1000)
     assert cfg.realtime_input_config.automatic_activity_detection.disabled is True
     assert cfg.speech_config is None
 
@@ -157,3 +158,15 @@ async def test_a_failing_event_handler_does_not_drop_the_connection() -> None:
     await run_briefly(make_session(client, events))
     assert len(client.connects) == 1  # no reconnect
     assert [c[0] for c in events.calls] == ["audio", "turn_complete"]
+
+
+def test_a_pause_mid_sentence_does_not_end_the_turn() -> None:
+    """Live log: "tell me an efficient way where I can... build auto apply... feature" arrived as three requests."""
+    from google.genai import types
+
+    vad = build_live_config(system_instruction="x", voice=None, push_to_talk=False, resume_handle=None,
+                            end_pause_ms=1000).realtime_input_config.automatic_activity_detection
+    assert vad.silence_duration_ms == 1000 and not vad.disabled
+    assert vad.end_of_speech_sensitivity == types.EndSensitivity.END_SENSITIVITY_LOW
+    default = build_live_config(system_instruction="x", voice=None, push_to_talk=False, resume_handle=None)
+    assert default.realtime_input_config.automatic_activity_detection.silence_duration_ms is None

@@ -117,6 +117,20 @@ Enforced in `core/privacy.py` and the modules that use it.
 - App control never reads text inside apps, never touches account, settings or destructive
   controls, and won't type into a document that looks like it holds secrets.
 
+**Your files**
+- Only file and folder *names* are read, never contents, and only in the folders under `files:`.
+- Names that look private are never listed or opened: passwords, credentials, keys and certificates,
+  password vaults, 2FA and recovery codes, seed phrases, Aadhaar, PAN, passport, driving licence and
+  voter ID scans, and card details. This list is built in; `files.also_hide` can only add to it.
+- JARVIS can only open something a search found: the model never supplies a path. Programs,
+  scripts, shortcuts and disk images are never opened.
+- File names are untrusted (a downloaded file keeps whatever name the website gave it), so opening
+  a file in the same turn as a search asks first.
+
+**Typed messages**
+- The window's typing box is your keyboard in JARVIS's own window, so a typed *yes* confirms, just as
+  in `--text` mode. JARVIS's app control only works in allowlisted apps, never in its own window.
+
 **Audio**
 - In wake-word mode, no audio leaves the PC until "hey jarvis" is detected offline.
 - Your wake-word training clips stay in `data/wake/`.

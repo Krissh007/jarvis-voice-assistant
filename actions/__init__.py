@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import importlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -18,9 +18,11 @@ MODULES: dict[str, str | None] = {
     "actions.app_ui": "app_ui",
     "actions.screen": "screen",
     "actions.clipboard": "clipboard",
+    "actions.files": "files",
     "actions.memory": "memory",
     "actions.reminders": "reminders",
     "actions.testing": "test_tools",
+    "actions.job_search": "job_search",
     "actions.agent_mode": "agent_mode",  # last: it plans over every tool registered before it
 }
 
@@ -37,6 +39,7 @@ class Services:
     memory: Any = None  # actions.memory.MemoryStore, for the system instruction
     reminders: Any = None  # actions.reminders.Reminders, started by the runtime
     ducker: Any = None  # core.ducking.Ducker: music-only volume and ducking while JARVIS is awake
+    on_start: list = field(default_factory=list)  # called once when JARVIS starts (not in tests), e.g. warm-ups
 
 
 def load_actions(registry: Registry, config: dict, services: Services | None = None) -> Registry:

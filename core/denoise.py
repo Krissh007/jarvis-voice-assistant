@@ -105,6 +105,32 @@ def make_denoiser(config: dict) -> Denoiser | None:
         return None
 
 
+class VoiceActivity:
+    """Is the user talking right now? Used to keep JARVIS awake before Gemini's transcript arrives.
+
+    RNNoise's voice probability alone fires now and then on steady noise (a fan), so a chunk only
+    counts when it is also clearly louder than the room, and it takes several such chunks in a row.
+    Measured: no false alarms in a minute of noise; speech detected within about a second.
+    """
+
+    def __init__(self, prob: float = 0.85, need: int = 4, window: int = 6, above_floor: float = 2.0) -> None:
+        from collections import deque
+
+        self.prob, self.need, self.above_floor = prob, need, above_floor
+        self._recent: deque[bool] = deque(maxlen=window)
+        self.floor: float | None = None  # the room's loudness (RMS), following quiet fast and noise slowly
+
+    def update(self, speech_prob: float, pcm: bytes) -> bool:
+        x = np.frombuffer(pcm, dtype=np.int16).astype(np.float32)
+        rms = float(np.sqrt(np.mean(x * x))) if len(x) else 0.0
+        if self.floor is None or rms < self.floor:
+            self.floor = rms
+        else:
+            self.floor += (rms - self.floor) * 0.003
+        self._recent.append(speech_prob >= self.prob and rms >= self.above_floor * max(self.floor, 20.0))
+        return sum(self._recent) >= self.need
+
+
 class DenoiseWorker:
     """Runs a Denoiser on its own thread (RNNoise's C code releases the GIL), in order.
 

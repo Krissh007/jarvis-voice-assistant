@@ -203,11 +203,18 @@ def _is_jarvis_browser(proc) -> bool:
         return False
 
 
+def process_name(command: str) -> str:
+    """The .exe an allowlisted launch command runs as. Store apps (shell:AppsFolder\\Family!App) run as App.exe."""
+    if command.lower().startswith("shell:appsfolder\\") and "!" in command:
+        return command.rsplit("!", 1)[1].lower() + ".exe"
+    return os.path.basename(command).lower()
+
+
 def windows_to_close(command: str) -> list[int]:
     """Top-level windows belonging to an allowlisted app. Never JARVIS's own Chrome, never the desktop."""
     import psutil
 
-    exe = os.path.basename(command).lower()
+    exe = process_name(command)
     wanted = set(PROCESS_NAMES.get(exe, [exe]))
     hwnds = []
     for hwnd, pid, cls in _visible_windows():

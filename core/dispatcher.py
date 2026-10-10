@@ -110,6 +110,7 @@ class Dispatcher:
         self._confirmed_running: str | None = None  # tool the user just confirmed, while it runs
         self._pending_meta: dict[int, dict[str, Any]] = {}
         self._bg: set[asyncio.Task] = set()
+        self._inflight: dict[str, asyncio.Future] = {}  # identical read-only calls share one run
 
     # ------------------------------------------------------------------ model side
 
@@ -153,7 +154,31 @@ class Dispatcher:
             log.info("pending #%d: %s", pending.id, summary)
             return {**response, "status": "awaiting_confirmation", "summary": summary, "instruction": CONFIRM_INSTRUCTION}
 
-        result = await self._run(tool, args, call_id)
+        key = self._share_key(tool, args)
+        if key in self._inflight:
+            # Speech split into pieces ("read my screen"... "specific") makes the model repeat a call while
+            # the first is still running: share its result instead of capturing and asking again.
+            try:
+                result = await asyncio.shield(self._inflight[key])
+            except asyncio.CancelledError:
+                if asyncio.current_task().cancelling():
+                    raise
+                result = "Stopped."
+            self._audit(name, args, base.name, effective.name, "not_required", "same call already running: "
+                        "shared its result", tainted=was_tainted)
+            return {**response, "status": "ok", "result": result}
+        if key is not None:
+            self._inflight[key] = asyncio.get_running_loop().create_future()
+        result = None
+        try:
+            result = await self._run(tool, args, call_id)
+        finally:
+            if key is not None:
+                shared = self._inflight.pop(key)
+                if result is not None:
+                    shared.set_result(result)
+                else:
+                    shared.cancel()  # we're shutting down
         if isinstance(result, NeedsConfirmation):
             self._audit(name, args, base.name, effective.name, "not_required", f"paused: {result.summary}",
                         tainted=was_tainted)
@@ -162,6 +187,13 @@ class Dispatcher:
                     "progress": result.progress, "instruction": CONFIRM_INSTRUCTION}
         self._audit(name, args, base.name, effective.name, "not_required", result, tainted=was_tainted)
         return {**response, "status": "ok", "result": result}
+
+    @staticmethod
+    def _share_key(tool: Tool, args: dict[str, Any]) -> str | None:
+        """Identical calls to a read-only tool can share one run; anything that acts never does."""
+        if not tool.read_only or tool.self_gated:
+            return None
+        return tool.name + json.dumps(args, sort_keys=True, default=str)
 
     # ------------------------------------------------------------------ agent-mode steps
 

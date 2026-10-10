@@ -18,6 +18,7 @@ models:
 
 listening:
   mode: wake_word               # always_on | push_to_talk | wake_word
+  end_pause_ms: 1000            # quiet this long = you've finished; shorter replies faster, but splits sentences
 
 wake_word:
   model: hey_jarvis
@@ -41,6 +42,7 @@ window:                         # used when features.window is true
   always_on_top: true
   opacity: 1.0                  # below 1 lets windows behind show through
   close_button: quit            # the window's X: quit JARVIS, or "hide" to keep it running in the tray
+  speak_typed_replies: true     # JARVIS says its answers to typed messages aloud (also in the window's menu)
 
 audio:
   transcription_languages: [en-IN]   # BCP-47 hints for your speech; [] = auto-detect
@@ -72,6 +74,7 @@ apps:
     terminal: wt.exe
     word: winword.exe
     excel: excel.exe
+    claude: shell:AppsFolder\Claude_pzs8sxrjxfjjc!Claude   # the Claude desktop app (Microsoft Store install)
   # other ways of saying the same app (exact match after lower-casing; nothing is guessed)
   aliases:
     google chrome: chrome
@@ -90,6 +93,11 @@ apps:
     ms word: word
     microsoft excel: excel
     ms excel: excel
+    claude app: claude
+    claude desktop: claude
+    anthropic claude: claude
+    cloud: claude                # how "Claude" is often mis-heard
+    cloud app: claude
 
 sites:
   read_allowlist: [youtube.com, music.youtube.com, google.com, wikipedia.org]
@@ -104,6 +112,13 @@ browser:
 
 music:
   source: youtube_music_app      # your installed YouTube Music app; falls back to JARVIS's browser
+
+files:                          # find_files / open_file (features.files): names only, never contents
+  folders: [desktop, documents, downloads, pictures, music, videos]   # your Windows folders (follow OneDrive)
+  extra_folders: []             # more folders to search, e.g. ["E:/Projects"]
+  also_hide: []                 # more name patterns never listed or opened, e.g. ["*bank*"]
+                                # always hidden: passwords, keys, 2FA/recovery codes, ID cards, card details
+  max_results: 5
 
 paths:
   research_dir: '%USERPROFILE%\Documents\jarvis'
@@ -122,6 +137,10 @@ limits:
 memory:
   max_facts: 100                # remember() refuses when full; facts are listed in the system prompt
 
+job_search:                     # used when features.job_search is true
+  api_url: http://127.0.0.1:8000/api           # JobPilot's local API (GET only; must be this computer)
+  sync_dir: E:/job_search_agent/project_sync   # only for the LinkedIn resume upload status
+
 briefing:                       # used when features.morning_briefing is true
   news_query: "top news today"  # e.g. "India news today"; weather needs weather.default_city
 
@@ -134,9 +153,11 @@ features:
   app_ui: true                  # app_ui_action: UI Automation for apps with no API (always confirmed)
   screen: true
   clipboard: true
+  files: true                   # find and open your own files by name
   memory: true
   reminders: true
   agent_mode: true
+  job_search: true                # "how's my job search?" reads JobPilot (read only)
   morning_briefing: false
   tray: true                    # tray icon: click to talk, Stop, Mute, Quit
   window: true                  # animated JARVIS window with captions and Talk / Mute / Stop

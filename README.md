@@ -11,13 +11,13 @@ powered by Google's Gemini Live API.
 | | |
 |---|---|
 | **Talk and research** | Answers questions, researches topics across several web pages, saves notes to `Documents\jarvis` |
-| **Your PC** | Opens, closes and switches apps; volume; battery and system status |
+| **Your PC** | Opens, closes and switches apps; finds and opens your files by name; volume; battery and system status |
 | **Music** | Plays a specific song or artist in your YouTube Music app; pause, next, "what's playing"; lowers the music while you talk |
 | **The web** | Opens sites and does short tasks in its own Chrome profile (signed in to your YouTube Premium) |
 | **Screen and clipboard** | Looks at your screen when you ask; summarises, translates or fixes text you copied |
 | **Multi-step plans** | "Research X, open its official page and tell me the price": you approve the plan once |
 | **Memory and reminders** | Remembers what you ask it to; reminders that survive a restart, with Windows notifications |
-| **Desktop app** | Animated window with the full conversation, tray icon, taskbar pin, offline wake word trained on your voice, background-noise suppression |
+| **Desktop app** | Animated window with the full conversation and a box to type to JARVIS, tray icon, taskbar pin, offline wake word trained on your voice, background-noise suppression |
 
 ## Safe by design
 

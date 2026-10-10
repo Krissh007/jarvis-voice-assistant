@@ -37,6 +37,7 @@ Values that are left as comments or blank are ignored.
 | Setting | Default | Meaning |
 |---|---|---|
 | `listening.mode` | `wake_word` | `wake_word`, `always_on` or `push_to_talk` |
+| `listening.end_pause_ms` | `1000` | How long a pause means you've finished speaking. Lower answers sooner, but a mid-sentence pause may cut you off; `null` uses Gemini's default |
 | `wake_word.threshold` | `0.25` | Stock-model score needed to wake (lower wakes more easily) |
 | `wake_word.personal_verifier` | `true` | Use `data/wake/…_verifier.pkl` from `--train-wake` when it exists |
 | `wake_word.verifier_threshold` | `0.5` | Score needed when the personal verifier is in use |
@@ -60,6 +61,7 @@ Values that are left as comments or blank are ignored.
 | `window.always_on_top` | `true` | Keep the window above others |
 | `window.opacity` | `1.0` | Below 1 lets windows behind show through |
 | `window.close_button` | `quit` | The X quits JARVIS, or `hide` keeps it running in the tray |
+| `window.speak_typed_replies` | `true` | Answers to typed messages are also spoken (the right-click menu changes it until restart) |
 | `hotkeys.*` | see file | `mute`, `push_to_talk`, `stop`, `confirm`, `cancel` |
 
 ### Confirmation
@@ -81,6 +83,10 @@ Values that are left as comments or blank are ignored.
 | `music.source` | `youtube_music_app`, falling back to JARVIS's browser |
 | `paths.research_dir` | Where research notes are saved |
 | `weather.default_city` | City used when you don't name one (also used by the briefing) |
+| `files.folders` | Windows folders searched by name: `desktop`, `documents`, `downloads`, `pictures`, `music`, `videos` |
+| `files.extra_folders` | More folders to search, e.g. `["E:/Projects"]` |
+| `files.also_hide` | More name patterns never listed or opened, e.g. `["*bank*"]` (private-looking names are always hidden) |
+| `files.max_results` | Matches listed per search (default `5`) |
 
 ### Limits
 
@@ -97,7 +103,7 @@ Values that are left as comments or blank are ignored.
 ### Features
 
 Each entry under `features:` switches a whole module on or off: `system`, `web`, `browser`,
-`media`, `app_ui`, `screen`, `clipboard`, `memory`, `reminders`, `agent_mode`, `morning_briefing`
+`media`, `app_ui`, `screen`, `clipboard`, `files`, `memory`, `reminders`, `job_search`, `agent_mode`, `morning_briefing`
 (off by default), `tray`, `window` and `wake_word`. `test_tools` exposes two tools used only to
 test the safety layer; it's off, and the test suite turns it on itself.
 
