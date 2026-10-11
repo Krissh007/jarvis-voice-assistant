@@ -234,11 +234,13 @@ The wake word runs offline, using openWakeWord's `hey_jarvis` model.
 1. **Check it:** run `.\run.bat --mic-test` and say "hey jarvis" about five times at your normal
    volume. It shows your mic level and the wake score at several boost levels, and suggests a
    `wake_word.gain`. To test a different microphone, use `--mic "part of its name"`.
-2. **If it misses you** (common with some accents), teach it your voice. This takes about 2 minutes:
+2. **If it misses you** (common with some accents), teach it your voice. This takes about 4 minutes:
    ```bash
    .\run.bat --train-wake
    ```
-   Say "hey jarvis" 8 times, then talk normally for 40 seconds. JARVIS trains a small personal
+   Quit JARVIS first. Say "hey jarvis" 20 times (normally, softly, from further away and quickly),
+   then talk normally for 40 seconds. Each run adds to your earlier recordings, and it reports how
+   often it woke on recordings it didn't learn from. JARVIS trains a small personal
    *verifier* (`data/wake/`) that decides whether it was you saying it. It's asked every time, and
    needs to be a little surer when the stock model barely reacted (that happens with some accents).
    The recordings never leave your PC. To undo it, delete `data/wake/hey_jarvis_verifier.pkl` or

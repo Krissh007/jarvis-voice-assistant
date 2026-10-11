@@ -484,5 +484,37 @@ def test_train_from_clips_saves_a_working_verifier(tmp_path) -> None:
     assert len(pad(np.zeros(10, dtype=np.int16))) == 10 + 24000
 
     quiet = [np.full(32000, 100, dtype=np.int16) for _ in range(4)]
-    with pytest.raises(ValueError, match="sounded like the wake word"):
+    with pytest.raises(ValueError, match="had a clear"):
         train_from_clips(quiet, neg, "hey_jarvis", out, extract=extract, new_model=FakeModel)
+
+
+def test_training_can_learn_from_clips_the_stock_model_misses() -> None:
+    """Live: the stock model scored ~0 on a third of the user's "hey jarvis", so training skipped them."""
+    import numpy as np
+
+    from core.wake_training import clip_features
+
+    class Model:  # a stock model that barely reacts, most at its 3rd frame
+        model_inputs = {"hey_jarvis": 16}
+
+        def __init__(self):
+            self.i = 0
+            outer = self
+
+            class P:
+                def get_features(self, _):
+                    return np.full((1, 16, 96), outer.i, dtype=np.float32)
+            self.preprocessor = P()
+
+        def reset(self):
+            self.i = 0
+
+        def predict(self, _):
+            self.i += 1
+            return {"hey_jarvis": 0.01 if self.i == 3 else 0.001}
+
+    clip = np.zeros(1280 * 6, np.int16)
+    assert len(clip_features(clip, Model(), "hey_jarvis", threshold=0.05)) == 0  # the standard method skips it
+    feats = clip_features(clip, Model(), "hey_jarvis", threshold=0.05, hard_clips=True)
+    assert [int(f[0, 0]) for f in feats] == [2, 3, 4]  # the best moment and its neighbours
+    assert len(clip_features(clip, Model(), "hey_jarvis", threshold=0.0)) == 6  # speech: every frame

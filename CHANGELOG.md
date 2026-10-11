@@ -77,3 +77,11 @@ How JARVIS was built: the phases in the build spec and the finishing touches (24
   updates. New `review` topic: applications waiting for approval or blocked at a security check.
   Demo rows are excluded; a stopped JobPilot is a spoken error. The resume upload topic still reads
   `project_sync/resume_upload_status.md`.
+
+## Wake-word training (11 October 2026)
+
+- `--train-wake` records 20 "hey jarvis" (normal, softer, further away, quick) and keeps every
+  earlier recording, so each run adds to the voice model instead of replacing it.
+- It reports how often it woke on recordings it did not learn from, and tries a second method
+  that also learns from the clips the stock model misses, keeping whichever does better.
+- It refuses to start while JARVIS is running (JARVIS would answer every recording).
