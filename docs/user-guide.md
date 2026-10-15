@@ -108,6 +108,8 @@ turns the microphone on. **Up** and **Down** bring back earlier messages, and **
 | "What's on my screen?" | Looks once, with private windows blacked out |
 | "Read me Claude's reply" / "What does Notepad say?" | Reads the text in that app (never browsers or password fields) |
 | "What can I click here?" | Lists the buttons and fields in the app you're using |
+| "Type 'see you at six' in Notepad" | Types it where the cursor is (your clipboard is put back) |
+| "Ask Claude what a monad is" | Types the question into Claude, sends it, and can read you the answer |
 | "Translate what I copied into Telugu" | Reads it aloud in Telugu |
 | "Fix what I copied" | Rewrites it, reads a preview, replaces the clipboard after you confirm |
 | "Research X, open its official page and tell me the price" | Reads a plan and waits for one "yes" |
@@ -207,6 +209,10 @@ Automation, without a screenshot. Name the app, or say "it" for the one you last
 the one in front). It won't read password managers, web browsers, Windows Settings or Security,
 sign-in prompts, or windows whose title looks private, and it never reads password or payment
 fields. A minimised app has nothing on screen to read.
+
+**Typing in apps.** JARVIS types where the cursor is, or into a field you name. It asks first before
+pressing Enter (except in AI chat apps like Claude), before typing into a terminal, and after it has
+read text from an app or page in the same request. It never types into password or payment fields.
 
 **Screen and clipboard.** The screen is captured once per request, kept in memory only, with private
 windows blacked out. Copied text that looks like a secret is never sent anywhere.

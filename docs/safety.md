@@ -124,6 +124,14 @@ Enforced in `core/privacy.py` and the modules that use it.
   private; their contents are never read.
 - Text read from an app has emails, phone numbers, keys, tokens and card numbers replaced before it
   reaches a model. It's untrusted, so anything JARVIS does next in that turn asks first.
+- Typing into apps (`type_in_app`) has the same off-limits apps. It never types into password or
+  payment fields (checked again where the cursor actually lands), never types text that looks like a
+  key, token or card number, and types only while that app is in front.
+- It asks first in terminals (pasting there can run commands), before pressing Enter anywhere except
+  AI chat apps (Claude, ChatGPT, Copilot, Perplexity), and after untrusted text was read in that turn.
+- Text is pasted through the clipboard, marked so Windows clipboard history and cloud clipboard don't
+  keep it, and your clipboard is put back. If it holds a picture or files, JARVIS types key by key
+  instead, so they stay.
 
 **Your files**
 - Only file and folder *names* are read, never contents, and only in the folders under `files:`.
@@ -137,7 +145,7 @@ Enforced in `core/privacy.py` and the modules that use it.
 
 **Typed messages**
 - The window's typing box is your keyboard in JARVIS's own window, so a typed *yes* confirms, just as
-  in `--text` mode. JARVIS's app control only works in allowlisted apps, never in its own window.
+  in `--text` mode. JARVIS's app control never works in its own window.
 
 **Audio**
 - In wake-word mode, no audio leaves the PC until "hey jarvis" is detected offline.

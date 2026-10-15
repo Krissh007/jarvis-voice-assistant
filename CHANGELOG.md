@@ -86,7 +86,7 @@ How JARVIS was built: the phases in the build spec and the finishing touches (24
   that also learns from the clips the stock model misses, keeping whichever does better.
 - It refuses to start while JARVIS is running (JARVIS would answer every recording).
 
-## Reading apps (15 October 2026)
+## Reading and typing in apps (15 October 2026)
 
 - `read_app` (`actions/desktop.py`, `core/uia.py`, `features.desktop`): reads the text, buttons and
   fields of any open app through Windows UI Automation, with no screenshot. A SAFE, read-only tool
@@ -95,3 +95,8 @@ How JARVIS was built: the phases in the build spec and the finishing touches (24
   prompts, Registry Editor, Task Manager, JARVIS itself and windows with private-looking titles.
   Password and payment fields are listed as private. Emails, numbers, keys and card numbers are
   replaced (`privacy.hide_secrets`).
+- `type_in_app`: types into any open app that isn't off-limits, where the cursor is or into a named
+  or numbered field, optionally pressing Enter. Text is pasted through the clipboard
+  (`core/textinput.py`, kept out of clipboard history) and the clipboard is put back. It asks first in
+  terminals, for Enter outside AI chat apps, and after untrusted text. It never types secrets or into
+  password or payment fields. UI Automation now runs on one thread (`uia.call`).

@@ -158,7 +158,7 @@ features:
   screen: true
   clipboard: true
   files: true                   # find and open your own files by name
-  desktop: true                 # read_app: read buttons, fields and text in open apps (never browsers, passwords)
+  desktop: true                 # read_app, type_in_app: read and type in open apps (never browsers, passwords)
   memory: true
   reminders: true
   agent_mode: true

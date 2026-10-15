@@ -9,7 +9,7 @@ from actions import Services, desktop
 from actions.desktop import Desktop, blocked_reason, describe, is_shell
 from core import uia
 from core.privacy import hide_secrets
-from core.registry import Registry, ToolError
+from core.registry import NeedsConfirmation, Registry, ToolError
 from core.uia import Control, Window
 
 CONFIG = {"apps": {"allowlist": {"claude": "shell:AppsFolder\\Claude_pzs8sxrjxfjjc!Claude",
@@ -168,3 +168,117 @@ def test_read_app_is_read_only_untrusted_and_registered() -> None:
     desktop.register(reg, CONFIG, services)
     tool = reg.get("read_app")
     assert tool.read_only and tool.untrusted_output and services.desktop is not None
+
+
+# ---------------------------------------------------------------- typing
+
+@pytest.fixture
+def keyboard(screen, monkeypatch):
+    """Fake focus, cursor and keyboard on top of the fake screen."""
+    state = {"front": None, "focused": None, "typed": [], "enter": 0, "focus_ok": True}
+    monkeypatch.setattr(desktop, "focus_window", lambda h: state.update(front=h if state["focus_ok"] else None))
+    monkeypatch.setattr(desktop.textinput, "foreground_root", lambda: state["front"])
+    monkeypatch.setattr(desktop.time, "sleep", lambda s: None)
+    monkeypatch.setattr(uia, "focused", lambda: state["focused"])
+
+    def set_focus(hwnd, cid):
+        c = next(c for c in screen["controls"][hwnd] if c.id == cid)
+        state["focused"] = uia.Focused(c.kind, c.name, c.password, c.kind in uia.TYPEABLE)
+        return True
+
+    monkeypatch.setattr(uia, "set_focus", set_focus)
+    monkeypatch.setattr(desktop.textinput, "type_text", lambda h, t: state["typed"].append((h, t)) or "pasted")
+    monkeypatch.setattr(desktop.textinput, "press_enter", lambda h: state.update(enter=state["enter"] + 1))
+    return state
+
+
+def chat_app(screen) -> None:
+    screen["windows"] = [win("claude.exe", "Claude", 7)]
+    screen["controls"][7] = [Control(1, "document", "Conversation", (0, 0, 900, 700)),
+                             Control(2, "text box", "Search", (0, 0, 200, 30)),
+                             Control(3, "text box", "Prompt", (0, 700, 900, 740))]
+
+
+def test_types_into_the_focused_box_and_sends_in_a_chat_app_without_asking(screen, keyboard) -> None:
+    chat_app(screen)
+    keyboard["focused"] = uia.Focused("text box", "Prompt", False, True)
+    out = run(Desktop(CONFIG, Services()).type_in_app("what is a monad?", app="claude", send=True))
+    assert keyboard["typed"] == [(7, "what is a monad?")] and keyboard["enter"] == 1
+    assert out == "Typed into the Prompt box in claude and pressed Enter."
+
+
+def test_without_a_focused_box_it_picks_the_chat_box(screen, keyboard) -> None:
+    chat_app(screen)
+    run(Desktop(CONFIG, Services()).type_in_app("hi", app="claude"))
+    assert keyboard["focused"].name == "Prompt" and keyboard["enter"] == 0
+
+
+def test_named_field_and_numbered_field(screen, keyboard) -> None:
+    chat_app(screen)
+    d = Desktop(CONFIG, Services())
+    run(d.type_in_app("jarvis", app="claude", field="search"))
+    assert keyboard["focused"].name == "Search"
+    run(d.read_app("claude"))
+    run(d.type_in_app("x", field="1"))
+    assert keyboard["focused"].name == "Conversation"
+    with pytest.raises(ToolError, match="can't find a Budget field"):
+        run(d.type_in_app("x", field="Budget"))
+
+
+def test_enter_outside_chat_apps_asks_first_then_types(screen, keyboard) -> None:
+    screen["windows"] = [win("notepad.exe", "a.txt - Notepad", 3)]
+    screen["controls"][3] = [Control(1, "document", "Text editor", (0, 0, 900, 700))]
+    out = run(Desktop(CONFIG, Services()).type_in_app("hello", app="notepad", send=True))
+    assert isinstance(out, NeedsConfirmation) and keyboard["typed"] == []
+    assert out.summary == 'type "hello" into a.txt - Notepad and press Enter'
+    run(out.resume())
+    assert keyboard["typed"] == [(3, "hello")] and keyboard["enter"] == 1
+
+
+def test_terminals_always_ask(screen, keyboard) -> None:
+    screen["windows"] = [win("windowsterminal.exe", "PowerShell", 4)]
+    screen["controls"][4] = [Control(1, "document", "", (0, 0, 900, 700))]
+    out = run(Desktop(CONFIG, Services()).type_in_app("dir", app="powershell"))
+    assert isinstance(out, NeedsConfirmation) and keyboard["typed"] == []
+
+
+def test_after_reading_untrusted_text_typing_asks(screen, keyboard) -> None:
+    chat_app(screen)
+    services = Services()
+    services.dispatcher = type("D", (), {"tainted": True})()
+    out = run(Desktop(CONFIG, services).type_in_app("hi", app="claude", send=True))
+    assert isinstance(out, NeedsConfirmation)
+
+
+def test_never_types_secrets_or_into_private_fields(screen, keyboard) -> None:
+    screen["windows"] = [win("shop.exe", "Checkout", 5)]
+    screen["controls"][5] = [Control(1, "text box", "Card number", (0, 0, 300, 30)),
+                             Control(2, "text box", "Password", (0, 40, 300, 70), password=True)]
+    d = Desktop(CONFIG, Services())
+    with pytest.raises(ToolError, match="looks like it contains"):
+        run(d.type_in_app("4111 1111 1111 1111", app="shop"))
+    with pytest.raises(ToolError, match="anywhere to type"):
+        run(d.type_in_app("hello", app="shop"))
+    keyboard["focused"] = uia.Focused("text box", "", True, True)  # the cursor is in a password box
+    with pytest.raises(ToolError, match="password or payment"):
+        run(d.type_in_app("hello", app="shop"))
+    assert keyboard["typed"] == []
+
+
+def test_blocked_apps_and_window_not_in_front(screen, keyboard) -> None:
+    screen["windows"] = [win("chrome.exe", "Gmail - Google Chrome", 6), win("notepad.exe", "n - Notepad", 3)]
+    screen["controls"][3] = [Control(1, "document", "Text editor", (0, 0, 900, 700))]
+    d = Desktop(CONFIG, Services())
+    with pytest.raises(ToolError, match="won't type into your browser"):
+        run(d.type_in_app("hi", app="chrome"))
+    keyboard["focus_ok"] = False
+    with pytest.raises(ToolError, match="couldn't bring notepad to the front"):
+        run(d.type_in_app("hi", app="notepad"))
+    assert keyboard["typed"] == []
+
+
+def test_type_in_app_is_registered_self_gated() -> None:
+    reg = Registry()
+    desktop.register(reg, CONFIG, Services())
+    tool = reg.get("type_in_app")
+    assert tool.self_gated and not tool.read_only

@@ -7,14 +7,24 @@ initialised once per thread. Callers decide what may be read or touched (actions
 
 from __future__ import annotations
 
+import asyncio
 import ctypes
+import functools
 import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from ctypes import wintypes
 from dataclasses import dataclass
 
 _local = threading.local()
+# All UI Automation work runs on one thread, so elements found by read() stay usable for focus/click.
+_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="uia")
+
+
+async def call(fn, *args, **kwargs):
+    """Run fn on the UI Automation thread."""
+    return await asyncio.get_running_loop().run_in_executor(_executor, functools.partial(fn, *args, **kwargs))
 _user32 = ctypes.windll.user32
 _kernel32 = ctypes.windll.kernel32
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
@@ -232,7 +242,7 @@ def _read(hwnd: int, with_text: bool, limit: int, max_chars: int) -> list[Contro
         return []
     win = wintypes.RECT()
     _user32.GetWindowRect(hwnd, ctypes.byref(win))
-    out: list[Control] = []
+    out: list[tuple[Control, object]] = []
     seen: set[tuple] = set()
     budget = names_budget = max_chars  # documents and long labels each get their own share
     for i in range(elements.Length):
@@ -263,11 +273,61 @@ def _read(hwnd: int, with_text: bool, limit: int, max_chars: int) -> list[Contro
             if key in seen or (not name and not value and kind not in TYPEABLE):
                 continue
             seen.add(key)
-            out.append(Control(0, kind, name, (r.left, r.top, r.right, r.bottom), password, value))
+            out.append((Control(0, kind, name, (r.left, r.top, r.right, r.bottom), password, value), el))
         except comtypes.COMError:
             continue
-    out.sort(key=lambda c: (c.rect[1] // 20, c.rect[0]))
+    out.sort(key=lambda pair: (pair[0].rect[1] // 20, pair[0].rect[0]))
     out = out[:limit]
-    for i, c in enumerate(out, 1):
+    for i, (c, _) in enumerate(out, 1):
         c.id = i
-    return out
+    _local.elements = (hwnd, {c.id: el for c, el in out})
+    return [c for c, _ in out]
+
+
+# ---------------------------------------------------------------- acting (call on the UIA thread)
+
+EDIT_TYPES = ("Edit", "Document", "ComboBox")
+
+
+def element(hwnd: int, cid: int):
+    """The live element behind control `cid` of the last read() of this window, or None."""
+    cached = getattr(_local, "elements", None)
+    if not cached or cached[0] != hwnd:
+        return None
+    return cached[1].get(cid)
+
+
+def set_focus(hwnd: int, cid: int) -> bool:
+    import comtypes
+
+    el = element(hwnd, cid)
+    if el is None:
+        return False
+    try:
+        el.SetFocus()
+        return True
+    except comtypes.COMError:
+        return False
+
+
+@dataclass(frozen=True)
+class Focused:
+    kind: str
+    name: str
+    password: bool
+    editable: bool
+
+
+def focused() -> Focused | None:
+    """The element that has keyboard focus right now (in whichever window is in front)."""
+    import comtypes
+
+    uia, UIA = _uia()
+    try:
+        el = uia.GetFocusedElement()
+        kinds = _type_ids(UIA)
+        kind = kinds.get(el.CurrentControlType, "control")
+        editable = el.CurrentControlType in {getattr(UIA, f"UIA_{t}ControlTypeId") for t in EDIT_TYPES}
+        return Focused(kind, " ".join((el.CurrentName or "").split())[:200], bool(el.CurrentIsPassword), editable)
+    except comtypes.COMError:
+        return None

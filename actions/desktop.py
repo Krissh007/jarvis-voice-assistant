@@ -9,6 +9,13 @@ Safety, enforced in code:
 - everything read is scrubbed (emails, phone numbers, keys, tokens, card numbers), wrapped as untrusted
   and taints the turn, so anything JARVIS does after reading needs the user's OK
 - the "current app" is remembered so follow-ups ("read it again", "what does it say now") need no name
+
+type_in_app puts text into a field of an open app (pasted through the clipboard, which is put back):
+- the same apps are off-limits; private fields are never typed into; text that looks like a secret
+  (a key, token or card number) is never typed
+- it asks first for terminals (pasting there can run commands), for pressing Enter outside AI chat
+  apps (Enter sends messages and submits forms), and after anything untrusted was read this turn
+- it types only while the target window is in front, checked again right before each key press
 """
 
 from __future__ import annotations
@@ -17,14 +24,16 @@ import asyncio
 import logging
 import os
 import re
+import time
 from dataclasses import dataclass, field
 
 from actions.app_ui import looks_secret
 from actions.screen import PRIVATE_PROCESSES
 from actions.system import normalize_app_name, process_name, resolve_app
-from core import uia
-from core.privacy import hide_secrets, is_sensitive_name, redact
-from core.registry import Registry, Tier, Tool, ToolError
+from actions.system import focus_window
+from core import textinput, uia
+from core.privacy import hide_secrets, is_sensitive_name, redact, secret_in_text
+from core.registry import NeedsConfirmation, Registry, Tier, Tool, ToolError
 
 log = logging.getLogger(__name__)
 
@@ -38,6 +47,13 @@ SHELL_HOSTS = {"textinputhost.exe", "shellexperiencehost.exe", "startmenuexperie
                "searchapp.exe", "lockapp.exe", "widgets.exe", "shellhost.exe"}
 SHELL_TITLES = {"program manager", "windows input experience", "start", "search", "task switching"}
 WHAT = {"all", "text", "controls"}
+# Pasting into a terminal can run commands, so typing there always asks first.
+TERMINALS = {"windowsterminal.exe", "cmd.exe", "powershell.exe", "pwsh.exe", "conhost.exe", "wsl.exe",
+             "bash.exe", "mintty.exe", "alacritty.exe", "wezterm-gui.exe", "openconsole.exe"}
+# AI chat apps: pressing Enter sends a prompt, which is what the user asked for, so it doesn't ask.
+AI_CHATS = {"claude.exe", "chatgpt.exe", "copilot.exe", "perplexity.exe"}
+CHAT_BOX = re.compile(r"prompt|message|reply|chat|ask|write|type|compose", re.IGNORECASE)
+MAX_TYPED = 2000
 # A Store-app frame whose app couldn't be identified: judged by its title instead.
 FRAME_BLOCKED = re.compile(r"^(settings|windows security|security|sign in|accounts?)\b", re.IGNORECASE)
 
@@ -116,6 +132,7 @@ def describe(snap: Snapshot, what: str) -> tuple[str, int]:
 
 class Desktop:
     def __init__(self, config: dict, services) -> None:
+        self.services = services
         apps = config.get("apps", {})
         self.allowlist: dict[str, str] = apps.get("allowlist") or {}
         self.aliases: dict[str, str] = apps.get("aliases") or {}
@@ -127,7 +144,7 @@ class Desktop:
 
     # ------------------------------------------------------------- finding the app
 
-    def target(self, app: str = "") -> uia.Window:
+    def target(self, app: str = "", verb: str = "read") -> uia.Window:
         """The window to work on: the named app, else the current app, else the app in front."""
         if app.strip():
             win = self._find(app)
@@ -141,7 +158,7 @@ class Desktop:
             if win is None:
                 raise ToolError("I don't see an app open. Tell me which one.")
         if why := blocked_reason(win):
-            raise ToolError(f"I won't read {safe_label(win)}: {why}.")
+            raise ToolError(f"I won't {verb} {safe_label(win)}: {why}.")
         return win
 
     def _find(self, app: str) -> uia.Window | None:
@@ -158,12 +175,12 @@ class Desktop:
     async def read_app(self, app: str = "", what: str = "all") -> str:
         """Read an open app's buttons, fields and visible text."""
         what = what if what in WHAT else "all"
-        win = await asyncio.to_thread(self.target, app)
+        win = await uia.call(self.target, app)
         if uia._user32.IsIconic(win.hwnd):
             self.current = win
             raise ToolError(f"{win.label} is minimised, so there's nothing on screen to read. "
                             "Bring it up first and ask again.")
-        controls = await asyncio.to_thread(uia.read, win.hwnd, with_text=what != "controls",
+        controls = await uia.call(uia.read, win.hwnd, with_text=what != "controls",
                                            limit=self.max_items, max_chars=self.max_chars, patient=True)
         self.current = win
         self.last = Snapshot(win, controls)
@@ -175,6 +192,108 @@ class Desktop:
             if hidden else ""
         return (f"App: {redact(win.label)} ({win.exe}). Numbers in brackets identify buttons and fields.\n"
                 f"{body}{note}")
+
+    # ------------------------------------------------------------- typing
+
+    def _tainted(self) -> bool:
+        return bool(getattr(getattr(self.services, "dispatcher", None), "tainted", False))
+
+    async def type_in_app(self, text: str, app: str = "", field: str = "", send: bool = False
+                          ) -> str | NeedsConfirmation:
+        """Type text into a field of an open app; with send, press Enter afterwards."""
+        text = text.strip("\r\n") if send else text
+        if not text.strip():
+            raise ToolError("There's nothing to type.")
+        if len(text) > MAX_TYPED:
+            raise ToolError(f"That's too long to type in one go (over {MAX_TYPED} characters).")
+        if kind := secret_in_text(text):
+            raise ToolError(f"That text looks like it contains {kind}, so I won't type it anywhere.")
+        win = await uia.call(self.target, app, "type into")
+        self.current = win
+        reasons = []
+        if win.exe in TERMINALS:
+            reasons.append("terminal")
+        if send and win.exe not in AI_CHATS:
+            reasons.append("enter")
+        if self._tainted():
+            reasons.append("untrusted")
+        field_label = f" the {field} field of" if field and not field.strip().isdigit() else ""
+        shown = text[:150] + ("..." if len(text) > 150 else "")
+        summary = (f'type "{shown}" into{field_label} {redact(win.label)}' + (" and press Enter" if send else ""))
+        if reasons:
+            async def resume() -> str:
+                return await self._type(win, text, field, send)
+            return NeedsConfirmation(summary=summary[:300], resume=resume,
+                                     step={"app": win.exe, "field": field, "send": send, "why": reasons})
+        return await self._type(win, text, field, send)
+
+    async def _type(self, win: uia.Window, text: str, field: str, send: bool) -> str:
+        label = await uia.call(self._focus_field, win, field)
+        try:
+            how = await uia.call(textinput.type_text, win.hwnd, text)
+            if send:
+                await asyncio.sleep(0.2)
+                await uia.call(textinput.press_enter, win.hwnd)
+        except RuntimeError as exc:
+            raise ToolError(f"I stopped typing: {exc}.") from exc
+        log.info("%s %d characters into %s (%s)%s", how, len(text), win.exe, label, " and sent" if send else "")
+        return f"Typed into {label} in {safe_label(win)}" + (" and pressed Enter." if send else ".")
+
+    def _focus_field(self, win: uia.Window, field: str) -> str:
+        """Bring the app to the front and put the cursor in the right field. Runs on the UIA thread.
+        Returns a description of the field; raises ToolError if there's no safe one."""
+        focus_window(win.hwnd)
+        for _ in range(10):
+            if textinput.foreground_root() == win.hwnd:
+                break
+            time.sleep(0.1)
+        else:
+            raise ToolError(f"I couldn't bring {safe_label(win)} to the front, so I didn't type anything.")
+        time.sleep(0.15)
+        now = uia.focused()
+        if not field and now is not None and now.editable:
+            self._check_private(now.name, now.password)
+            return f"the {now.name} box" if now.name else "the text box"
+        choice = self._choose(win, field)
+        self._check_private(choice.name, choice.password)
+        if not uia.set_focus(win.hwnd, choice.id):
+            raise ToolError(f"I couldn't put the cursor in {choice.name or 'that field'}.")
+        time.sleep(0.15)
+        now = uia.focused()  # check where the cursor really landed
+        if now is None or not now.editable:
+            raise ToolError(f"I couldn't put the cursor in {choice.name or 'that field'}.")
+        self._check_private(now.name, now.password)
+        return f"the {choice.name} box" if choice.name else "the text box"
+
+    @staticmethod
+    def _check_private(name: str, password: bool) -> None:
+        if password or is_sensitive_name(name):
+            raise ToolError("That's a password or payment field, so I won't type into it.")
+
+    def _choose(self, win: uia.Window, field: str) -> uia.Control:
+        """The field named or numbered by `field` (numbers come from the last read_app), else the likeliest one."""
+        f = field.strip()
+        if f.isdigit() and self.last and self.last.window.hwnd == win.hwnd:
+            c = self.last.get(int(f))
+            if c is None or c.kind not in uia.TYPEABLE:
+                raise ToolError(f"Number {f} isn't a text field. Read the app again and tell me which one.")
+            return c
+        controls = uia.read(win.hwnd, limit=self.max_items)
+        self.last = Snapshot(win, controls)
+        boxes = [c for c in controls if c.kind in uia.TYPEABLE and not is_private_control(c)]
+        if f and not f.isdigit():
+            want = f.lower()
+            boxes = [c for c in boxes if want in c.name.lower()]
+            if not boxes:
+                raise ToolError(f"I can't find a {field} field in {safe_label(win)}.")
+        if not boxes:
+            raise ToolError(f"I can't find anywhere to type in {safe_label(win)}.")
+
+        def score(c: uia.Control):
+            left, top, right, bottom = c.rect
+            return (c.kind == "text box" and bool(CHAT_BOX.search(c.name)), c.kind != "dropdown",
+                    (right - left) * (bottom - top))
+        return max(boxes, key=score)
 
 
 def register(registry: Registry, config: dict, services) -> None:
@@ -198,4 +317,25 @@ def register(registry: Registry, config: dict, services) -> None:
             },
         },
         summarize=lambda a: f"read {a.get('app') or 'the current app'}",
+    ))
+    registry.register(Tool(
+        name="type_in_app",
+        description=("Type text into an open desktop app, e.g. 'type hello in Notepad', 'ask Claude what a "
+                     "monad is' (send=true presses Enter to send it). Types where the cursor is, else into the "
+                     "field named or numbered by field (numbers from read_app). app empty = the current app. "
+                     "Never for passwords or payment details. Not for web browsers."),
+        func=desktop.type_in_app,
+        tier=Tier.SAFE,  # asks itself for terminals, Enter outside AI chat apps, and after untrusted text
+        self_gated=True,
+        parameters={
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "Exactly what to type."},
+                "app": {"type": "string", "description": "App name; empty = the current app."},
+                "field": {"type": "string", "description": "Field name or read_app number; empty = cursor."},
+                "send": {"type": "boolean", "description": "Press Enter afterwards (sends a chat message)."},
+            },
+            "required": ["text"],
+        },
+        summarize=lambda a: f"type into {a.get('app') or 'the current app'}",
     ))
