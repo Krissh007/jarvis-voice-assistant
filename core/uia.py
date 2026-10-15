@@ -310,6 +310,47 @@ def set_focus(hwnd: int, cid: int) -> bool:
         return False
 
 
+def press(hwnd: int, cid: int) -> str | None:
+    """Activate a control the way a screen reader would (no mouse): Invoke, Toggle, Select or Expand.
+    Returns which one worked, or None if the control supports none of them."""
+    import comtypes
+
+    el = element(hwnd, cid)
+    if el is None:
+        return None
+    _, UIA = _uia()
+    attempts = [
+        (UIA.UIA_InvokePatternId, UIA.IUIAutomationInvokePattern, lambda p: p.Invoke(), "pressed"),
+        (UIA.UIA_TogglePatternId, UIA.IUIAutomationTogglePattern, lambda p: p.Toggle(), "toggled"),
+        (UIA.UIA_SelectionItemPatternId, UIA.IUIAutomationSelectionItemPattern, lambda p: p.Select(), "selected"),
+        (UIA.UIA_ExpandCollapsePatternId, UIA.IUIAutomationExpandCollapsePattern,
+         lambda p: p.Collapse() if p.CurrentExpandCollapseState == 1 else p.Expand(), "opened"),
+    ]
+    for pattern_id, interface, act, word in attempts:
+        try:
+            pattern = el.GetCurrentPattern(pattern_id)
+            if pattern:
+                act(pattern.QueryInterface(interface))
+                return word
+        except comtypes.COMError:
+            continue
+    return None
+
+
+def current_rect(hwnd: int, cid: int) -> tuple[int, int, int, int] | None:
+    """Where control `cid` is now (it may have moved since it was read)."""
+    import comtypes
+
+    el = element(hwnd, cid)
+    if el is None:
+        return None
+    try:
+        r = el.CurrentBoundingRectangle
+        return (r.left, r.top, r.right, r.bottom) if r.right > r.left and r.bottom > r.top else None
+    except comtypes.COMError:
+        return None
+
+
 @dataclass(frozen=True)
 class Focused:
     kind: str

@@ -129,7 +129,8 @@ The action modules (`actions/`), in load order:
 | `web` | search, read page, weather, save research |
 | `browser` | browser open, site search, read current page, close, play YouTube, browser task |
 | `media` | play music, media keys and close, music volume, now playing |
-| `app_ui` | UI Automation steps for apps without their own tool |
+| `app_ui` | Older planned UI Automation steps for allowlisted apps (off by default) |
+| `desktop` | read, type, click, press keys, scroll and move windows in any open app that isn't off-limits |
 | `screen`, `clipboard` | look at the screen, active window, clipboard summarise, translate, explain and fix |
 | `memory`, `reminders` | remember, recall, forget, and set, list and cancel reminders |
 | `agent_mode` | `run_plan`, loaded last because it plans over every tool registered before it |

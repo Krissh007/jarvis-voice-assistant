@@ -282,3 +282,142 @@ def test_type_in_app_is_registered_self_gated() -> None:
     desktop.register(reg, CONFIG, Services())
     tool = reg.get("type_in_app")
     assert tool.self_gated and not tool.read_only
+
+
+# ---------------------------------------------------------------- clicking, keys, scrolling, windows
+
+@pytest.fixture
+def hands(keyboard, screen, monkeypatch):
+    """Fake clicks, key presses, scrolling and window moves."""
+    state = {"pressed": [], "clicks": [], "keys": [], "scrolls": [], "moves": [], "patterns": True}
+    monkeypatch.setattr(uia, "press", lambda h, cid: state["pressed"].append((h, cid)) or "pressed"
+                        if state["patterns"] else None)
+    monkeypatch.setattr(uia, "current_rect", lambda h, cid: None)
+    monkeypatch.setattr(desktop.textinput, "click_at", lambda h, x, y, b="left", d=False:
+                        state["clicks"].append((h, x, y, b, d)))
+    monkeypatch.setattr(desktop.textinput, "send_combo", lambda h, c, t=1: state["keys"].append((h, c, t)))
+    monkeypatch.setattr(desktop.textinput, "scroll_at", lambda h, x, y, n: state["scrolls"].append((h, n)))
+    monkeypatch.setattr(desktop, "_move_window", lambda h, a: state["moves"].append((h, a)))
+    monkeypatch.setattr(uia._user32, "GetWindowRect", staticmethod(lambda h, r: True), raising=False)
+    return state
+
+
+def toolbar(screen) -> None:
+    screen["windows"] = [win("notepad.exe", "a.txt - Notepad", 3)]
+    screen["controls"][3] = [Control(1, "menu item", "File", (0, 0, 40, 20)),
+                             Control(2, "menu item", "Edit", (40, 0, 80, 20)),
+                             Control(3, "button", "Delete", (0, 30, 40, 50)),
+                             Control(4, "button", "Account", (40, 30, 80, 50)),
+                             Control(5, "button", "Reply", (0, 60, 40, 80)),
+                             Control(6, "button", "Reply", (0, 90, 40, 110)),
+                             Control(7, "menu item", "Save as", (0, 120, 40, 140)),
+                             Control(8, "text box", "Card number", (0, 150, 40, 170))]
+
+
+def test_click_by_name_presses_without_the_mouse(screen, hands) -> None:
+    toolbar(screen)
+    out = run(Desktop(CONFIG, Services()).click_in_app("file", app="notepad"))
+    assert hands["pressed"] == [(3, 1)] and hands["clicks"] == [] and out == "Pressed File in notepad."
+
+
+def test_click_falls_back_to_a_real_click_in_the_middle(screen, hands) -> None:
+    toolbar(screen)
+    hands["patterns"] = False
+    run(Desktop(CONFIG, Services()).click_in_app("Edit", app="notepad"))
+    assert hands["clicks"] == [(3, 60, 10, "left", False)]
+
+
+def test_click_by_number_from_the_last_read(screen, hands) -> None:
+    toolbar(screen)
+    d = Desktop(CONFIG, Services())
+    run(d.read_app("notepad"))
+    run(d.click_in_app("2"))
+    assert hands["pressed"] == [(3, 2)]
+
+
+def test_did_you_mean_and_duplicates(screen, hands) -> None:
+    toolbar(screen)
+    d = Desktop(CONFIG, Services())
+    with pytest.raises(ToolError, match='Did you mean "Edit"'):
+        run(d.click_in_app("Edti", app="notepad"))
+    with pytest.raises(ToolError, match="numbers 5, 6"):
+        run(d.click_in_app("reply", app="notepad"))
+    assert hands["pressed"] == []
+
+
+@pytest.mark.parametrize("target", ["Delete", "Save as"])
+def test_risky_clicks_ask_first(screen, hands, target) -> None:
+    toolbar(screen)
+    out = run(Desktop(CONFIG, Services()).click_in_app(target, app="notepad"))
+    assert isinstance(out, NeedsConfirmation) and hands["pressed"] == []
+    assert out.summary.startswith("click ")
+    run(out.resume())
+    assert len(hands["pressed"]) == 1
+
+
+def test_account_and_private_controls_are_never_clicked(screen, hands) -> None:
+    toolbar(screen)
+    d = Desktop(CONFIG, Services())
+    with pytest.raises(ToolError, match="accounts or settings"):
+        run(d.click_in_app("Account", app="notepad"))
+    with pytest.raises(ToolError, match="password or payment"):
+        run(d.click_in_app("Card number", app="notepad"))
+    assert hands["pressed"] == [] and hands["clicks"] == []
+
+
+def test_send_in_a_chat_app_does_not_ask(screen, hands) -> None:
+    screen["windows"] = [win("claude.exe", "Claude", 7)]
+    screen["controls"][7] = [Control(1, "button", "Send message", (0, 0, 40, 20))]
+    assert run(Desktop(CONFIG, Services()).click_in_app("send message", app="claude")) == \
+        "Pressed Send message in claude."
+
+
+@pytest.mark.parametrize("keys,expect", [
+    ("Control + Shift + T", "ctrl+shift+t"), ("ctrl-n", "ctrl+n"), ("page down", "pagedown"),
+    ("Down arrow", "down"), ("Esc", "escape"), ("ctrl s", "ctrl+s"), ("Windows + R", "win+r"),
+])
+def test_normalize_keys(keys, expect) -> None:
+    assert desktop.normalize_keys(keys) == expect
+
+
+@pytest.mark.parametrize("combo,exe,rule", [
+    ("ctrl+n", "notepad.exe", "ok"), ("escape", "notepad.exe", "ok"), ("a", "notepad.exe", "ok"),
+    ("enter", "claude.exe", "ok"), ("enter", "notepad.exe", "ask"), ("ctrl+s", "notepad.exe", "ask"),
+    ("alt+f4", "notepad.exe", "ask"), ("ctrl+w", "notepad.exe", "ask"), ("delete", "explorer.exe", "ask"),
+    ("delete", "notepad.exe", "ok"), ("ctrl+c", "windowsterminal.exe", "ask"),
+    ("shift+delete", "explorer.exe", "no"), ("win+r", "notepad.exe", "no"), ("alt+tab", "notepad.exe", "no"),
+    ("ctrl+alt+delete", "notepad.exe", "no"), ("ctrl+d", "outlook.exe", "no"), ("ctrl+alt+t", "notepad.exe", "no"),
+])
+def test_key_rules(combo, exe, rule) -> None:
+    assert desktop.key_rule(combo, exe)[0] == rule
+
+
+def test_press_keys_repeats_only_navigation_and_asks_for_risky(screen, hands) -> None:
+    toolbar(screen)
+    d = Desktop(CONFIG, Services())
+    assert run(d.press_keys("page down", app="notepad", times=3)) == "Pressed Pagedown 3 times in notepad."
+    run(d.press_keys("ctrl+n", app="notepad", times=5))
+    assert hands["keys"] == [(3, "pagedown", 3), (3, "ctrl+n", 1)]
+    out = run(d.press_keys("ctrl+s", app="notepad"))
+    assert isinstance(out, NeedsConfirmation) and len(hands["keys"]) == 2
+    with pytest.raises(ToolError, match="Windows-key"):
+        run(d.press_keys("win+r", app="notepad"))
+
+
+def test_scroll_and_window_actions(screen, hands) -> None:
+    toolbar(screen)
+    d = Desktop(CONFIG, Services())
+    run(d.scroll_app("down", app="notepad", amount=3))
+    assert hands["scrolls"] == [(3, -3)]
+    run(d.window_action("left", app="notepad"))
+    assert hands["moves"] == [(3, "left half")]
+    with pytest.raises(ToolError, match="I can"):
+        run(d.window_action("explode", app="notepad"))
+
+
+def test_browser_windows_can_be_moved_but_not_named(screen, hands) -> None:
+    screen["windows"] = [win("chrome.exe", "Private thing - Google Chrome", 9)]
+    out = run(Desktop(CONFIG, Services()).window_action("minimise", app="chrome"))
+    assert hands["moves"] == [(9, "minimise")] and "Private" not in out
+    with pytest.raises(ToolError):
+        run(Desktop(CONFIG, Services()).click_in_app("x", app="chrome"))

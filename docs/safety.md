@@ -132,6 +132,14 @@ Enforced in `core/privacy.py` and the modules that use it.
 - Text is pasted through the clipboard, marked so Windows clipboard history and cloud clipboard don't
   keep it, and your clipboard is put back. If it holds a picture or files, JARVIS types key by key
   instead, so they stay.
+- Clicking (`click_in_app`) never touches account, profile, sign-out, password or payment controls.
+  Buttons with risky words ask first: delete, remove, save, print, close, exit, send, submit, pay,
+  buy, order, install, sign in or out, and similar. Send in an AI chat app doesn't ask. A real mouse
+  click happens only when the spot is on that app's window, and the pointer goes back afterwards.
+- Keys (`press_keys`) come from a fixed list. Saving, closing, printing, reloading, Enter outside AI
+  chat apps, Delete in File Explorer and any key in a terminal ask first. Windows-key shortcuts,
+  Alt+Tab, Ctrl+Alt+Delete, Ctrl+Shift+Esc and Shift+Delete (permanent delete) are never pressed.
+- `window_action` can move any window, your browser included, because moving shows nothing inside.
 
 **Your files**
 - Only file and folder *names* are read, never contents, and only in the folders under `files:`.

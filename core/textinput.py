@@ -9,6 +9,7 @@ picture, copied files), the text is typed key by key instead, with line breaks a
 from __future__ import annotations
 
 import ctypes
+import ctypes.wintypes
 import logging
 import time
 
@@ -109,3 +110,73 @@ def press_enter(hwnd: int) -> None:
 
     _check(hwnd)
     send_keys("{ENTER}")
+
+
+# ---------------------------------------------------------------- mouse
+
+MOUSE = {"left": (0x0002, 0x0004), "right": (0x0008, 0x0010)}  # (down, up) MOUSEEVENTF_ flags
+WHEEL = 0x0800
+
+
+def _inside(hwnd: int, x: int, y: int) -> bool:
+    """The point is on this window (not covered by another one)."""
+    user32 = ctypes.windll.user32
+    hit = user32.WindowFromPoint(ctypes.wintypes.POINT(x, y))
+    return int(user32.GetAncestor(hit, 3) or 0) == hwnd
+
+
+def click_at(hwnd: int, x: int, y: int, button: str = "left", double: bool = False) -> None:
+    """A real mouse click at (x, y) on window `hwnd`; the pointer goes back where it was."""
+    user32 = ctypes.windll.user32
+    _check(hwnd)
+    if not _inside(hwnd, x, y):
+        raise RuntimeError("something else is covering that spot")
+    old = ctypes.wintypes.POINT()
+    user32.GetCursorPos(ctypes.byref(old))
+    down, up = MOUSE[button]
+    try:
+        user32.SetCursorPos(x, y)
+        time.sleep(0.03)
+        for _ in range(2 if double else 1):
+            user32.mouse_event(down, 0, 0, 0, 0)
+            user32.mouse_event(up, 0, 0, 0, 0)
+            time.sleep(0.05)
+    finally:
+        time.sleep(0.05)
+        user32.SetCursorPos(old.x, old.y)
+
+
+def scroll_at(hwnd: int, x: int, y: int, notches: int) -> None:
+    """Turn the mouse wheel over (x, y): positive scrolls up, negative down."""
+    user32 = ctypes.windll.user32
+    _check(hwnd)
+    old = ctypes.wintypes.POINT()
+    user32.GetCursorPos(ctypes.byref(old))
+    try:
+        user32.SetCursorPos(x, y)
+        for _ in range(abs(notches)):
+            user32.mouse_event(WHEEL, 0, 0, ctypes.c_uint32(120 if notches > 0 else -120).value, 0)
+            time.sleep(0.03)
+    finally:
+        user32.SetCursorPos(old.x, old.y)
+
+
+# ---------------------------------------------------------------- keys
+
+KEY_NAMES = {"enter": "{ENTER}", "tab": "{TAB}", "escape": "{ESC}", "space": "{SPACE}", "backspace": "{BACKSPACE}",
+             "delete": "{DELETE}", "up": "{UP}", "down": "{DOWN}", "left": "{LEFT}", "right": "{RIGHT}",
+             "home": "{HOME}", "end": "{END}", "pageup": "{PGUP}", "pagedown": "{PGDN}", "plus": "{+}",
+             "minus": "-", **{f"f{i}": f"{{F{i}}}" for i in range(1, 13)}}
+MODIFIERS = {"ctrl": "^", "shift": "+", "alt": "%"}
+
+
+def send_combo(hwnd: int, combo: str, times: int = 1) -> None:
+    """Press a normalised combo such as 'ctrl+shift+t' (see actions.desktop.normalize_keys)."""
+    from pywinauto.keyboard import send_keys
+
+    *mods, key = combo.split("+")
+    keys = "".join(MODIFIERS[m] for m in mods) + KEY_NAMES.get(key, key)
+    for _ in range(times):
+        _check(hwnd)
+        send_keys(keys)
+        time.sleep(0.04)

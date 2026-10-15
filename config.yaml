@@ -154,11 +154,11 @@ features:
   web: true
   browser: true
   media: true
-  app_ui: true                  # app_ui_action: UI Automation for apps with no API (always confirmed)
+  app_ui: false                 # older app_ui_action (allowlisted apps, every step confirmed); replaced by desktop
   screen: true
   clipboard: true
   files: true                   # find and open your own files by name
-  desktop: true                 # read_app, type_in_app: read and type in open apps (never browsers, passwords)
+  desktop: true                 # read, type, click, keys, scroll, move windows in open apps (never browsers, passwords)
   memory: true
   reminders: true
   agent_mode: true

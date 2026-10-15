@@ -110,6 +110,8 @@ turns the microphone on. **Up** and **Down** bring back earlier messages, and **
 | "What can I click here?" | Lists the buttons and fields in the app you're using |
 | "Type 'see you at six' in Notepad" | Types it where the cursor is (your clipboard is put back) |
 | "Ask Claude what a monad is" | Types the question into Claude, sends it, and can read you the answer |
+| "Click New chat" / "Press Ctrl+N" / "Scroll down" | Acts in the app you're using |
+| "Put Notepad on the left half" / "Minimise Spotify" | Moves the window |
 | "Translate what I copied into Telugu" | Reads it aloud in Telugu |
 | "Fix what I copied" | Rewrites it, reads a preview, replaces the clipboard after you confirm |
 | "Research X, open its official page and tell me the price" | Reads a plan and waits for one "yes" |
@@ -213,6 +215,12 @@ fields. A minimised app has nothing on screen to read.
 **Typing in apps.** JARVIS types where the cursor is, or into a field you name. It asks first before
 pressing Enter (except in AI chat apps like Claude), before typing into a terminal, and after it has
 read text from an app or page in the same request. It never types into password or payment fields.
+
+**Clicking and keys.** Name a button ("click New chat") or use a number JARVIS read out. If it can't
+find the name, it asks "did you mean...?". Buttons such as Delete, Send, Save or Pay, and keys that save,
+close or print, ask first. Account and sign-out buttons are never clicked, and Windows-key shortcuts
+are never pressed. Windows can be minimised, maximised, restored, brought to the front, or snapped to
+the left or right half of the screen.
 
 **Screen and clipboard.** The screen is captured once per request, kept in memory only, with private
 windows blacked out. Copied text that looks like a secret is never sent anywhere.
