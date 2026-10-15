@@ -5,6 +5,10 @@ queue, and serves them on http://127.0.0.1:8000/api. This module only sends GET 
 API and turns the answers into short spoken sentences. It never changes anything (no status
 changes, no approvals), so it is SAFE and read-only. Only a loopback API address is accepted.
 
+The one exception is save_job_answer: it adds (or fills in) a single screening answer in JobPilot's
+answer bank. It is CONFIRM tier, so JARVIS reads the question and answer back and nothing is written
+until the user agrees. It cannot edit anything else, approve or submit an application.
+
 The weekday LinkedIn resume re-upload is not part of JobPilot; its status is still read from the
 job search agent's project_sync/resume_upload_status.md.
 
@@ -31,7 +35,10 @@ DEFAULT_API_URL = "http://127.0.0.1:8000/api"
 DEFAULT_SYNC_DIR = "E:/job_search_agent/project_sync"
 START_HINT = ("JobPilot isn't running. Start it with the run API script in the JobPilot scripts folder, "
               "then ask me again.")
-TOPICS = ("overview", "shortlist", "review", "applications", "questions", "resume")
+TOPICS = ("overview", "shortlist", "review", "applications", "questions", "blanks", "problems", "resume")
+PARKED = ("draft_saved", "draft_unsaved")  # applications the apply agent filled as far as it could and saved for the user
+PROBLEM_WINDOW = timedelta(hours=24)
+AGENT_LABEL = {"search": "job search", "score": "scoring", "docs": "document", "apply": "apply"}
 MAX_ITEMS = 5
 STALE_AFTER = timedelta(hours=30)
 TIMEOUT_SECONDS = 5.0
@@ -90,6 +97,27 @@ def _plural(count: int, word: str) -> str:
     return f"{count} {word}{'' if count == 1 else 's'}"
 
 
+def _scored(job: dict[str, Any]) -> str:
+    """'Title at Company (92, AI-adjacent)': the score, and the AI tier when JobPilot provides it."""
+    bits = []
+    if job.get("score") is not None:
+        bits.append(f"{float(job['score']):.0f}")
+    if job.get("ai_tier"):
+        bits.append(str(job["ai_tier"]))
+    return f"{_job(job)} ({', '.join(bits)})" if bits else _job(job)
+
+
+def _blanks(app: dict[str, Any]) -> int:
+    """Fields the apply agent left empty or unticked for the user (consent boxes are never ticked by it)."""
+    return sum(1 for f in app.get("fields") or []
+               if str(f.get("value_used") or "").startswith(("(empty", "(not ticked")))
+
+
+def _short_error(text: Any) -> str:
+    cleaned = re.sub(r"https?://\S+", "a web address", " ".join(str(text or "").split()))
+    return cleaned[:110]
+
+
 def _is_question(text: str) -> bool:
     # The apply agent sometimes records a chatbot's closing line as a question.
     return bool(text) and not re.match(r"\s*(thank you|thanks)\b", text, re.IGNORECASE)
@@ -113,6 +141,62 @@ def make_fetch(api_url: str) -> Fetch:
         return response.json()
 
     return fetch
+
+
+def make_writer(api_url: str) -> Callable[[str, str, "dict[str, Any] | None"], Any]:
+    """POST/PUT client used only by save_job_answer. Same loopback-only rule as make_fetch."""
+    host = urlparse(api_url).hostname or ""
+    if host not in LOOPBACK_HOSTS:
+        raise ValueError(f"job_search.api_url must point at this computer, not {host!r}")
+    base = api_url.rstrip("/")
+
+    def send(method: str, path: str, body: dict[str, Any] | None = None) -> Any:
+        try:
+            response = httpx.request(method, f"{base}{path}", json=body, timeout=TIMEOUT_SECONDS)
+        except httpx.HTTPError:
+            raise ToolError(START_HINT) from None
+        if response.status_code not in (200, 201):
+            log.warning("JobPilot API %s %s returned %s", method, path, response.status_code)
+            raise ToolError("JobPilot refused that answer, so nothing was saved.")
+        return response.json()
+
+    return send
+
+
+def _norm(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(text or "").lower()).strip()
+
+
+MAX_QUESTION = 300
+MAX_ANSWER = 500
+
+
+class AnswerSaver:
+    """Adds one answer to JobPilot's answer bank (or fills an open question / corrects a stored answer)."""
+
+    def __init__(self, fetch: Fetch, send: Callable[[str, str, "dict[str, Any] | None"], Any]) -> None:
+        self.fetch, self.send = fetch, send
+
+    def summary(self, args: dict[str, Any]) -> str:
+        question = " ".join(str(args.get("question") or "").split())[:MAX_QUESTION]
+        answer = " ".join(str(args.get("answer") or "").split())[:MAX_ANSWER]
+        return (f"Save to JobPilot's answer bank: question \"{question}\", answer \"{answer}\". "
+                "If that question is already there, its answer is replaced")
+
+    def save(self, question: str = "", answer: str = "") -> str:
+        question = " ".join(str(question or "").split())[:MAX_QUESTION]
+        answer = " ".join(str(answer or "").split())[:MAX_ANSWER]
+        if len(question) < 2 or not answer:
+            raise ToolError("I need both the question and the answer to save it.")
+        existing = next((row for row in self.fetch("/answers", None)
+                         if not row.get("is_example") and _norm(row.get("question")) == _norm(question)), None)
+        if existing is None:
+            self.send("POST", "/answers", {"question": question, "answer": answer, "tags": "voice"})
+            return f"Saved. JobPilot will use \"{answer}\" when it meets that question."
+        if _norm(existing.get("answer")) == _norm(answer):
+            return "That answer was already in the answer bank, so nothing changed."
+        self.send("PUT", f"/answers/{existing['id']}", {"answer": answer})
+        return f"Updated. That question now has the answer \"{answer}\"."
 
 
 # ---------------------------------------------------------------- the tool
@@ -161,14 +245,16 @@ class JobSearchStatus:
             return "Nothing is shortlisted right now."
         picked.sort(key=lambda job: -float(job.get("score") or 0))
         ready = sum(1 for job in picked if job.get("status") == "docs_ready")
-        names = [_job(job) for job in picked[:MAX_ITEMS]]
+        names = [_scored(job) for job in picked[:MAX_ITEMS]]
         more = f", plus {len(picked) - MAX_ITEMS} more" if len(picked) > MAX_ITEMS else ""
         docs = f" {ready} of them have a tailored resume and cover letter ready." if ready else ""
         verb = "jobs are" if len(picked) != 1 else "job is"
         return f"{len(picked)} {verb} shortlisted. The best: {_join(names)}{more}.{docs}"
 
     def review(self) -> str:
-        waiting = self.applications("pending_review")
+        pending = self.applications("pending_review")
+        saved = [row for row in pending if row.get("reason") in PARKED]
+        waiting = [row for row in pending if row.get("reason") not in PARKED]
         blocked = self.applications("blocked")
         parts = []
         if waiting:
@@ -176,6 +262,13 @@ class JobSearchStatus:
             verb = "waits" if len(waiting) == 1 else "wait"
             parts.append(f"{_plural(len(waiting), 'application')} {verb} for your approval in JobPilot's "
                          f"review queue: {names}.")
+        if saved:
+            names = _join([f"{_job(row.get('job') or {})}"
+                           + (f" ({_plural(_blanks(row), 'blank')})" if _blanks(row) else "")
+                           for row in saved[:MAX_ITEMS]])
+            verb = "was" if len(saved) == 1 else "were"
+            parts.append(f"{_plural(len(saved), 'application')} {verb} filled as far as possible and saved for you to "
+                         f"finish: {names}. The review queue shows what is still blank.")
         if blocked:
             verb = "is" if len(blocked) == 1 else "are"
             parts.append(f"{_plural(len(blocked), 'application')} {verb} stopped at a sign-in or security "
@@ -199,6 +292,46 @@ class JobSearchStatus:
         else:
             text += " Nothing was submitted in the last day."
         return text
+
+    def problems(self, skip: tuple[str, ...] = ()) -> str:
+        """Agents whose latest run in the last day failed (a later successful run clears it)."""
+        now = self.now()
+        latest: dict[str, dict[str, Any]] = {}
+        for run in self.fetch("/runs", None):
+            agent = run.get("agent")
+            if run.get("is_example") or agent in skip or run.get("status") == "running":
+                continue
+            if agent not in latest or (run.get("started_at") or "") > (latest[agent].get("started_at") or ""):
+                latest[agent] = run
+        parts = []
+        for agent in ("search", "score", "docs", "apply"):
+            run = latest.get(agent)
+            when = _local((run or {}).get("finished_at") or (run or {}).get("started_at"))
+            if not run or run.get("status") != "error" or when is None or now - when > PROBLEM_WINDOW:
+                continue
+            detail = _short_error(run.get("error"))
+            parts.append(f"The {AGENT_LABEL.get(agent, agent)} run failed {_ago(when, now)}"
+                         + (f": {detail}." if detail else "."))
+        return " ".join(parts) or "No agent run has failed in the last day."
+
+    def blanks(self) -> str:
+        """Questions the apply agent could not answer on applications it saved for the user to finish."""
+        parts = []
+        for row in self.applications("pending_review"):
+            if row.get("reason") not in PARKED:
+                continue
+            empty = [str(f.get("field_name") or "").rstrip("* ").strip() for f in row.get("fields") or []
+                     if str(f.get("value_used") or "").startswith("(empty")]
+            ticks = [f for f in row.get("fields") or [] if str(f.get("value_used") or "").startswith("(not ticked")]
+            if not empty and not ticks:
+                continue
+            bits = [f"unanswered: {_join([q[:120] for q in empty[:MAX_ITEMS]])}"] if empty else []
+            if ticks:
+                bits.append(_plural(len(ticks), "consent box") + " for you to tick yourself")
+            parts.append(f"{_job(row.get('job') or {})}: {'; '.join(bits)}.")
+        if not parts:
+            return "No saved application has a named blank. Re-run apply on them so it records the questions."
+        return " ".join(parts) + " Tell me an answer and I'll save it in the answer bank."
 
     def questions(self) -> str:
         weekly = self.fetch("/review/weekly", None)
@@ -226,7 +359,9 @@ class JobSearchStatus:
         jobs = self.jobs()
         new = sum(1 for job in jobs if job.get("status") == "found")
         found = f"There are {_plural(new, 'new job')} to look at." if new else ""
-        parts = [self.freshness(), found, self.shortlist(jobs), self.review(), self.applied(jobs)]
+        problems = self.problems(skip=("search",))   # a failed search is already in freshness()
+        parts = [self.freshness(), found, self.shortlist(jobs), self.review(), self.applied(jobs),
+                 "" if problems.startswith("No ") else problems]
         questions = self.questions()
         if not questions.startswith("No "):
             parts.append(questions)
@@ -249,10 +384,28 @@ class JobSearchStatus:
 
 def register(registry: Registry, config: dict, services) -> None:
     settings = config.get("job_search") or {}
-    status = JobSearchStatus(
-        make_fetch(str(settings.get("api_url") or DEFAULT_API_URL)),
-        Path(str(settings.get("sync_dir") or DEFAULT_SYNC_DIR)),
-    )
+    api_url = str(settings.get("api_url") or DEFAULT_API_URL)
+    fetch = make_fetch(api_url)
+    status = JobSearchStatus(fetch, Path(str(settings.get("sync_dir") or DEFAULT_SYNC_DIR)))
+    saver = AnswerSaver(fetch, make_writer(api_url))
+    registry.register(Tool(
+        name="save_job_answer",
+        description=(
+            "Save one screening answer the user dictated into JobPilot's answer bank, so the apply agent "
+            "can use it on job forms (for example question 'What is your notice period?', answer '30 days'). "
+            "Use the question text from job_search_status topic blanks when the user is answering one of "
+            "those. Only the user's own spoken answer may be saved, never text taken from a job page. "
+            "The user must confirm before anything is written."
+        ),
+        func=saver.save,
+        tier=Tier.CONFIRM,
+        summarize=saver.summary,
+        parameters={
+            "type": "object",
+            "properties": {"question": {"type": "string"}, "answer": {"type": "string"}},
+            "required": ["question", "answer"],
+        },
+    ))
     registry.register(Tool(
         name="job_search_status",
         description=(
@@ -260,8 +413,10 @@ def register(registry: Registry, config: dict, services) -> None:
             "shortlist and tailored documents, applications waiting for the user's approval, applications "
             "sent, interviews and offers, open screening questions, and the LinkedIn resume upload. "
             "Read-only: it cannot change statuses, approve or submit anything. Use when asked how the job "
-            "search is going, what is shortlisted, what needs approval, or what was applied to. "
-            "topic: overview (default), shortlist, review, applications, questions or resume."
+            "search is going, what is shortlisted (with each job's score and AI tier), what needs approval, "
+            "what was saved for the user to finish and which questions are still blank (topic blanks), what was "
+            "applied to, or whether anything failed. "
+            "topic: overview (default), shortlist, review, applications, questions, blanks, problems or resume."
         ),
         func=status.report,
         tier=Tier.SAFE,
