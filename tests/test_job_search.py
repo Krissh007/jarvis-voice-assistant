@@ -140,3 +140,168 @@ def test_time_ago_reads_naturally():
     assert job_search._ago(NOW - timedelta(minutes=5), NOW) == "5 minutes ago"
     assert job_search._ago(NOW - timedelta(hours=1), NOW) == "1 hour ago"
     assert job_search._ago(NOW - timedelta(days=3), NOW) == "3 days ago"
+
+
+# ---- richer status: AI tiers, saved applications, failed runs --------------------------
+
+def tiered(id, status, score, title, company, tier):
+    return {**job(id, status, score, title, company), "ai_tier": tier}
+
+
+def test_shortlist_speaks_the_score_and_ai_tier(tmp_path):
+    jobs = [tiered(1, "shortlisted", 92, "Business System Analyst", "Synergy", "AI-adjacent"),
+            tiered(2, "shortlisted", 73, "Product Manager", "Nxtwave", "AI-core"),
+            job(3, "shortlisted", 61, "Data Analyst", "Old Scorer Co")]            # no tier from an older JobPilot
+    text = JobSearchStatus(FakeApi(jobs=jobs), tmp_path, now=lambda: NOW).shortlist()
+    assert "Business System Analyst at Synergy (92, AI-adjacent)" in text
+    assert "Product Manager at Nxtwave (73, AI-core)" in text
+    assert "Data Analyst at Old Scorer Co (61)" in text and "Old Scorer Co (61," not in text
+    assert text.index("Synergy") < text.index("Nxtwave") < text.index("Old Scorer")
+
+
+def saved(title, company, blanks, reason="draft_saved", example=False):
+    fields = [{"value_used": "(empty: needs you)"} for _ in range(blanks)] + [{"value_used": "9000000000"}]
+    return {"is_example": example, "reason": reason, "job": {"title": title, "company": company}, "fields": fields}
+
+
+def test_review_separates_ready_for_approval_from_saved_for_you_to_finish(tmp_path):
+    apps = {"pending_review": [
+        {"is_example": False, "reason": "", "job": {"title": "Data Analyst", "company": "Syntrace"}, "fields": []},
+        saved("Technical Product Owner", "Evernorth", 1),
+        saved("Team member", "Dr. Reddy's", 2, reason="draft_unsaved"),
+        saved("Demo", "Example", 3, example=True)]}
+    text = JobSearchStatus(FakeApi(applications=apps), tmp_path, now=lambda: NOW).review()
+    assert "1 application waits for your approval" in text and "Syntrace" in text
+    assert "2 applications were filled as far as possible and saved for you to finish" in text
+    assert "Evernorth (1 blank)" in text and "Reddy's (2 blanks)" in text and "Example" not in text
+    assert "review queue shows what is still blank" in text
+
+
+def test_only_saved_applications_are_not_called_ready_for_approval(tmp_path):
+    apps = {"pending_review": [saved("Role", "Co", 1)]}
+    text = JobSearchStatus(FakeApi(applications=apps), tmp_path, now=lambda: NOW).review()
+    assert "for your approval" not in text and "1 application was filled as far as possible" in text
+
+
+def run(agent, status, hours_ago, error="", example=False):
+    return {"agent": agent, "status": status, "started_at": utc(hours_ago + 0.1), "finished_at": utc(hours_ago),
+            "error": error, "is_example": example}
+
+
+def test_problems_reports_failed_agents_in_the_last_day(tmp_path):
+    runs = [run("search", "ok", 3), run("score", "error", 2, "QuotaExhausted: still 429 after retries"),
+            run("apply", "error", 5, "Not signed in to https://www.linkedin.com/login please"),
+            run("docs", "error", 40, "old failure"), run("apply", "error", 0.2, "demo", example=True)]
+    text = JobSearchStatus(FakeApi(runs=runs), tmp_path, now=lambda: NOW).problems()
+    assert "The scoring run failed 2 hours ago: QuotaExhausted" in text
+    assert "The apply run failed 5 hours ago" in text and "http" not in text
+    assert "document" not in text and "demo" not in text                       # too old / example
+    assert "job search run failed" not in text
+
+
+def test_a_later_successful_run_clears_the_problem(tmp_path):
+    runs = [run("score", "error", 6, "boom"), run("score", "ok", 1)]
+    assert JobSearchStatus(FakeApi(runs=runs), tmp_path, now=lambda: NOW).problems() == "No agent run has failed in the last day."
+
+
+def test_overview_mentions_problems_but_not_twice_for_search(tmp_path):
+    runs = [run("search", "error", 3, "x"), run("docs", "error", 1, "Gemini quota")]
+    text = JobSearchStatus(FakeApi(runs=runs), tmp_path, now=lambda: NOW).report()
+    assert text.count("job search failed") == 1 and "The document run failed 1 hour ago: Gemini quota." in text
+
+
+def test_overview_stays_quiet_when_nothing_failed(status):
+    assert "failed" not in status.report() or "stopped at a sign-in" in status.report()
+    assert "No agent run" not in status.report()
+
+
+# ---- blanks, and saving a dictated answer ------------------------------------------------------
+
+def _parked(company, fields):
+    return {"is_example": False, "reason": "draft_saved", "job": {"title": "PO", "company": company}, "fields": fields}
+
+
+def test_blanks_lists_unanswered_questions_and_consent_boxes(tmp_path):
+    api = FakeApi(applications={"pending_review": [
+        _parked("Evernorth", [{"field_name": "Do you hold a CSPO certification?*", "value_used": "(empty, left for you)"},
+                              {"field_name": "Phone", "value_used": "7989"}]),
+        _parked("Nxtwave", [{"field_name": "Data consent*", "value_used": "(not ticked: consent box)"}]),
+        _parked("Done Co", [{"field_name": "Phone", "value_used": "7989"}]),
+    ]})
+    text = JobSearchStatus(api, tmp_path, now=lambda: NOW).report("blanks")
+    assert "Evernorth" in text and "Do you hold a CSPO certification?" in text and "*" not in text
+    assert "Nxtwave" in text and "1 consent box" in text and "Done Co" not in text
+
+
+def test_blanks_says_so_when_none_are_named(tmp_path):
+    api = FakeApi(applications={"pending_review": [_parked("Evernorth", [])]})
+    assert "Re-run apply" in JobSearchStatus(api, tmp_path, now=lambda: NOW).report("blanks")
+
+
+class FakeBank:
+    def __init__(self, rows):
+        self.rows, self.sent = rows, []
+
+    def fetch(self, path, params=None):
+        assert path == "/answers"
+        return self.rows
+
+    def send(self, method, path, body=None):
+        self.sent.append((method, path, body))
+        return {}
+
+
+def saver(rows):
+    bank = FakeBank(rows)
+    return job_search.AnswerSaver(bank.fetch, bank.send), bank
+
+
+def test_new_answer_is_posted_tagged_voice():
+    s, bank = saver([])
+    out = s.save("What is your notice period?", "30 days")
+    assert bank.sent == [("POST", "/answers", {"question": "What is your notice period?", "answer": "30 days", "tags": "voice"})]
+    assert out.startswith("Saved")
+
+
+def test_open_question_is_filled_not_duplicated():
+    s, bank = saver([{"id": 9, "question": "Do you hold a CSPO certification?", "answer": "", "is_example": False}])
+    s.save("do you hold a cspo certification", "No")
+    assert bank.sent == [("PUT", "/answers/9", {"answer": "No"})]
+
+
+def test_same_answer_is_not_rewritten():
+    s, bank = saver([{"id": 9, "question": "Notice period", "answer": "30 days", "is_example": False}])
+    assert "already" in s.save("notice period", "30 Days")
+    assert bank.sent == []
+
+
+def test_demo_rows_never_match():
+    s, bank = saver([{"id": 3, "question": "Notice period", "answer": "x", "is_example": True}])
+    s.save("notice period", "30 days")
+    assert bank.sent[0][0] == "POST"
+
+
+def test_missing_parts_save_nothing():
+    s, bank = saver([])
+    with pytest.raises(ToolError):
+        s.save("Notice period", "  ")
+    assert bank.sent == []
+
+
+def test_summary_reads_back_question_and_answer():
+    s, _ = saver([])
+    text = s.summary({"question": "Notice  period?", "answer": "30 days"})
+    assert '"Notice period?"' in text and '"30 days"' in text
+
+
+def test_writer_refuses_a_remote_api():
+    with pytest.raises(ValueError):
+        job_search.make_writer("http://example.com/api")
+
+
+def test_save_tool_is_registered_as_confirm_tier():
+    from core.registry import Registry, Tier
+    registry = Registry()
+    job_search.register(registry, {}, None)
+    tool = registry.get("save_job_answer") if hasattr(registry, "get") else None
+    assert tool is not None and tool.tier == Tier.CONFIRM and not tool.read_only
