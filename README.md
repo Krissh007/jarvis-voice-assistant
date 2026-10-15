@@ -15,7 +15,8 @@ powered by Google's Gemini Live API.
 | **Music** | Plays a specific song or artist in your YouTube Music app; pause, next, "what's playing"; lowers the music while you talk |
 | **The web** | Opens sites and does short tasks in its own Chrome profile (signed in to your YouTube Premium) |
 | **Screen and clipboard** | Looks at your screen when you ask; summarises, translates or fixes text you copied |
-| **Multi-step plans** | "Research X, open its official page and tell me the price": you approve the plan once |
+| **Your apps** | Reads, types, clicks, presses keys, scrolls and moves windows in any open app ("ask Claude X and read me the answer"); never your browser, password managers or Settings |
+| **Multi-step plans** | "Research X, open its official page and tell me the price", or "open Notepad and write a shopping list": you approve the plan once |
 | **Memory and reminders** | Remembers what you ask it to; reminders that survive a restart, with Windows notifications |
 | **Desktop app** | Animated window with the full conversation and a box to type to JARVIS, tray icon, taskbar pin, offline wake word trained on your voice, background-noise suppression |
 
@@ -25,7 +26,8 @@ powered by Google's Gemini Live API.
   has finished speaking, or a hotkey. The model can't approve its own actions.
 - **Web pages, the screen and the clipboard can't give orders.** Their content is marked as
   untrusted, and after reading it every action needs your confirmation.
-- **Hard limits in code:** no password or payment fields, no account pages or account switching
+- **Hard limits in code:** no password or payment fields (in web pages or apps), no reading your own
+  browser, password managers or Windows Settings, no account pages or account switching
   (so other members of a YouTube family plan stay private), no shell, no deleting files, no
   messaging or purchases.
 - **Everything is logged** to `logs/actions.jsonl`, with secrets redacted.

@@ -541,3 +541,15 @@ def test_a_desktop_plan_runs_after_one_yes(tmp_path, screen, hands, monkeypatch)
     run(go())
     assert hands_focus and h.pending is None
     assert "Claude says a monad is a pattern." in h.notices[-1]
+
+
+def test_benchmark_prints_counts_but_never_app_text(screen, capsys) -> None:
+    from core.desktop_bench import run_benchmark
+
+    screen["windows"] = [win("notepad.exe", "diary.txt - Notepad", 3), win("chrome.exe", "Bank - Google Chrome", 4)]
+    screen["controls"][3] = [Control(1, "document", "Text editor", (0, 0, 9, 9), value="my secret diary"),
+                             Control(2, "text box", "PIN", (0, 0, 9, 9))]
+    assert run_benchmark(CONFIG) == 0
+    out = capsys.readouterr().out
+    assert "notepad" in out and "skipped" in out and "1 private field" in out
+    assert "diary" not in out and "Bank" not in out and "secret" not in out

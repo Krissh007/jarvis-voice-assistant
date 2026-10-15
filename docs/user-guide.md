@@ -318,6 +318,13 @@ The wake word runs offline, using openWakeWord's `hey_jarvis` model.
 **A song doesn't play in the YouTube Music app**
 - JARVIS finds the app from its Start-menu shortcut. If you reinstalled the app, restart JARVIS.
 
+**JARVIS can't find a button, or an app feels slow**
+- Run `.\run.bat --bench-apps` with the app open. It shows, for each open app, how many buttons and
+  fields JARVIS can see and how long a read takes. It never clicks or types, and shows no app text.
+- An app with very few controls doesn't support UI Automation well. Use "what's on my screen?" there.
+- Say "what can I click here?" to hear the names JARVIS sees, then use one of those names or numbers.
+- A minimised app has nothing on screen: say "restore Notepad" first.
+
 **Nothing appears after clicking the icon**
 - Wait about 10 seconds, then check `logs/console.txt` and `logs/app.log`. For a live view, start
   JARVIS with `.\run.bat` instead.

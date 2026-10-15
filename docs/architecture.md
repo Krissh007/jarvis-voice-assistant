@@ -144,6 +144,7 @@ The action modules (`actions/`), in load order:
 | `denoise` | RNNoise, in order; if it falls behind, blocks pass through raw |
 | `ducking` | all Windows audio-session (COM) calls |
 | `face` | the Tk window; it only *reads* state, and clicks go back to the loop |
+| `uia` | all UI Automation (COM) calls for the desktop tools, so elements found by a read stay usable for focus and clicks |
 | `tray` | pystray's message loop |
 | pynput | global hotkeys |
 

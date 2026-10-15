@@ -111,3 +111,5 @@ How JARVIS was built: the phases in the build spec and the finishing touches (24
   words to be typed. Fixed-argument steps of an approved plan don't ask again because of earlier
   untrusted text (`registry.APPROVED_STEP`). Apps still opening are waited for (up to 10 seconds).
   "Which one" and "did you mean" answers stop a plan.
+- `--bench-apps` (`core/desktop_bench.py`): for each open app, the number of controls and typeable
+  fields JARVIS finds and how long reads take. Read-only, and it prints no app text.

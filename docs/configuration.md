@@ -119,6 +119,7 @@ test the safety layer; it's off, and the test suite turns it on itself.
 | `--mic-test` | Show mic level, wake-word scores at several gains, and background noise before and after cleaning |
 | `--mic NAME` | Use a different microphone for this run (part of its name) |
 | `--train-wake` | Record your voice and train the personal wake-word verifier |
+| `--bench-apps` | Measure how fast JARVIS reads each open app, and how many buttons and fields it finds (read-only; shows no app text) |
 | `--browser-login` | Open JARVIS's Chrome profile normally, to sign in to YouTube once |
 | `--install-shortcut` | Create the desktop icon, which starts JARVIS as an app (no terminal) |
 
