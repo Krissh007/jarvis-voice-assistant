@@ -204,7 +204,7 @@ def test_types_into_the_focused_box_and_sends_in_a_chat_app_without_asking(scree
     keyboard["focused"] = uia.Focused("text box", "Prompt", False, True)
     out = run(Desktop(CONFIG, Services()).type_in_app("what is a monad?", app="claude", send=True))
     assert keyboard["typed"] == [(7, "what is a monad?")] and keyboard["enter"] == 1
-    assert out == "Typed into the Prompt box in claude and pressed Enter."
+    assert out == 'Typed "what is a monad?" into the Prompt box in claude and pressed Enter.'
 
 
 def test_without_a_focused_box_it_picks_the_chat_box(screen, keyboard) -> None:
@@ -421,3 +421,123 @@ def test_browser_windows_can_be_moved_but_not_named(screen, hands) -> None:
     assert hands["moves"] == [(9, "minimise")] and "Private" not in out
     with pytest.raises(ToolError):
         run(Desktop(CONFIG, Services()).click_in_app("x", app="chrome"))
+
+
+# ---------------------------------------------------------------- waiting and plans
+
+def test_new_text_keeps_only_what_was_added() -> None:
+    assert desktop.new_text("Hello you said hi", "Hello you said hi Claude says forty two") == "Claude says forty two"
+    assert desktop.new_text("a b Line 1 Column 3", "a b new words Line 2 Column 9") == "new words"
+
+
+def test_wait_for_app_returns_the_reply_once_it_stops_changing(screen, monkeypatch) -> None:
+    screen["windows"] = [win("claude.exe", "Claude", 7)]
+    frames = iter(["Q what is six times seven", "Q what is six times seven Forty", "Q what is six times seven Forty two.",
+                   "Q what is six times seven Forty two.", "Q what is six times seven Forty two."])
+    d = Desktop(CONFIG, Services())
+    monkeypatch.setattr(d, "_text", lambda w: next(frames))
+    monkeypatch.setattr(desktop, "WAIT_POLL_S", 0)
+    out = run(d.wait_for_app("claude"))
+    assert out.startswith("claude finished") and out.endswith("New text:\nForty two.")
+
+
+def test_wait_for_app_uses_the_text_from_before_the_message_was_sent(screen, keyboard, monkeypatch) -> None:
+    chat_app(screen)
+    keyboard["focused"] = uia.Focused("text box", "Prompt", False, True)
+    d = Desktop(CONFIG, Services())
+    texts = ["old chat"]
+    monkeypatch.setattr(d, "_text", lambda w: texts[-1])
+    monkeypatch.setattr(desktop, "WAIT_POLL_S", 0)
+    run(d.type_in_app("hi", app="claude", send=True))
+    assert d.baseline == {7: "old chat"}
+    texts.append("old chat hi Hello Krishna")  # the reply had already started when waiting began
+    assert run(d.wait_for_app("claude")).endswith("hi Hello Krishna")
+
+
+def test_wait_for_app_until_and_timeout(screen, monkeypatch) -> None:
+    screen["windows"] = [win("claude.exe", "Claude", 7)]
+    d = Desktop(CONFIG, Services())
+    monkeypatch.setattr(desktop, "WAIT_POLL_S", 0)
+    frames = iter(["x", "x Done step one", "x Done step one Finished"])
+    monkeypatch.setattr(d, "_text", lambda w: next(frames))
+    assert run(d.wait_for_app("claude", until="finished")).endswith("Done step one Finished")
+    clock = iter(range(0, 1000, 100))
+    monkeypatch.setattr(desktop, "_now", lambda: next(clock))
+    monkeypatch.setattr(d, "_text", lambda w: "same")
+    assert "Nothing changed" in run(d.wait_for_app("claude", timeout=5))
+
+
+def test_a_just_opened_app_is_waited_for(screen, monkeypatch) -> None:
+    d = Desktop(CONFIG, Services())
+    monkeypatch.setattr(d, "_launching", lambda app: True)
+    polls = []
+
+    def sleep(s):
+        polls.append(s)
+        if len(polls) == 3:
+            screen["windows"] = [win("notepad.exe", "Untitled - Notepad", 3)]
+    monkeypatch.setattr(desktop.time, "sleep", sleep)
+    assert d.target("notepad").hwnd == 3
+
+
+def test_an_approved_plan_step_does_not_ask_because_of_taint(screen, keyboard) -> None:
+    from core.registry import APPROVED_STEP
+
+    chat_app(screen)
+    services = Services()
+    services.dispatcher = type("D", (), {"tainted": True})()
+    d = Desktop(CONFIG, services)
+    assert isinstance(run(d.type_in_app("hi", app="claude")), NeedsConfirmation)
+    token = APPROVED_STEP.set(True)
+    try:
+        assert isinstance(run(d.type_in_app("hi", app="claude")), str)
+        toolbar(screen)
+        assert isinstance(run(d.click_in_app("Delete", app="notepad")), NeedsConfirmation)  # risky still asks
+    finally:
+        APPROVED_STEP.reset(token)
+
+
+def test_plan_lines_show_the_exact_words() -> None:
+    reg = Registry()
+    desktop.register(reg, CONFIG, Services())
+    assert reg.get("type_in_app").summary({"text": "milk\neggs", "app": "notepad"}) == 'type "milk eggs" into notepad'
+    assert reg.get("type_in_app").summary({"text": "hi", "app": "claude", "send": True}) == \
+        'type "hi" into claude and press Enter'
+    assert reg.get("press_keys").summary({"keys": "down", "times": 3}) == "press down 3 times in the current app"
+
+
+def test_a_desktop_plan_runs_after_one_yes(tmp_path, screen, hands, monkeypatch) -> None:
+    """Planner (faked) -> approval -> type, send, wait for the reply, answer: no further questions."""
+    from actions import agent_mode
+    from tests.fakes import fake_live as fl
+
+    chat_app(screen)
+    hands_focus = uia.Focused("text box", "Prompt", False, True)
+    monkeypatch.setattr(uia, "focused", lambda: hands_focus)
+    frames = iter(["chat", "chat what is a monad? A monad is a pattern.", "chat what is a monad? A monad is a pattern.",
+                   "chat what is a monad? A monad is a pattern."])
+
+    class Planner:
+        async def generate(self, prompt, **kw):
+            if "Write a plan" in prompt:
+                return ('{"steps": [{"tool": "type_in_app", "args": {"app": "claude", "text": "what is a monad?", '
+                        '"send": true}}, {"tool": "wait_for_app", "args": {"app": "claude"}}, {"tool": "answer"}]}')
+            assert "A monad is a pattern" in prompt
+            return "Claude says a monad is a pattern."
+
+    services = Services(llm=Planner())
+    h = fl.SafetyHarness(tmp_path, services=services, config={"features": {"desktop": True}, **CONFIG})
+    services.dispatcher = h.dispatcher
+    agent_mode.register(h.registry, {"limits": {"agent_steps_max": 10}}, services)
+    monkeypatch.setattr(services.desktop, "_text", lambda w: next(frames))
+    monkeypatch.setattr(desktop, "WAIT_POLL_S", 0)
+
+    async def go():
+        resp = await h.model_calls("run_plan", goal="ask Claude what a monad is")
+        assert resp["summary"] == ('Here\'s the plan: 1. type "what is a monad?" into claude and press Enter '
+                                   "2. wait for claude to finish 3. Tell you the answer")
+        await h.dispatcher.on_user_input("yes", "text")
+
+    run(go())
+    assert hands_focus and h.pending is None
+    assert "Claude says a monad is a pattern." in h.notices[-1]

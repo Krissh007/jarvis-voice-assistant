@@ -112,6 +112,8 @@ turns the microphone on. **Up** and **Down** bring back earlier messages, and **
 | "Ask Claude what a monad is" | Types the question into Claude, sends it, and can read you the answer |
 | "Click New chat" / "Press Ctrl+N" / "Scroll down" | Acts in the app you're using |
 | "Put Notepad on the left half" / "Minimise Spotify" | Moves the window |
+| "Ask Claude to explain monads and read me the answer" | Sends it, waits for Claude to finish, reads the reply |
+| "Open Notepad and write a shopping list: milk, eggs, bread" | Reads the plan, then does it after one "yes" |
 | "Translate what I copied into Telugu" | Reads it aloud in Telugu |
 | "Fix what I copied" | Rewrites it, reads a preview, replaces the clipboard after you confirm |
 | "Research X, open its official page and tell me the price" | Reads a plan and waits for one "yes" |
@@ -221,6 +223,11 @@ find the name, it asks "did you mean...?". Buttons such as Delete, Send, Save or
 close or print, ask first. Account and sign-out buttons are never clicked, and Windows-key shortcuts
 are never pressed. Windows can be minimised, maximised, restored, brought to the front, or snapped to
 the left or right half of the screen.
+
+**Several steps in apps.** For tasks such as opening an app, writing something and saving it, JARVIS
+reads a numbered plan with the exact words it will type, then runs it after one "yes". Saving,
+deleting and other risky steps still ask on their own. After sending a message to an AI chat app,
+it waits until the reply stops changing (up to a minute) and reads only the new text.
 
 **Screen and clipboard.** The screen is captured once per request, kept in memory only, with private
 windows blacked out. Copied text that looks like a secret is never sent anywhere.

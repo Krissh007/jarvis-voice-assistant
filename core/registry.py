@@ -6,12 +6,19 @@ model is allowed to see: BLOCKED tools are never sent to it.
 
 from __future__ import annotations
 
+import contextvars
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Any
 
 from google.genai import types
+
+
+# True while a step of a user-approved plan runs with exactly the arguments the user heard (no blanks
+# filled from results). Self-gated tools may then skip asking just because the turn is tainted; their
+# own risky-step checks still apply.
+APPROVED_STEP: contextvars.ContextVar[bool] = contextvars.ContextVar("approved_step", default=False)
 
 
 class ToolError(Exception):

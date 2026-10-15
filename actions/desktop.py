@@ -25,6 +25,11 @@ click_in_app, press_keys, scroll_app, window_action:
 - only listed keys are pressed: saving, closing, printing and Enter (outside AI chat apps) ask first;
   Windows-key combos, Alt+Tab, Ctrl+Alt+Delete and Shift+Delete (permanent delete) never happen
 - window_action only moves windows (minimise, maximise, restore, front, left/right half)
+
+wait_for_app waits until an app stops changing (an AI chat app finishing its reply) or shows some
+text, and returns only what's new since the message was sent: untrusted, scrubbed like read_app.
+In a user-approved plan, a step with fixed arguments doesn't ask again because of untrusted text
+(APPROVED_STEP); risky steps still ask.
 """
 
 from __future__ import annotations
@@ -45,7 +50,7 @@ from actions.system import normalize_app_name, process_name, resolve_app
 from actions.system import focus_window
 from core import textinput, uia
 from core.privacy import hide_secrets, is_blocked_control, is_sensitive_name, redact, secret_in_text
-from core.registry import NeedsConfirmation, Registry, Tier, Tool, ToolError
+from core.registry import APPROVED_STEP, NeedsConfirmation, Registry, Tier, Tool, ToolError
 
 log = logging.getLogger(__name__)
 
@@ -94,6 +99,23 @@ KEY_ALIASES = {"control": "ctrl", "ctl": "ctrl", "return": "enter", "esc": "esca
                "arrow up": "up", "arrow down": "down", "arrow left": "left", "arrow right": "right",
                "up arrow": "up", "down arrow": "down", "left arrow": "left", "right arrow": "right",
                "option": "alt", "spacebar": "space", "=": "plus", "-": "minus"}
+WAIT_POLL_S = 1.5
+WAIT_STABLE_POLLS = 2  # unchanged this many polls in a row = finished
+LAUNCH_WAIT_S = 10  # an app that's running but has no window yet (just opened) gets this long
+_now = time.monotonic  # the wait clock (tests replace it)
+
+
+def new_text(before: str, after: str) -> str:
+    """The words in `after` that weren't in `before`, in order; separate passages joined by ' ... '."""
+    a, b = before.split(), after.split()
+    parts = []
+    for op, _i1, _i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+        if op in ("insert", "replace"):
+            parts.append(" ".join(b[j1:j2]))
+    worded = [p for p in parts if re.search(r"[^\W\d_]{2}", p)]  # drop status-bar numbers ("Line 2, 32")
+    return " ... ".join(worded or parts)
+
+
 WINDOW_ACTIONS = {"minimise", "maximise", "restore", "front", "left half", "right half"}
 
 
@@ -235,6 +257,7 @@ class Desktop:
         self.max_chars = int(opts.get("max_chars", 4000))
         self.current: uia.Window | None = None
         self.last: Snapshot | None = None
+        self.baseline: dict[int, str] = {}  # window -> its text just before a message was sent
 
     # ------------------------------------------------------------- finding the app
 
@@ -242,6 +265,12 @@ class Desktop:
         """The window to work on: the named app, else the current app, else the app in front."""
         if app.strip():
             win = self._find(app)
+            if win is None and self._launching(app):
+                for _ in range(int(LAUNCH_WAIT_S / 0.5)):
+                    time.sleep(0.5)
+                    if win := self._find(app):
+                        time.sleep(0.5)  # let it finish drawing
+                        break
             if win is None:
                 raise ToolError(f"I can't find {app} open on the screen.")
         elif self.current is not None and (win := uia.window(self.current.hwnd)) is not None:
@@ -254,6 +283,19 @@ class Desktop:
         if why := blocked_reason(win):
             raise ToolError(f"I won't {verb} {safe_label(win)}: {why}.")
         return win
+
+    def _launching(self, app: str) -> bool:
+        """The named app's program is running but has no window yet (it was probably just opened)."""
+        match = resolve_app(app, self.allowlist, self.aliases)
+        if match is None or "://" in match[1]:
+            return False
+        exe = process_name(match[1])
+        try:
+            import psutil
+
+            return any((p.info["name"] or "").lower() == exe for p in psutil.process_iter(["name"]))
+        except Exception:
+            return False
 
     def _find(self, app: str) -> uia.Window | None:
         windows = [w for w in uia.all_windows() if not is_shell(w)]
@@ -290,7 +332,14 @@ class Desktop:
     # ------------------------------------------------------------- typing
 
     def _tainted(self) -> bool:
+        if APPROVED_STEP.get():
+            return False  # a plan step the user approved word for word
         return bool(getattr(getattr(self.services, "dispatcher", None), "tainted", False))
+
+    def _text(self, win: uia.Window) -> str:
+        """The window's visible text, scrubbed (runs on the UIA thread)."""
+        controls = uia.read(win.hwnd, with_text=True, limit=self.max_items * 2, max_chars=self.max_chars * 2)
+        return describe(Snapshot(win, controls), "text")[0]
 
     async def type_in_app(self, text: str, app: str = "", field: str = "", send: bool = False
                           ) -> str | NeedsConfirmation:
@@ -327,11 +376,17 @@ class Desktop:
             how = await uia.call(textinput.type_text, win.hwnd, text)
             if send:
                 await asyncio.sleep(0.2)
+                try:
+                    self.baseline[win.hwnd] = await uia.call(self._text, win)  # so wait_for_app finds the reply
+                except Exception:
+                    log.exception("couldn't read %s before sending", win.exe)
                 await uia.call(textinput.press_enter, win.hwnd)
         except RuntimeError as exc:
             raise ToolError(f"I stopped typing: {exc}.") from exc
         log.info("%s %d characters into %s (%s)%s", how, len(text), win.exe, label, " and sent" if send else "")
-        return f"Typed into {label} in {safe_label(win)}" + (" and pressed Enter." if send else ".")
+        preview = " ".join(text.split())
+        preview = preview[:80] + ("..." if len(preview) > 80 else "")
+        return (f'Typed "{preview}" into {label} in {safe_label(win)}' + (" and pressed Enter." if send else "."))
 
     def _focus_field(self, win: uia.Window, field: str) -> str:
         """Bring the app to the front and put the cursor in the right field. Runs on the UIA thread.
@@ -358,6 +413,44 @@ class Desktop:
             raise ToolError(f"I couldn't put the cursor in {choice.name or 'that field'}.")
         self._check_private(now.name, now.password)
         return f"the {choice.name} box" if choice.name else "the text box"
+
+    # ------------------------------------------------------------- waiting
+
+    async def wait_for_app(self, app: str = "", until: str = "", timeout: int = 60) -> str:
+        """Wait until an app stops changing (or shows `until`); return what's new since the message was sent."""
+        timeout = max(5, min(int(timeout or 60), 180))
+        win = await uia.call(self.target, app)
+        self.current = win
+        before = self.baseline.pop(win.hwnd, None)
+        if before is None:
+            before = await uia.call(self._text, win)
+        start = _now()
+        last, stable, changed, text = None, 0, False, before
+        while _now() - start < timeout:
+            await asyncio.sleep(WAIT_POLL_S)
+            if uia.window(win.hwnd) is None:
+                raise ToolError(f"{safe_label(win)} was closed while I waited.")
+            text = await uia.call(self._text, win)
+            fresh = new_text(before, text)
+            if until and until.lower() in fresh.lower():
+                break
+            changed = changed or text != before
+            stable = stable + 1 if text == last else 0
+            last = text
+            if changed and not until and stable >= WAIT_STABLE_POLLS:
+                break
+        else:
+            fresh = new_text(before, text)
+            if not fresh:
+                return f"Nothing changed in {safe_label(win)} for {timeout} seconds."
+            log.info("waited %ds for %s: still changing", timeout, win.exe)
+            return (f"{safe_label(win)} was still changing after {timeout} seconds. New text so far:\n"
+                    + fresh[-self.max_chars:])
+        took = round(_now() - start)
+        log.info("waited %ds for %s", took, win.exe)
+        fresh = new_text(before, text)
+        return (f"{safe_label(win)} finished after {took} seconds. New text:\n{fresh[-self.max_chars:]}"
+                if fresh else f"{safe_label(win)} changed, but there's no new text.")
 
     # ------------------------------------------------------------- clicking
 
@@ -564,6 +657,18 @@ class _MonitorInfo(ctypes.Structure):
                 ("dwFlags", wintypes.DWORD)]
 
 
+def _app_words(args: dict) -> str:
+    return str(args.get("app") or "the current app")
+
+
+def _type_summary(args: dict) -> str:
+    """Plan line: the exact words, so the user approves what will be typed."""
+    text = " ".join(str(args.get("text", "")).split())
+    shown = text[:150] + ("..." if len(text) > 150 else "")
+    field = f" the {args['field']} field of" if args.get("field") and not str(args["field"]).isdigit() else ""
+    return f'type "{shown}" into{field} {_app_words(args)}' + (" and press Enter" if args.get("send") else "")
+
+
 def register(registry: Registry, config: dict, services) -> None:
     desktop = Desktop(config, services)
     services.desktop = desktop
@@ -584,7 +689,7 @@ def register(registry: Registry, config: dict, services) -> None:
                 "what": {"type": "string", "enum": sorted(WHAT)},
             },
         },
-        summarize=lambda a: f"read {a.get('app') or 'the current app'}",
+        summarize=lambda a: f"read {_app_words(a)}",
     ))
     registry.register(Tool(
         name="type_in_app",
@@ -605,9 +710,26 @@ def register(registry: Registry, config: dict, services) -> None:
             },
             "required": ["text"],
         },
-        summarize=lambda a: f"type into {a.get('app') or 'the current app'}",
+        summarize=_type_summary,
     ))
     app_param = {"type": "string", "description": "App name; empty = the current app."}
+    registry.register(Tool(
+        name="wait_for_app",
+        description=("Wait until an open app finishes changing, e.g. Claude finishing its reply after "
+                     "type_in_app with send=true, or until it shows some text (until). Returns only the new "
+                     "text. timeout in seconds (default 60)."),
+        func=desktop.wait_for_app,
+        tier=Tier.SAFE,
+        read_only=True,
+        untrusted_output=True,
+        parameters={
+            "type": "object",
+            "properties": {"app": app_param, "until": {"type": "string"},
+                           "timeout": {"type": "integer", "minimum": 5, "maximum": 180}},
+        },
+        summarize=lambda a: f"wait for {a.get('app') or 'the app'}" + (f" to show {a['until']}" if a.get("until")
+                                                                        else " to finish"),
+    ))
     registry.register(Tool(
         name="click_in_app",
         description=("Click a button, link, tab, menu item or list item in an open desktop app, by its name or "
@@ -626,7 +748,7 @@ def register(registry: Registry, config: dict, services) -> None:
             },
             "required": ["target"],
         },
-        summarize=lambda a: f"click {a.get('target')}",
+        summarize=lambda a: f"click {a.get('target')} in {_app_words(a)}",
     ))
     registry.register(Tool(
         name="press_keys",
@@ -645,7 +767,8 @@ def register(registry: Registry, config: dict, services) -> None:
             },
             "required": ["keys"],
         },
-        summarize=lambda a: f"press {a.get('keys')}",
+        summarize=lambda a: f"press {a.get('keys')}" + (f" {a['times']} times" if (a.get("times") or 1) > 1 else "")
+        + f" in {_app_words(a)}",
     ))
     registry.register(Tool(
         name="scroll_app",
@@ -657,7 +780,7 @@ def register(registry: Registry, config: dict, services) -> None:
             "properties": {"direction": {"type": "string", "enum": ["up", "down"]}, "app": app_param,
                            "amount": {"type": "integer", "minimum": 1, "maximum": 30}},
         },
-        summarize=lambda a: f"scroll {a.get('direction', 'down')}",
+        summarize=lambda a: f"scroll {a.get('direction', 'down')} in {_app_words(a)}",
     ))
     registry.register(Tool(
         name="window_action",
@@ -670,5 +793,5 @@ def register(registry: Registry, config: dict, services) -> None:
             "properties": {"action": {"type": "string", "enum": sorted(WINDOW_ACTIONS)}, "app": app_param},
             "required": ["action"],
         },
-        summarize=lambda a: f"{a.get('action')} {a.get('app') or 'the window'}",
+        summarize=lambda a: f"{a.get('action')}: {_app_words(a)}",
     ))

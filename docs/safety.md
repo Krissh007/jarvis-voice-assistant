@@ -140,6 +140,10 @@ Enforced in `core/privacy.py` and the modules that use it.
   chat apps, Delete in File Explorer and any key in a terminal ask first. Windows-key shortcuts,
   Alt+Tab, Ctrl+Alt+Delete, Ctrl+Shift+Esc and Shift+Delete (permanent delete) are never pressed.
 - `window_action` can move any window, your browser included, because moving shows nothing inside.
+- In a plan, each app step is read to you with its exact words (type "milk eggs bread" into
+  notepad) before the one approval. A step whose words were fixed in that plan doesn't ask again
+  just because an earlier step read app text. A step whose value is filled in from results still
+  asks, and risky steps (Save, Delete, Enter outside chat apps...) always ask.
 
 **Your files**
 - Only file and folder *names* are read, never contents, and only in the folders under `files:`.

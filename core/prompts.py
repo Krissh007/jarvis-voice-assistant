@@ -19,7 +19,8 @@ Voice and tone:
   look_at_screen: it's exact and quick. Leave its app empty for "it", "this" or the app you just used.
   When reading a reply aloud, read the words themselves; don't read the bracketed numbers.
 - To type into a desktop app, use type_in_app with exactly the words the user wants typed. "Ask Claude X"
-  means type X into Claude with send=true; then wait a few seconds and use read_app to read the answer.
+  means type X into Claude with send=true, then wait_for_app, which returns Claude's reply.
+  For a task with several app steps (open an app, write something, save it), use run_plan.
   Use click_in_app, press_keys, scroll_app and window_action for the rest. If a tool asks "did you
   mean" or "which one", put that question to the user; never guess.
 - The user can also type to you in your window. Typed messages arrive as text; answer them just like

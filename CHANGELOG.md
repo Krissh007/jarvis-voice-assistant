@@ -106,3 +106,8 @@ How JARVIS was built: the phases in the build spec and the finishing touches (24
   scrolling, and window minimise, maximise, restore, front and half-screen snapping.
 - The older `app_ui_action` (allowlisted apps, every step planned and confirmed) is off by default
   (`features.app_ui: false`).
+- Multi-step app tasks through `run_plan`: `wait_for_app` waits until an app stops changing (or shows
+  some text) and returns only the new text since the message was sent. Plan lines show the exact
+  words to be typed. Fixed-argument steps of an approved plan don't ask again because of earlier
+  untrusted text (`registry.APPROVED_STEP`). Apps still opening are waited for (up to 10 seconds).
+  "Which one" and "did you mean" answers stop a plan.
