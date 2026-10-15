@@ -85,3 +85,13 @@ How JARVIS was built: the phases in the build spec and the finishing touches (24
 - It reports how often it woke on recordings it did not learn from, and tries a second method
   that also learns from the clips the stock model misses, keeping whichever does better.
 - It refuses to start while JARVIS is running (JARVIS would answer every recording).
+
+## Reading apps (15 October 2026)
+
+- `read_app` (`actions/desktop.py`, `core/uia.py`, `features.desktop`): reads the text, buttons and
+  fields of any open app through Windows UI Automation, with no screenshot. A SAFE, read-only tool
+  whose output is untrusted. It remembers the current app, so "read it again" needs no name.
+- Never read: password managers, web browsers, Windows Settings and Security, sign-in and admin
+  prompts, Registry Editor, Task Manager, JARVIS itself and windows with private-looking titles.
+  Password and payment fields are listed as private. Emails, numbers, keys and card numbers are
+  replaced (`privacy.hide_secrets`).

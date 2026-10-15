@@ -234,7 +234,7 @@ def _read(hwnd: int, with_text: bool, limit: int, max_chars: int) -> list[Contro
     _user32.GetWindowRect(hwnd, ctypes.byref(win))
     out: list[Control] = []
     seen: set[tuple] = set()
-    budget = max_chars
+    budget = names_budget = max_chars  # documents and long labels each get their own share
     for i in range(elements.Length):
         el = elements.GetElement(i)
         try:
@@ -248,11 +248,16 @@ def _read(hwnd: int, with_text: bool, limit: int, max_chars: int) -> list[Contro
                 continue
             if r.right < win.left or r.left > win.right or r.bottom < win.top or r.top > win.bottom:
                 continue  # scrolled out of the window
-            name = " ".join((el.CachedName or "").split())[:200]
+            name = " ".join((el.CachedName or "").replace("\ufffc", " ").split())
+            if with_text and kind in {"text", "list item"}:  # chat messages and labels: part of the text budget
+                name = name[:max(200, min(1000, names_budget))]
+                names_budget -= max(0, len(name) - 200)
+            else:
+                name = name[:200]
             password = bool(el.CachedIsPassword)
             value = ""
             if with_text and kind in {"document", "text box"} and not password and budget > 0:
-                value = " ".join(_element_text(el, UIA, budget).split())[:budget]
+                value = " ".join(_element_text(el, UIA, budget).replace("\ufffc", " ").split())[:budget]
                 budget -= len(value)
             key = (kind, name, value[:40], r.left, r.top)
             if key in seen or (not name and not value and kind not in TYPEABLE):

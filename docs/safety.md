@@ -116,6 +116,14 @@ Enforced in `core/privacy.py` and the modules that use it.
   files, keys, passwords, banking and password managers.
 - App control never reads text inside apps, never touches account, settings or destructive
   controls, and won't type into a document that looks like it holds secrets.
+- Reading apps (`read_app`) never reads password managers, web browsers (your Chrome holds your
+  accounts), Windows Settings and Security, sign-in and admin prompts, Registry Editor, Task Manager,
+  JARVIS's own window, or any window whose title looks like it holds secrets. When it refuses, it
+  names the app, never the window's title.
+- Password fields, and fields named like card, CVV, PIN or one-time-code fields, are listed as
+  private; their contents are never read.
+- Text read from an app has emails, phone numbers, keys, tokens and card numbers replaced before it
+  reaches a model. It's untrusted, so anything JARVIS does next in that turn asks first.
 
 **Your files**
 - Only file and folder *names* are read, never contents, and only in the folders under `files:`.

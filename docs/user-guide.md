@@ -106,6 +106,8 @@ turns the microphone on. **Up** and **Down** bring back earlier messages, and **
 | "Close the music player" | Closes the YouTube Music app |
 | "Open naukri.com" | Opens it in JARVIS's browser (asks first for sites not on your trusted list) |
 | "What's on my screen?" | Looks once, with private windows blacked out |
+| "Read me Claude's reply" / "What does Notepad say?" | Reads the text in that app (never browsers or password fields) |
+| "What can I click here?" | Lists the buttons and fields in the app you're using |
 | "Translate what I copied into Telugu" | Reads it aloud in Telugu |
 | "Fix what I copied" | Rewrites it, reads a preview, replaces the clipboard after you confirm |
 | "Research X, open its official page and tell me the price" | Reads a plan and waits for one "yes" |
@@ -199,6 +201,12 @@ installed YouTube Music app. Without the app, it plays them in JARVIS's browser.
 **App control.** For apps without their own tool, JARVIS plans the exact UI Automation steps, reads
 them to you, and runs them only after you confirm. It never reads text inside apps, never touches
 password, account or settings controls, and never saves (Ctrl+S).
+
+**Reading apps.** JARVIS can read the text, buttons and fields of an open app through Windows UI
+Automation, without a screenshot. Name the app, or say "it" for the one you last asked about (or
+the one in front). It won't read password managers, web browsers, Windows Settings or Security,
+sign-in prompts, or windows whose title looks private, and it never reads password or payment
+fields. A minimised app has nothing on screen to read.
 
 **Screen and clipboard.** The screen is captured once per request, kept in memory only, with private
 windows blacked out. Copied text that looks like a secret is never sent anywhere.
