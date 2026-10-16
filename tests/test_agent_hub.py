@@ -235,7 +235,9 @@ def test_tiers_and_descriptions(tmp_path, monkeypatch) -> None:
     req, status = reg.get("agent_hub_request"), reg.get("agent_hub_status")
     assert req.tier == Tier.SAFE and not req.read_only and req.untrusted_output
     assert status.read_only and status.untrusted_output
-    assert "job_search_status" in req.description          # tells the model where status questions go
+    for covered in ("shortlist", "waiting for approval", "discovery", "approving or skipping"):
+        assert covered in req.description                  # tells the model which job questions go to the Hub
+    assert "job_search_status" not in req.description and "dashboard" not in req.description
     assert services.background                              # poller registered for the runtime
 
 

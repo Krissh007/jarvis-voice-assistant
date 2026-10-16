@@ -148,7 +148,8 @@ def register(registry: Registry, config: dict, services) -> None:
     screen = Screen(services)
     registry.register(Tool(
         name="look_at_screen",
-        description="Look at the user's screen once and answer a question about what's on it.",
+        description=("Look at the user's screen once and answer a question about what's on it: pictures, charts, "
+                     "layouts, or apps read_app can't read. For text in an app, use read_app."),
         func=screen.look_at_screen,
         tier=Tier.SAFE,
         read_only=True,

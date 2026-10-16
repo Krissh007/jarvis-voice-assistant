@@ -376,8 +376,9 @@ def register(registry: Registry, config: dict, services) -> None:
     registry.on_user_turn(agent.new_turn)
     registry.register(Tool(
         name="run_plan",
-        description=("For goals needing several different tools in a row (research, then open a page, then "
-                     "report). Drafts a numbered plan, reads it to the user for one approval, then runs it."),
+        description=("Only for goals that need three or more different tools in a row (research, then open a "
+                     "page, then report; or open an app, write in it and save). Drafts a numbered plan, reads it "
+                     "to the user for one approval, then runs it. Never for something one tool can do."),
         func=agent.run_plan,
         tier=Tier.SAFE,  # only drafts; running needs the user's approval of the code-written plan
         self_gated=True,

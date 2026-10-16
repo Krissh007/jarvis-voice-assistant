@@ -133,3 +133,9 @@ How JARVIS was built: the phases in the build spec and the finishing touches (24
   first (Tavily, else DuckDuckGo) and reasons over the results, which stay untrusted.
 - Free tier, checked on this account: Gemini Pro models have a limit of 0, and Google Search
   grounding is refused on every Flash model, so neither is used.
+- Tool choice (no router: the Live model picks from the tool descriptions): `agent_hub_request` now
+  covers the shortlist, applications waiting for approval, job lists, job search runs, approving or
+  skipping an application and recent runs, and no longer claims dashboard work the Hub doesn't have.
+  With the Hub on, `job_search_status` is the quick overall summary. `search_web`, `run_plan` and
+  `look_at_screen` say when not to use them; the persona has a short tool-choice rule. On the real
+  Live model, 17 of 17 test requests picked the intended tool.
