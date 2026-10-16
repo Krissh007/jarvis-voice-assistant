@@ -146,6 +146,11 @@ a tool or waiting for a yes. Otherwise it is held (saved in `data/agent_hub_held
 shown once. A confirmation the Hub asks for travels as `NeedsConfirmation`, whose `on_cancel` hook
 tells the Hub when the user says no, doesn't answer, or asks for something else.
 
+Long results from tools that opt in (`Tool.condense`: `read_app` except its controls list,
+`wait_for_app`, `job_search_status`) are shortened by `core/condense.py` in `Dispatcher._run`,
+focused on the user's latest request, before being wrapped and returned to the model. Plan steps
+get the full text: the plan's answer step summarises them, and blanks are filled from it.
+
 ## Threads
 
 | Thread | Does |

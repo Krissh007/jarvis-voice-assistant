@@ -22,6 +22,12 @@ reasoning:                      # think_through (features.reasoning): careful an
   # Free tier, checked on this account 2026-10-16: Gemini Pro models have a limit of 0 and Google Search
   # grounding is refused, so think_through uses Flash + JARVIS's own search (Tavily, else DuckDuckGo).
 
+condense:                       # long tool results (read_app, wait_for_app, job_search_status) are shortened
+  over_chars: 1500              # before the Live model sees them; shorter results pass unchanged
+  max_words: 120
+  model: gemini-3.5-flash-lite  # tried first (spares the main Flash model's small daily quota)
+  timeout_s: 8                  # slower than this: use the start and end of the text instead
+
 listening:
   mode: wake_word               # always_on | push_to_talk | wake_word
   end_pause_ms: 1000            # quiet this long = you've finished; shorter replies faster, but splits sentences

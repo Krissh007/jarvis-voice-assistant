@@ -200,6 +200,10 @@ class Assistant:
             if name := preferred_name(self.services.memory):
                 self.transcript.set_user_label(name)
         self.services.dispatcher = self.dispatcher
+        if llm is not None:
+            from core.condense import Condenser
+
+            self.dispatcher.condenser = Condenser(llm, config)
         self.services.notify = self._notify
         self.services.can_speak = self._can_announce
         self.services.taint = lambda: setattr(self.dispatcher, "tainted", True)

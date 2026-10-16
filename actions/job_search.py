@@ -432,6 +432,7 @@ def register(registry: Registry, config: dict, services) -> None:
         tier=Tier.SAFE,
         read_only=True,
         untrusted_output=True,  # job titles and company names come from job sites
+        condense=True,
         parameters={
             "type": "object",
             "properties": {"topic": {"type": "string", "enum": list(TOPICS)}},

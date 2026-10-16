@@ -79,11 +79,16 @@ class LLM:
         self._cooling: dict[str, float] = {}  # model -> skip until (monotonic time)
 
     async def generate(self, prompt: str, system: str = "", max_tokens: int = 800, json: bool = False,
-                       images: list[bytes] | None = None, thinking: str | None = None) -> str:
+                       images: list[bytes] | None = None, thinking: str | None = None,
+                       start_at: str | None = None) -> str:
         """Return text, trying each model with backoff before falling back. Raises LLMUnavailable.
-        `thinking` overrides every model's thinking level for this call (e.g. "high" for reasoning)."""
+        `thinking` overrides every model's thinking level for this call (e.g. "high" for reasoning);
+        `start_at` tries that model first (if it's in the chain), then the rest in order."""
         system = f"{system}\n\n{UNTRUSTED_RULE}".strip()
-        for i, model in enumerate(self.models):
+        models = self.models
+        if start_at in models:
+            models = [start_at, *(m for m in models if m != start_at)]
+        for i, model in enumerate(models):
             if self._cooling.get(model, 0) > self.clock():
                 continue  # quota used up; don't waste time on it
             try:

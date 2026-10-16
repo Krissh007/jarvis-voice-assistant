@@ -138,6 +138,9 @@ Enforced in `core/privacy.py` and the modules that use it.
   private; their contents are never read.
 - Text read from an app has emails, phone numbers, keys, tokens and card numbers replaced before it
   reaches a model. It's untrusted, so anything JARVIS does next in that turn asks first.
+- Long app and job-search results are shortened before the Live model sees them. The text being
+  shortened is wrapped as untrusted, and so is the summary; buttons-and-fields lists are never
+  shortened, so click numbers stay exact.
 - Typing into apps (`type_in_app`) has the same off-limits apps. It never types into password or
   payment fields (checked again where the cursor actually lands), never types text that looks like a
   key, token or card number, and types only while that app is in front.

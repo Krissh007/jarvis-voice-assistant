@@ -74,6 +74,11 @@ class Tool:
     self_gated: bool = False
     summarize: Callable[[dict[str, Any]], str] | None = None
     rung: int = 2
+    # Long results are shortened (core.condense) before the model sees them: True, or per call from args.
+    condense: bool | Callable[[dict[str, Any]], bool] = False
+
+    def wants_condense(self, args: dict[str, Any]) -> bool:
+        return bool(self.condense(args) if callable(self.condense) else self.condense)
 
     def base_tier(self, args: dict[str, Any]) -> Tier:
         return self.tier(args) if callable(self.tier) else self.tier

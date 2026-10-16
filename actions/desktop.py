@@ -682,6 +682,7 @@ def register(registry: Registry, config: dict, services) -> None:
         tier=Tier.SAFE,
         read_only=True,
         untrusted_output=True,
+        condense=lambda a: a.get("what") != "controls",  # button numbers must stay exact for clicking
         parameters={
             "type": "object",
             "properties": {
@@ -722,6 +723,7 @@ def register(registry: Registry, config: dict, services) -> None:
         tier=Tier.SAFE,
         read_only=True,
         untrusted_output=True,
+        condense=True,
         parameters={
             "type": "object",
             "properties": {"app": app_param, "until": {"type": "string"},

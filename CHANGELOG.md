@@ -142,3 +142,12 @@ How JARVIS was built: the phases in the build spec and the finishing touches (24
 - Agent Hub on (`features.agent_hub: true`), with `AGENT_HUB_TOKEN` set. Tested through the real Live
   model and the running Hub: shortlist and approval questions answered by the Hub; "run discovery"
   and "skip application 5" read the Hub's own question and were released on "no".
+
+## Shorter spoken results (16 October 2026)
+
+- `core/condense.py`: results over `condense.over_chars` from tools that opt in (`Tool.condense`:
+  `read_app` except `what=controls`, `wait_for_app`, `job_search_status`) are summarised for the
+  user's latest request before the Live model sees them, on `gemini-3.5-flash-lite` first
+  (`LLM.generate(start_at=...)`). Over `condense.timeout_s`, or with no model, the start and end
+  of the text are used. Plan steps get the full text. Live: the Claude window went from 4,310 to
+  337 characters; summarising took about 8 s while the models were busy.
