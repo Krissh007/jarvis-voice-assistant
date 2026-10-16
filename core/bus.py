@@ -19,6 +19,7 @@ Kinds (data fields):
 - notice: text, the first line of a [system notice] sent to the model
 - status: text, problem, a line for the console such as "(awake)"
 - focus: (no data) a second launch asked for the window; the web UI brings itself to the front
+- media: type ("image"), title, caption, data (a data: URL), a picture a tool showed; never kept in history
 
 `channel` says which conversation side an event belongs to: "voice", "chat", or None for the app itself.
 Replies and tool calls carry the channel of the user's latest input.
@@ -42,6 +43,7 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 STREAM_MAX = 500  # events a slow stream (e.g. a WebSocket) may fall behind before the oldest are dropped
+TRANSIENT = {"media"}  # delivered but never kept in the history (pictures of the user's screen)
 
 
 @dataclass(frozen=True)
@@ -150,7 +152,8 @@ class EventBus:
         return event
 
     def _deliver(self, event: Event) -> None:
-        self._history.append(event)
+        if event.kind not in TRANSIENT:
+            self._history.append(event)
         for handler in list(self._handlers):
             try:
                 handler(event)

@@ -75,11 +75,28 @@ def test_requests_for_another_host_name_are_refused(ui) -> None:
 
 
 def test_page_never_renders_text_as_html() -> None:
-    js = (STATIC / "app.js").read_text(encoding="utf-8")
     html = (STATIC / "index.html").read_text(encoding="utf-8")
-    assert not re.search(r"innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(|new Function", js)
+    for name in ("app.js", "orb.js"):
+        js = (STATIC / name).read_text(encoding="utf-8")
+        assert not re.search(r"innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(|new Function", js), name
     assert "<script>" not in html and "onclick" not in html  # no inline code (the policy blocks it anyway)
-    assert "http" not in re.sub(r"ws://|location", "", js.split("// ----")[0])  # no outside resources
+    for f in STATIC.iterdir():  # nothing is loaded from outside
+        assert not re.search(r"https?://", f.read_text(encoding="utf-8")), f.name
+
+
+def test_media_events_reach_the_page(ui) -> None:
+    bridge, client = ui
+    with connect(client) as ws:
+        json.loads(ws.receive_text())
+        bridge.bus.publish("media", type="image", title="Looking at your screen", data="data:image/jpeg;base64,AA==")
+        for _ in range(20):
+            msg = json.loads(ws.receive_text())
+            if msg["kind"] == "media":
+                assert msg["data"].startswith("data:image/jpeg")
+                break
+        else:
+            raise AssertionError("no media event")
+    assert bridge.bus.recent(kinds={"media"}) == []  # pictures of the screen are never kept
 
 
 # ---------------------------------------------------------------- the WebSocket's checks
@@ -300,3 +317,69 @@ async def test_window_process_reports_when_the_user_closes_it(tmp_path) -> None:
     proc.stop()  # JARVIS quitting: no "closed" callback
     assert not proc.alive and closed == [1]
     assert Path(tmp_path / "window.log").exists()
+
+
+def test_stopping_the_window_closes_the_whole_process_tree(tmp_path) -> None:
+    """The venv's python.exe is a launcher with the real interpreter as its child: both must go."""
+    import sys
+    import time
+
+    import psutil
+
+    from ui.window import WindowProcess
+
+    proc = WindowProcess("http://127.0.0.1:1/#t=x", state_path=tmp_path / "w.json")
+    child = "import subprocess, sys, time; subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); time.sleep(60)"
+    proc.command = lambda: [sys.executable, "-c", child]
+    proc.start()
+    root = psutil.Process(proc._proc.pid)
+    for _ in range(100):
+        tree = root.children(recursive=True)
+        if len(tree) >= 1:
+            break
+        time.sleep(0.05)
+    pids = [root.pid, *(p.pid for p in root.children(recursive=True))]
+    assert len(pids) >= 2
+    proc.stop()
+    time.sleep(0.3)
+    assert not any(psutil.pid_exists(p) and psutil.Process(p).status() != psutil.STATUS_ZOMBIE for p in pids)
+
+
+def test_click_through_shapes() -> None:
+    from ui.window import hit, parse_shapes
+
+    shapes = parse_shapes('[{"c": [590, 360], "r": 150}, {"x": 400, "y": 520, "w": 380, "h": 46}, {"bad": 1}, 7]')
+    assert len(shapes) == 2  # malformed entries are dropped
+    assert hit(shapes, 590, 360) and hit(shapes, 700, 400)       # on the orb
+    assert hit(shapes, 410, 530)                                   # on the typing box
+    assert not hit(shapes, 20, 20) and not hit(shapes, 590, 700)  # empty space: clicks go through
+    assert parse_shapes("not json") == [] and parse_shapes('{"c": 1}') == []
+
+
+async def test_looking_at_the_screen_shows_a_redacted_preview_that_is_never_kept(monkeypatch) -> None:
+    import io
+
+    from PIL import Image
+
+    from actions import Services, screen
+    from core.bus import EventBus
+
+    img = Image.new("RGB", (1280, 720), "navy")
+    buf = io.BytesIO()
+    img.save(buf, "JPEG")
+    monkeypatch.setattr(screen, "capture", lambda: (buf.getvalue(), ["Bank login"]))
+
+    class FakeLLM:
+        async def generate(self, prompt, **kw):
+            return "A blue screen."
+
+    bus = EventBus()
+    seen = []
+    bus.subscribe(seen.append)
+    s = screen.Screen(Services(llm=FakeLLM(), bus=bus))
+    answer = await s.look_at_screen("what's on it?")
+    assert answer.startswith("A blue screen.") and "blacked out" in answer
+    (ev,) = [e for e in seen if e.kind == "media"]
+    assert ev.data["type"] == "image" and ev.data["data"].startswith("data:image/jpeg;base64,")
+    assert len(ev.data["data"]) < 120_000  # a small preview, not the full capture
+    assert bus.recent() == []

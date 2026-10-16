@@ -251,3 +251,36 @@ used only when it's off), JARVIS's window is a local web page:
   activity. Then the real WebView2 window opened and connected. In push-to-talk mode, typed text that
   led to a tool call made Gemini Live drop the connection (error 1011). Wake-word and always-on modes
   are fine.
+
+## The orb window (17 October 2026)
+
+The web window was redesigned with the user, step by step. They chose a futuristic orb from several
+options, then supplied a reference image, and the result works like this:
+- **Just the orb:** the window draws nothing but the orb and a typing box under it. The desktop shows
+  through everywhere else, and clicks there go to whatever is behind.
+- **The orb** (`ui/static/orb.js`): a particle shell, a tunnel of HUD rings, three tilted orbit bands with
+  light running along them and lightning crackling over them, a voice wave through the middle, sparks,
+  and a bloom glow that blends into the desktop. It's low when asleep, brighter when listening and
+  strongest when speaking; red when muted and amber while working on a task. At the user's request it
+  has no vertical bars in the voice wave.
+- **Sections around the orb:** while talking, only what's needed appears at equal clock positions (8 to
+  4 o'clock): the answer, a confirmation with Confirm / Cancel, what JARVIS is doing, a picture
+  (`look_at_screen` shows its redacted capture; never kept), what's playing. They stay until the orb is
+  double-clicked or JARVIS goes to sleep.
+- **Full panel:** a click on the orb opens controls orbiting it (Talk, Sleep, Mute, Stop), the whole
+  conversation, activity and vision. Click again to fold it away. Drag the orb to move the window, which
+  opens at the top centre and remembers its place.
+- **Window technology:** Qt WebEngine (PySide6) instead of pywebview. Checked on this PC: Edge WebView2
+  can't do per-pixel transparency on Windows, and colour-key transparency let clicks through the whole
+  window, the orb included. Qt draws true per-pixel alpha, and the window switches `WS_EX_TRANSPARENT`
+  as the mouse moves on and off the page's clickable shapes.
+- **Fixed while checking it:** stopping the window now ends the whole process tree. The venv's
+  `python.exe` is a launcher, and the real Qt process would have stayed open after JARVIS quit.
+- **Checks:**
+  - Live against the real assistant (headless, with a backdrop): an answer, a confirmation confirmed by
+    the button, the screen preview, the full panel, and double-click clearing.
+  - On the real desktop: see-through, glow blending, clicks going through empty space and landing on
+    the orb and the typing box, and a clean close.
+  - 816 tests pass in the worktree.
+- Dependencies: `pyside6-essentials`, `pyside6-webengine` (about 400 MB in the venv on E:); `pywebview`
+  removed.

@@ -104,9 +104,26 @@ def foreground_title() -> str:
     return window_title(ctypes.windll.user32.GetForegroundWindow())
 
 
+PREVIEW_WIDTH = 560  # the picture shown beside the orb (already redacted), never saved
+
+
+def preview_data_url(jpeg: bytes, width: int = PREVIEW_WIDTH) -> str:
+    """A small copy of an (already redacted) screen capture as a data: URL, for JARVIS's own window."""
+    import base64
+
+    from PIL import Image
+
+    img = Image.open(io.BytesIO(jpeg))
+    img.thumbnail((width, width))
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, "JPEG", quality=70)
+    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+
+
 class Screen:
     def __init__(self, services) -> None:
         self.llm = services.llm
+        self.services = services
 
     async def look_at_screen(self, question: str = "What's on the screen?") -> str:
         """Look at the screen once and answer a question about it. Rung 2 (screen capture) + Flash vision.
@@ -114,6 +131,15 @@ class Screen:
         if self.llm is None:
             return USAGE_LIMIT_MESSAGE
         image, hidden = await asyncio.to_thread(capture)
+        bus = getattr(self.services, "bus", None)
+        if bus is not None:  # show the user what JARVIS is looking at (private windows already blacked out)
+            try:
+                preview = await asyncio.to_thread(preview_data_url, image)
+                bus.publish("media", type="image", title="Looking at your screen",
+                            caption="Private windows are blacked out. Not saved.", data=preview)
+                del preview
+            except Exception:
+                log.exception("couldn't show the screen preview")
         note = ""
         if hidden:
             note = (f" ({len(hidden)} window{'s' if len(hidden) > 1 else ''} that looked private "

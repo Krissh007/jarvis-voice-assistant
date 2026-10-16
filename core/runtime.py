@@ -180,8 +180,8 @@ class Assistant:
             if ucfg.get("window", True):
                 self.window_proc = WindowProcess(
                     self.web.url, state_path=Services().data_dir / "web_window.json",
-                    width=int(ucfg.get("width", 980)), height=int(ucfg.get("height", 680)),
-                    on_top=bool(ucfg.get("always_on_top", False)),
+                    width=int(ucfg.get("width", 1180)), height=int(ucfg.get("height", 860)),
+                    on_top=bool(ucfg.get("always_on_top", True)),
                     icon=Path(__file__).resolve().parent.parent / "assets" / "jarvis.ico",
                     on_closed=self._window_closed, log_path=options.log_dir / "window.log",
                 )

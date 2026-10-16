@@ -69,13 +69,13 @@ window:                         # used when features.window is true
   close_button: quit            # the window's X: quit JARVIS, or "hide" to keep it running in the tray
   speak_typed_replies: true     # JARVIS says its answers to typed messages aloud (also in the window's menu)
 
-web_ui:                         # used when features.web_ui is true: the window is a local web page (ui/)
+web_ui:                         # used when features.web_ui is true: the orb window, a local web page (ui/)
   port: 0                       # 0 = any free port; always 127.0.0.1, and every connection needs the launch's token
-  window: true                  # show it in its own window (pywebview / Edge WebView2); false = tray only
-  width: 980
-  height: 680
-  always_on_top: false
-  close_button: quit            # the window's X: quit JARVIS, or "hide" to keep it running in the tray
+  window: true                  # show it (a see-through Qt window: only the orb, typing box and sections are drawn)
+  width: 1180                   # the window's area; outside the orb and sections clicks go to whatever is behind
+  height: 860
+  always_on_top: true
+  close_button: quit            # closing the window (Alt+F4) quits JARVIS, or "hide" keeps it running in the tray
 
 audio:
   transcription_languages: [en-IN]   # BCP-47 hints for your speech; [] = auto-detect
@@ -223,5 +223,5 @@ features:
   morning_briefing: false
   tray: true                    # tray icon: click to talk, Stop, Mute, Quit
   window: false                 # the older Tk window (orb, captions, typing box); used only when web_ui is off
-  web_ui: true                  # the web window: orb, chat, activity (tools and plan steps), confirmations
+  web_ui: true                  # the orb window: sections around the orb, full panel on click, typing box
   wake_word: true

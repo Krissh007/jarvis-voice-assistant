@@ -59,10 +59,10 @@ Values that are left as comments or blank are ignored.
 | Setting | Default | Meaning |
 |---|---|---|
 | `web_ui.port` | `0` | The web window's port on 127.0.0.1 (`0` = any free port). Every connection needs this launch's random token |
-| `web_ui.window` | `true` | Show the page in its own window (Edge WebView2); `false` = tray only |
-| `web_ui.width` / `web_ui.height` | `980` / `680` | First size; afterwards the window remembers its size and place (`data/web_window.json`) |
-| `web_ui.always_on_top` | `false` | Keep the web window above others |
-| `web_ui.close_button` | `quit` | The web window's X quits JARVIS, or `hide` keeps it running in the tray |
+| `web_ui.window` | `true` | Show the orb window (see-through, Qt WebEngine); `false` = tray only |
+| `web_ui.width` / `web_ui.height` | `1180` / `860` | The window's area. Outside the orb and its sections, clicks go through to whatever is behind. It opens at the top centre and remembers where you drag it (`data/web_window.json`) |
+| `web_ui.always_on_top` | `true` | Keep the orb above other windows |
+| `web_ui.close_button` | `quit` | Closing the orb window (Alt+F4) quits JARVIS, or `hide` keeps it running in the tray |
 | `window.always_on_top` | `true` | The older Tk window (`features.window`, used only when `web_ui` is off): keep it above others |
 | `window.opacity` | `1.0` | Below 1 lets windows behind show through |
 | `window.close_button` | `quit` | The X quits JARVIS, or `hide` keeps it running in the tray |

@@ -7,50 +7,31 @@
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
-  <div class="app">
-    <aside class="side">
-      <div class="orb-wrap">
-        <canvas id="orb" class="orb" width="220" height="220" title="Click to talk"></canvas>
-        <div id="state" class="state">Connecting…</div>
-      </div>
-      <div class="controls">
-        <button data-action="talk" title="Talk to JARVIS (Ctrl+Alt+Space)">Talk</button>
-        <button data-action="sleep" title="Stop listening until the wake word">Sleep</button>
-        <button data-action="mute" id="mute" title="Mute the microphone (Ctrl+Alt+M)">Mute</button>
-        <button data-action="stop" title="Stop talking or the running action (Ctrl+Alt+S)">Stop</button>
-      </div>
-      <section id="confirm" class="card confirm" hidden>
-        <h2>Should I go ahead?</h2>
-        <p id="confirm-text"></p>
-        <div class="row">
-          <button data-action="confirm" class="primary">Confirm</button>
-          <button data-action="cancel">Cancel</button>
-        </div>
-      </section>
-      <section class="card vision">
-        <h2>Vision</h2>
-        <p class="dim" id="vision-text">Off. JARVIS only sees your screen when you ask it to look.</p>
-      </section>
-    </aside>
+  <div id="stage">
+    <canvas id="orb" width="800" height="800" aria-label="JARVIS. Click for the full panel, double-click to clear, drag to move."></canvas>
+    <div id="sections" aria-live="polite"></div>
 
-    <main class="chat">
-      <div id="messages" class="messages" aria-live="polite"></div>
-      <form id="composer" class="composer" autocomplete="off">
-        <textarea id="input" rows="2" maxlength="2000" placeholder="Type a message to JARVIS…"></textarea>
-        <div class="composer-row">
-          <label class="toggle"><input type="checkbox" id="speak"> Speak replies</label>
-          <button type="submit" class="primary">Send</button>
-        </div>
-      </form>
-    </main>
+    <div id="panel" hidden>
+      <div class="ring-buttons">
+        <button data-action="talk" class="round" title="Talk (Ctrl+Alt+Space)">Talk</button>
+        <button data-action="sleep" class="round" title="Go to sleep">Sleep</button>
+        <button data-action="mute" class="round" id="mute" title="Mute the microphone (Ctrl+Alt+M)">Mute</button>
+        <button data-action="stop" class="round red" title="Stop (Ctrl+Alt+S)">Stop</button>
+      </div>
+      <section class="card big" id="history-card"><h2>Conversation</h2><div id="history" class="scroll"></div></section>
+      <section class="card big" id="activity-card"><h2>Activity</h2><ol id="activity" class="scroll steps"></ol></section>
+      <section class="card" id="vision-card"><h2>Vision</h2><p class="dim">Off. JARVIS only looks at your screen when you ask it to.</p></section>
+    </div>
 
-    <aside class="activity">
-      <h2>Activity</h2>
-      <ol id="steps" class="steps"></ol>
-      <p id="steps-empty" class="dim">Tools JARVIS runs and the steps of a plan show up here.</p>
-    </aside>
+    <form id="composer" autocomplete="off">
+      <button type="button" id="talk" class="icon" title="Talk to JARVIS" aria-label="Talk"><span class="mic"></span></button>
+      <input id="input" maxlength="2000" placeholder="Type to JARVIS…" aria-label="Message to JARVIS">
+      <button type="button" id="speak" class="icon toggle" title="Speak replies aloud" aria-pressed="true" aria-label="Speak replies">
+        <span class="spk"></span></button>
+    </form>
+    <div id="status" class="dim"></div>
   </div>
-  <footer class="footer"><span id="conn" class="conn off"></span><span id="status" class="dim"></span></footer>
+  <script src="/static/orb.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

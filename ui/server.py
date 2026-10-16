@@ -44,7 +44,7 @@ MAX_MESSAGE_BYTES = 8000  # one WebSocket message from the page (chat is limited
 LEVEL_FPS = 15  # orb updates
 HISTORY_KINDS = {"message", "tool_started", "tool_finished", "confirm_requested", "confirm_resolved"}
 HISTORY_MAX = 150
-STREAM_KINDS = HISTORY_KINDS | {"partial", "state", "status", "focus"}
+STREAM_KINDS = HISTORY_KINDS | {"partial", "state", "status", "focus", "media"}  # media: not kept as history
 
 
 class Bridge(Protocol):
