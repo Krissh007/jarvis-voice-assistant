@@ -287,7 +287,8 @@ class Dispatcher:
             self._finish_cancel(self.confirmer.take(), "superseded by a paused step", "cancelled", notify=False)
         pending = self.confirmer.create(tool.name, needs.step, needs.summary, call_id)
         self._pending_meta[pending.id] = {"tier": "CONFIRM", "effective_tier": "CONFIRM",
-                                          "tainted": self.tainted, "resume": needs.resume}
+                                          "tainted": self.tainted, "resume": needs.resume,
+                                          "on_cancel": needs.on_cancel}
         log.info("pending #%d (step): %s", pending.id, needs.summary)
         return pending
 
@@ -322,11 +323,20 @@ class Dispatcher:
         self._audit(pending.tool, pending.args, meta.get("tier", "CONFIRM"), meta.get("effective_tier", "CONFIRM"),
                     outcome, reason, tainted=meta.get("tainted", False))
         log.info("pending #%d %s: %s", pending.id, outcome, reason)
+        if on_cancel := meta.get("on_cancel"):
+            self._spawn(self._release(on_cancel))
         if notify:
             self.notify(
                 f'[system notice] Not done: "{pending.summary}" was cancelled ({reason}). '
                 "Tell the user briefly."
             )
+
+    @staticmethod
+    async def _release(on_cancel: Callable[[], Any]) -> None:
+        try:
+            await on_cancel()
+        except Exception:
+            log.exception("cancel hook failed")
 
     async def _run(self, tool: Tool, args: dict[str, Any], call_id: str | None,
                    resume=None) -> str | NeedsConfirmation:

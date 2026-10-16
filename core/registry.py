@@ -42,6 +42,9 @@ class NeedsConfirmation:
     resume: Callable[[], Awaitable[Any]]
     step: dict[str, Any] = field(default_factory=dict)
     progress: str = ""
+    # Runs if the user declines, the answer times out or the action is superseded, so whatever is
+    # parked elsewhere (e.g. a request waiting in the Agent Hub) can be released.
+    on_cancel: Callable[[], Awaitable[Any]] | None = None
 
 
 def default_summary(name: str, args: dict[str, Any]) -> str:

@@ -99,11 +99,14 @@ Values that are left as comments or blank are ignored.
 | `limits.page_cache_ttl_h` | `24` | How long page summaries are cached |
 | `memory.max_facts` | `100` | Memory size |
 | `briefing.news_query` | `top news today` | Headline search for the morning briefing |
+| `agent_hub.url` | `http://127.0.0.1:8765/mcp` | The Agent Hub's MCP address (this computer only). The bearer token is `AGENT_HUB_TOKEN` in `.env` and must equal the Hub's `HUB_TOKEN` |
+| `agent_hub.poll_s` | `5` | How often JARVIS looks for finished results |
+| `agent_hub.request_timeout_s` | `8` | Per call to the Hub |
 
 ### Features
 
 Each entry under `features:` switches a whole module on or off: `system`, `web`, `browser`,
-`media`, `app_ui`, `screen`, `clipboard`, `files`, `memory`, `reminders`, `job_search`, `agent_mode`, `morning_briefing`
+`media`, `app_ui`, `screen`, `clipboard`, `files`, `memory`, `reminders`, `job_search`, `agent_hub` (off by default), `agent_mode`, `morning_briefing`
 (off by default), `tray`, `window` and `wake_word`. `test_tools` exposes two tools used only to
 test the safety layer; it's off, and the test suite turns it on itself.
 

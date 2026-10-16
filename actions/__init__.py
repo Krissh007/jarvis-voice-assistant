@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,7 @@ MODULES: dict[str, str | None] = {
     "actions.reminders": "reminders",
     "actions.testing": "test_tools",
     "actions.job_search": "job_search",
+    "actions.agent_hub": "agent_hub",
     "actions.agent_mode": "agent_mode",  # last: it plans over every tool registered before it
 }
 
@@ -40,6 +42,10 @@ class Services:
     reminders: Any = None  # actions.reminders.Reminders, started by the runtime
     ducker: Any = None  # core.ducking.Ducker: music-only volume and ducking while JARVIS is awake
     on_start: list = field(default_factory=list)  # called once when JARVIS starts (not in tests), e.g. warm-ups
+    background: list = field(default_factory=list)  # async callables the runtime runs as tasks for its lifetime
+    notify: Callable[[str], None] | None = None  # sends a [system notice] to the model; set by the runtime
+    can_speak: Callable[[], bool] | None = None  # True when a result may be announced right now
+    taint: Callable[[], None] | None = None  # marks the turn as carrying untrusted text
 
 
 def load_actions(registry: Registry, config: dict, services: Services | None = None) -> Registry:

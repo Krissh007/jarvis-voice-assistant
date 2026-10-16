@@ -141,6 +141,11 @@ job_search:                     # used when features.job_search is true
   api_url: http://127.0.0.1:8000/api           # JobPilot's local API (GET only; must be this computer)
   sync_dir: E:/job_search_agent/project_sync   # only for the LinkedIn resume upload status
 
+agent_hub:                      # used when features.agent_hub is true
+  url: http://127.0.0.1:8765/mcp  # the Agent Hub's MCP endpoint (must be this computer); token: AGENT_HUB_TOKEN in .env
+  poll_s: 5                     # how often to look for finished results
+  request_timeout_s: 8          # per call to the Hub
+
 briefing:                       # used when features.morning_briefing is true
   news_query: "top news today"  # e.g. "India news today"; weather needs weather.default_city
 
@@ -158,6 +163,7 @@ features:
   reminders: true
   agent_mode: true
   job_search: true                # "how's my job search?" reads JobPilot (read only)
+  agent_hub: false              # hand job and dashboard tasks to the Agent Hub (needs it running + AGENT_HUB_TOKEN)
   morning_briefing: false
   tray: true                    # tray icon: click to talk, Stop, Mute, Quit
   window: true                  # animated JARVIS window with captions and Talk / Mute / Stop

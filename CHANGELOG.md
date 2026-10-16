@@ -85,3 +85,14 @@ How JARVIS was built: the phases in the build spec and the finishing touches (24
 - It reports how often it woke on recordings it did not learn from, and tries a second method
   that also learns from the clips the stock model misses, keeping whichever does better.
 - It refuses to start while JARVIS is running (JARVIS would answer every recording).
+
+## Agent Hub bridge (13 October 2026)
+
+- **Agent Hub:** `agent_hub_request` and `agent_hub_status` hand job-search and dashboard tasks to the
+  separate Agent Hub (`E:gent-hub`) over MCP and speak the results when ready, without interrupting.
+  Off by default (`features.agent_hub`); needs `AGENT_HUB_TOKEN` in `.env`.
+- **Confirmations:** `NeedsConfirmation` has an optional `on_cancel` hook, called when the user says
+  no, doesn't answer in time, or supersedes the action.
+- **Background tasks:** `Services.background`, `notify`, `can_speak` and `taint` let a module run a loop
+  and announce results safely.
+- New dependency: `mcp` 2.3.0.
