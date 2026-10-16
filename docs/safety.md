@@ -138,6 +138,9 @@ Enforced in `core/privacy.py` and the modules that use it.
   private; their contents are never read.
 - Text read from an app has emails, phone numbers, keys, tokens and card numbers replaced before it
   reaches a model. It's untrusted, so anything JARVIS does next in that turn asks first.
+- In a chat app with a profile (Claude's chat view), `read_app what=latest` returns only the newest
+  reply, scrubbed the same way. Who wrote a message comes only from the start of its first text, so
+  a message that contains "Claude responded:" can't pass itself off as Claude's.
 - Long app and job-search results are shortened before the Live model sees them. The text being
   shortened is wrapped as untrusted, and so is the summary; buttons-and-fields lists are never
   shortened, so click numbers stay exact.

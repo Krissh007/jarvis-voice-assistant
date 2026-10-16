@@ -34,8 +34,9 @@ class Condenser:
     def needed(self, text: str) -> bool:
         return len(text) > self.over_chars
 
-    async def condense(self, tool: str, text: str, request: str) -> str:
-        """`text` shortened for answering `request` (the user's own words)."""
+    async def condense(self, tool: str, text: str, request: str, keep: str = "ends") -> str:
+        """`text` shortened for answering `request` (the user's own words). If it has to be cut instead,
+        `keep` says which part survives: "ends" (a window: start and end) or "start" (one message)."""
         if not self.needed(text):
             return text
         prompt = (
@@ -56,14 +57,17 @@ class Condenser:
         except (LLMUnavailable, asyncio.TimeoutError) as exc:
             why = "too slow" if isinstance(exc, asyncio.TimeoutError) else "no model available"
             log.warning("condense %s: %s; cutting %d chars", tool, why, len(text))
-            return cut(text, self.over_chars)
+            return cut(text, self.over_chars, keep)
         log.info("condensed %s: %d -> %d chars", tool, len(text), len(short))
-        return short or cut(text, self.over_chars)
+        return short or cut(text, self.over_chars, keep)
 
 
-def cut(text: str, limit: int) -> str:
-    """Start and end of a long text (chats put the newest message at the bottom)."""
+def cut(text: str, limit: int, keep: str = "ends") -> str:
+    """Start and end of a long text (a window: chats put the newest message at the bottom), or with
+    keep="start" just its start (a single message: its opening says the most)."""
     if len(text) <= limit:
         return text
+    if keep == "start":
+        return f"{text[:limit].rstrip()} ... (cut short)"
     half = max(1, limit // 2)
     return f"{text[:half].rstrip()}\n... (cut short) ...\n{text[-half:].lstrip()}"

@@ -48,7 +48,7 @@ from actions.app_ui import looks_secret
 from actions.screen import PRIVATE_PROCESSES
 from actions.system import normalize_app_name, process_name, resolve_app
 from actions.system import focus_window
-from core import textinput, uia
+from core import chat, textinput, uia
 from core.privacy import hide_secrets, is_blocked_control, is_sensitive_name, redact, secret_in_text
 from core.registry import APPROVED_STEP, NeedsConfirmation, Registry, Tier, Tool, ToolError
 
@@ -63,7 +63,7 @@ SYSTEM_APPS = {"systemsettings.exe", "sechealthui.exe", "securityhealthsystray.e
 SHELL_HOSTS = {"textinputhost.exe", "shellexperiencehost.exe", "startmenuexperiencehost.exe", "searchhost.exe",
                "searchapp.exe", "lockapp.exe", "widgets.exe", "shellhost.exe"}
 SHELL_TITLES = {"program manager", "windows input experience", "start", "search", "task switching"}
-WHAT = {"all", "text", "controls"}
+WHAT = {"all", "text", "controls", "latest"}
 # Pasting into a terminal can run commands, so typing there always asks first.
 TERMINALS = {"windowsterminal.exe", "cmd.exe", "powershell.exe", "pwsh.exe", "conhost.exe", "wsl.exe",
              "bash.exe", "mintty.exe", "alacritty.exe", "wezterm-gui.exe", "openconsole.exe"}
@@ -255,9 +255,12 @@ class Desktop:
         opts = config.get("desktop") or {}
         self.max_items = int(opts.get("max_items", 150))
         self.max_chars = int(opts.get("max_chars", 4000))
+        self.chat_profiles = chat.load_profiles(config)  # exe -> where its messages are (config chat_apps)
+        self.chat_max_chars = int((config.get("chat_apps") or {}).get("max_chars", 6000))
         self.current: uia.Window | None = None
         self.last: Snapshot | None = None
         self.baseline: dict[int, str] = {}  # window -> its text just before a message was sent
+        self.sent_after: dict[int, int] = {}  # chat window -> newest message number just before sending
 
     # ------------------------------------------------------------- finding the app
 
@@ -316,6 +319,11 @@ class Desktop:
             self.current = win
             raise ToolError(f"{win.label} is minimised, so there's nothing on screen to read. "
                             "Bring it up first and ask again.")
+        if what == "latest":
+            self.current = win
+            if (reply := await self._latest_reply(win)) is not None:
+                return reply
+            what = "text"  # not a chat app JARVIS knows, or its layout didn't match: read the window
         controls = await uia.call(uia.read, win.hwnd, with_text=what != "controls",
                                            limit=self.max_items, max_chars=self.max_chars, patient=True)
         self.current = win
@@ -328,6 +336,91 @@ class Desktop:
             if hidden else ""
         return (f"App: {redact(win.label)} ({win.exe}). Numbers in brackets identify buttons and fields.\n"
                 f"{body}{note}")
+
+    # ------------------------------------------------------------- chat apps
+
+    async def _messages(self, win: uia.Window) -> tuple[chat.Profile, list[chat.Message]] | None:
+        """The window's chat messages, or None (with a warning) if its configured profile doesn't match."""
+        profile = self.chat_profiles.get(win.exe)
+        if profile is None:
+            return None
+        try:
+            messages = await uia.call(chat.read_messages, win.hwnd, profile)
+        except chat.NoMatch as exc:
+            log.warning("chat profile for %s didn't match (%s); falling back to reading the whole window",
+                        win.exe, exc)
+            return None
+        if not any(m.role != "unknown" for m in messages):
+            log.warning("chat profile for %s didn't match (no message starts with a known role label); "
+                        "falling back to reading the whole window", win.exe)
+            return None
+        return profile, messages
+
+    async def _latest_reply(self, win: uia.Window) -> str | None:
+        """The newest finished reply in a chat app, scrubbed; None to fall back to a whole-window read."""
+        start = time.perf_counter()
+        found = await self._messages(win)
+        if found is None:
+            return None
+        profile, messages = found
+        who = profile.reply_role.capitalize()
+        reply = chat.latest(messages, profile.reply_role, finished=True)
+        newest = chat.latest(messages)
+        notes = []
+        if newest is not None and newest.streaming:
+            notes.append(f"{who} is still writing a newer reply.")
+        elif newest is not None and reply is not None and newest.role != profile.reply_role \
+                and newest.number > reply.number:
+            notes.append("Your newest message hasn't been answered yet.")
+        log.info("latest reply in %s: %s in %.0f ms", win.exe,
+                 f"message {reply.number}, {len(reply.text)} chars" if reply else "none",
+                 (time.perf_counter() - start) * 1000)
+        if reply is None:
+            return f"There's no finished reply from {who} in this chat yet. " + " ".join(notes)
+        text, hidden = hide_secrets(reply.text)
+        text = redact(text)
+        if len(text) > self.chat_max_chars:
+            text = text[:self.chat_max_chars].rstrip() + " ... (cut short)"
+        if hidden:
+            notes.append(f"{hidden} thing{'s' if hidden != 1 else ''} that looked like a key or card number hidden.")
+        of = f" of {reply.total}" if reply.total else ""
+        return (f"App: {redact(win.label)} ({win.exe}). {who}'s latest reply (message {reply.number}{of}):\n"
+                f"{text}" + (f"\n({' '.join(notes)})" if notes else ""))
+
+    async def _wait_for_reply(self, win: uia.Window, timeout: int) -> str | None:
+        """Wait for a new finished reply in a chat app; None (with a warning) to fall back to text diffing."""
+        found = await self._messages(win)
+        if found is None:
+            return None
+        profile, messages = found
+        who = profile.reply_role.capitalize()
+        base = self.sent_after.pop(win.hwnd, None)
+        if base is None:  # nothing sent through JARVIS: wait for an answer to the user's newest message
+            mine = [m.number for m in messages if m.role not in (profile.reply_role, "unknown") and not m.streaming]
+            base = max(mine, default=0)
+        start = _now()
+        while True:
+            reply = chat.latest(messages, profile.reply_role, finished=True)
+            if reply is not None and reply.number > base:
+                took = round(_now() - start)
+                log.info("waited %ds for a reply in %s (message %d)", took, win.exe, reply.number)
+                text = redact(hide_secrets(reply.text)[0])
+                if len(text) > self.chat_max_chars:
+                    text = text[:self.chat_max_chars].rstrip() + " ... (cut short)"
+                return f"{who} replied after {took} seconds:\n{text}"
+            if _now() - start >= timeout:
+                writing = chat.latest(messages)
+                if writing is not None and writing.streaming:
+                    return (f"{who} was still writing after {timeout} seconds. So far:\n"
+                            + redact(hide_secrets(writing.text)[0])[:self.chat_max_chars])
+                return f"{who} hasn't replied after {timeout} seconds."
+            await asyncio.sleep(WAIT_POLL_S)
+            if uia.window(win.hwnd) is None:
+                raise ToolError(f"{safe_label(win)} was closed while I waited.")
+            found = await self._messages(win)
+            if found is None:
+                return None
+            profile, messages = found
 
     # ------------------------------------------------------------- typing
 
@@ -377,7 +470,11 @@ class Desktop:
             if send:
                 await asyncio.sleep(0.2)
                 try:
-                    self.baseline[win.hwnd] = await uia.call(self._text, win)  # so wait_for_app finds the reply
+                    if (found := await self._messages(win)) is not None and found[1]:
+                        done = [m.number for m in found[1] if not m.streaming]
+                        self.sent_after[win.hwnd] = max(done, default=0)  # wait_for_app wants a newer reply
+                    else:
+                        self.baseline[win.hwnd] = await uia.call(self._text, win)  # so wait_for_app finds the reply
                 except Exception:
                     log.exception("couldn't read %s before sending", win.exe)
                 await uia.call(textinput.press_enter, win.hwnd)
@@ -421,6 +518,9 @@ class Desktop:
         timeout = max(5, min(int(timeout or 60), 180))
         win = await uia.call(self.target, app)
         self.current = win
+        if not until and win.exe in self.chat_profiles:
+            if (reply := await self._wait_for_reply(win, timeout)) is not None:
+                return reply
         before = self.baseline.pop(win.hwnd, None)
         if before is None:
             before = await uia.call(self._text, win)
@@ -676,13 +776,15 @@ def register(registry: Registry, config: dict, services) -> None:
         name="read_app",
         description=("Read what an open desktop app shows: its buttons, fields and visible text, e.g. 'read me "
                      "Claude's reply', 'what's in Notepad', 'what can I click here'. app is the app's name; leave "
-                     "it empty for the app you last used or the one in front. what: all, text or controls. "
+                     "it empty for the app you last used or the one in front. what: all, text, controls, or latest "
+                     "(only the newest reply in a chat app such as Claude: use it for 'read me Claude's reply'). "
                      "Prefer this over look_at_screen for text in an app. Not for web browsers."),
         func=desktop.read_app,
         tier=Tier.SAFE,
         read_only=True,
         untrusted_output=True,
-        condense=lambda a: a.get("what") != "controls",  # button numbers must stay exact for clicking
+        # Button numbers must stay exact for clicking; one chat reply keeps its start if it must be cut.
+        condense=lambda a: "start" if a.get("what") == "latest" else a.get("what") != "controls",
         parameters={
             "type": "object",
             "properties": {
@@ -723,7 +825,7 @@ def register(registry: Registry, config: dict, services) -> None:
         tier=Tier.SAFE,
         read_only=True,
         untrusted_output=True,
-        condense=True,
+        condense="start",
         parameters={
             "type": "object",
             "properties": {"app": app_param, "until": {"type": "string"},
