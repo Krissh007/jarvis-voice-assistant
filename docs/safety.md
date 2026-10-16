@@ -88,6 +88,20 @@ For multi-step goals (`actions/agent_mode.py`):
 - Each step still gets its own tier, so a site off your trusted list still asks mid-plan.
 - The first failure stops the plan. A new plan needs a new approval (at most one re-plan per request).
 
+## Agent Hub bridge
+
+For `actions/agent_hub.py`:
+
+- The model gets two fixed tools. The Hub's own tool list is never forwarded, and the Hub's
+  `confirm` is not a tool the model can call.
+- When the Hub wants a yes (it sends, submits or deletes), the tool pauses with `NeedsConfirmation`,
+  so JARVIS's own rules apply: accept phrases, echo gating, the timeout, the audit log. Only your
+  real "yes" confirms; "no", silence or a new request tells the Hub to cancel.
+- Results are job-site and mail text: wrapped as untrusted, they taint the turn, and the notice
+  says they are data, not instructions.
+- Only a loopback address is accepted, with a bearer token read from `.env`; the token is never logged
+  or sent to the model.
+
 ## Privacy rules
 
 Enforced in `core/privacy.py` and the modules that use it.

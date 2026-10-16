@@ -200,6 +200,9 @@ class Assistant:
             if name := preferred_name(self.services.memory):
                 self.transcript.set_user_label(name)
         self.services.dispatcher = self.dispatcher
+        self.services.notify = self._notify
+        self.services.can_speak = self._can_announce
+        self.services.taint = lambda: setattr(self.dispatcher, "tainted", True)
 
         def instruction() -> str:
             """Rebuilt at each (re)connect so newly remembered facts are included."""
@@ -278,6 +281,8 @@ class Assistant:
             self._mic.start()
         tasks.append(asyncio.create_task(self._ticker(), name="ticker"))
         tasks.append(asyncio.create_task(self._audio_watchdog(), name="audio-devices"))
+        for job in self.services.background:
+            tasks.append(asyncio.create_task(job(), name=getattr(job, "__name__", "background")))
         if self.services.reminders is not None:
             self.services.reminders.start(self._on_reminder)
         for hook in self.services.on_start:
@@ -457,6 +462,10 @@ class Assistant:
         """JARVIS is talking, running something, waiting for a yes, or still answering after a tool."""
         return (self.playback.playing or self.dispatcher._running is not None
                 or self.dispatcher.awaiting_confirmation or time.monotonic() - self._last_tool_at < WORKING_MAX_S)
+
+    def _can_announce(self) -> bool:
+        """A background result may be spoken now: JARVIS is awake and not mid-conversation or mid-action."""
+        return (self.wake is None or self.wake.awake) and not self._busy()
 
     def stop_all(self) -> None:
         """The Stop button: stops JARVIS (talking, a running action, a pending one) and leaves the music alone.

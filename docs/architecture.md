@@ -133,7 +133,18 @@ The action modules (`actions/`), in load order:
 | `desktop` | read, type, click, press keys, scroll and move windows in any open app that isn't off-limits |
 | `screen`, `clipboard` | look at the screen, active window, clipboard summarise, translate, explain and fix |
 | `memory`, `reminders` | remember, recall, forget, and set, list and cancel reminders |
+| `agent_hub` | `agent_hub_request`, `agent_hub_status`: hand work to the Agent Hub over MCP, and announce its results |
 | `agent_mode` | `run_plan`, loaded last because it plans over every tool registered before it |
+
+## Background results (Agent Hub)
+
+Modules can run their own loop for JARVIS's lifetime: they append an async function to
+`Services.background`, which the runtime starts as a task. The Agent Hub poller uses it to call the
+Hub's `get_updates` every few seconds. A result is announced through `Services.notify` (a
+`[system notice]`) only when `Services.can_speak()` is true: JARVIS is awake and not talking, running
+a tool or waiting for a yes. Otherwise it is held (saved in `data/agent_hub_held.json`) and a toast is
+shown once. A confirmation the Hub asks for travels as `NeedsConfirmation`, whose `on_cancel` hook
+tells the Hub when the user says no, doesn't answer, or asks for something else.
 
 ## Threads
 

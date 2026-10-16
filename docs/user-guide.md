@@ -252,6 +252,16 @@ The LinkedIn resume upload status still comes from `job_search.sync_dir`. JobPil
 (`E:\JobPilot\scripts\run_api.ps1`); if it isn't, JARVIS says so. It only reads: it never changes a
 status, approves or applies.
 
+**Agent Hub.** Off by default (`features.agent_hub: true`). The Hub is a separate program
+(`E:gent-hub`) that runs the job search and dashboard agents in the background. Say "any new
+jobs?" or "refresh my dashboard" and JARVIS answers at once ("On it") and speaks the result when it's
+ready, without interrupting a conversation. Ask "how's that going?" for progress. Anything that sends
+or submits (for example applying to a job) makes JARVIS read out what it is about to do and wait for
+your yes, like any other confirmation; "no" or silence releases it. If you're asleep when a result
+arrives, you get a Windows notification and JARVIS says it when you next wake it. The Hub must be
+running and `AGENT_HUB_TOKEN` set in `.env`; if not, JARVIS says so. "How's my job search?" still
+reads JobPilot (above); the Hub is for doing things.
+
 **Morning briefing.** This is off by default; turn it on with `features.morning_briefing: true`. On
 your first launch each day you get a spoken summary of under 45 seconds: the date, the weather (set
 `weather.default_city`), three headlines and today's reminders.

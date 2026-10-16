@@ -8,6 +8,7 @@ dependencies = [
     "ddgs>=9.16.0",
     "google-genai>=2.25.0",
     "httpx>=0.28.1",
+    "mcp==2.3.0",
     "mss>=10.2.0",
     "numpy>=2.5.3",
     "pillow>=12.3.0",
