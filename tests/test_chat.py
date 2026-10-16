@@ -321,3 +321,29 @@ def test_condenser_and_tool_use_start_for_latest_replies() -> None:
     assert not tool.wants_condense({"what": "controls"})
     assert reg.get("wait_for_app").condense_keep({}) == "start"
     assert "latest" in tool.parameters["properties"]["what"]["enum"]
+
+
+def test_the_mismatch_warning_is_logged_once_per_window_per_session(claude_open, caplog, monkeypatch) -> None:
+    claude_open["fail"] = "no element with role 'feed'"
+    d = Desktop(CONFIG, Services())
+
+    def warnings():
+        return [r for r in caplog.records if r.levelno == logging.WARNING and "didn't match" in r.getMessage()]
+
+    with caplog.at_level(logging.DEBUG, logger="actions.desktop"):
+        for _ in range(3):
+            run(d.read_app("claude", "latest"))
+        assert len(warnings()) == 1
+        assert sum("already warned" in r.getMessage() for r in caplog.records) == 2  # still logged, quietly
+        other = Window(8, "Claude", 4242, "claude.exe")  # a second Claude window gets its own warning
+        monkeypatch.setattr(uia, "top_windows", lambda: [other])
+        monkeypatch.setattr(uia, "all_windows", lambda: [other])
+        monkeypatch.setattr(uia, "window", lambda h: other if h == 8 else None)
+        d.current = None
+        run(d.read_app("claude", "latest"))
+        assert len(warnings()) == 2
+    assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 2
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="actions.desktop"):
+        run(Desktop(CONFIG, Services()).read_app("claude", "latest"))  # a new session warns again
+    assert len(warnings()) == 1

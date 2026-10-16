@@ -261,6 +261,7 @@ class Desktop:
         self.last: Snapshot | None = None
         self.baseline: dict[int, str] = {}  # window -> its text just before a message was sent
         self.sent_after: dict[int, int] = {}  # chat window -> newest message number just before sending
+        self.mismatch_warned: set[int] = set()  # windows already warned about (once per window per session)
 
     # ------------------------------------------------------------- finding the app
 
@@ -347,14 +348,20 @@ class Desktop:
         try:
             messages = await uia.call(chat.read_messages, win.hwnd, profile)
         except chat.NoMatch as exc:
-            log.warning("chat profile for %s didn't match (%s); falling back to reading the whole window",
-                        win.exe, exc)
+            self._mismatch(win, str(exc))
             return None
         if not any(m.role != "unknown" for m in messages):
-            log.warning("chat profile for %s didn't match (no message starts with a known role label); "
-                        "falling back to reading the whole window", win.exe)
+            self._mismatch(win, "no message starts with a known role label")
             return None
         return profile, messages
+
+    def _mismatch(self, win: uia.Window, reason: str) -> None:
+        """Warn once per window per session that its chat profile didn't fit; later times go to debug."""
+        warn = win.hwnd not in self.mismatch_warned
+        self.mismatch_warned.add(win.hwnd)
+        log.log(logging.WARNING if warn else logging.DEBUG,
+                "chat profile for %s didn't match (%s); falling back to reading the whole window%s",
+                win.exe, reason, "" if warn else " (already warned for this window)")
 
     async def _latest_reply(self, win: uia.Window) -> str | None:
         """The newest finished reply in a chat app, scrubbed; None to fall back to a whole-window read."""

@@ -162,6 +162,6 @@ How JARVIS was built: the phases in the build spec and the finishing touches (24
   buttons and status lines such as "Thought for 13s", Copy and Retry, plus `drop_text`).
 - `read_app what=latest` returns only the newest finished reply; `wait_for_app` waits for a new
   finished reply instead of comparing window text. A configured profile that doesn't match logs a
-  warning and JARVIS falls back to the whole window. Long replies keep their start when cut.
+  warning (once per window per session; repeats at debug level) and JARVIS falls back to the whole window. Long replies keep their start when cut.
 - Live: "read me Claude's reply" found the reply (423 characters) in 0.4 s, with no summarising
   needed; before, the tool took about 10 s or hit the 5 s summarising limit.
