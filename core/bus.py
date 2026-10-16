@@ -18,6 +18,7 @@ Kinds (data fields):
 - state: state ("starting", "asleep", "listening", "speaking", "working", "muted")
 - notice: text, the first line of a [system notice] sent to the model
 - status: text, problem, a line for the console such as "(awake)"
+- focus: (no data) a second launch asked for the window; the web UI brings itself to the front
 
 `channel` says which conversation side an event belongs to: "voice", "chat", or None for the app itself.
 Replies and tool calls carry the channel of the user's latest input.
@@ -66,11 +67,22 @@ class Stream:
         self._bus = bus
         self._queue: asyncio.Queue[Event] = asyncio.Queue(maxsize)
         self._kinds = kinds
+        self._loop = asyncio.get_running_loop()  # the queue belongs to the loop the consumer runs on
+        self._thread = threading.get_ident()
         self.dropped = 0
 
     def _put(self, event: Event) -> None:
         if self._kinds is not None and event.kind not in self._kinds:
             return
+        if threading.get_ident() != self._thread:
+            try:
+                self._loop.call_soon_threadsafe(self._put_now, event)
+            except RuntimeError:  # its loop has closed
+                pass
+            return
+        self._put_now(event)
+
+    def _put_now(self, event: Event) -> None:
         if self._queue.full():
             self._queue.get_nowait()
             self.dropped += 1

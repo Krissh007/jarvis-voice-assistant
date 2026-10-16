@@ -78,7 +78,7 @@ def assistant(tmp_path, monkeypatch):
     monkeypatch.setattr(wakeword.WakeWordDetector, "from_config", classmethod(lambda cls, *a, **k: object()))
     cfg = main.load_config()
     cfg["listening"]["mode"] = "wake_word"
-    cfg["features"].update(wake_word=True, window=True, tray=False)
+    cfg["features"].update(wake_word=True, window=True, web_ui=False, tray=False)  # the Tk window
     cfg["noise_suppression"]["enabled"] = False
     return Assistant(cfg, client=None, options=Options(log_dir=tmp_path))
 

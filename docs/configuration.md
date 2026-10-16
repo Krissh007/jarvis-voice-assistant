@@ -58,10 +58,15 @@ Values that are left as comments or blank are ignored.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `window.always_on_top` | `true` | Keep the window above others |
+| `web_ui.port` | `0` | The web window's port on 127.0.0.1 (`0` = any free port). Every connection needs this launch's random token |
+| `web_ui.window` | `true` | Show the page in its own window (Edge WebView2); `false` = tray only |
+| `web_ui.width` / `web_ui.height` | `980` / `680` | First size; afterwards the window remembers its size and place (`data/web_window.json`) |
+| `web_ui.always_on_top` | `false` | Keep the web window above others |
+| `web_ui.close_button` | `quit` | The web window's X quits JARVIS, or `hide` keeps it running in the tray |
+| `window.always_on_top` | `true` | The older Tk window (`features.window`, used only when `web_ui` is off): keep it above others |
 | `window.opacity` | `1.0` | Below 1 lets windows behind show through |
 | `window.close_button` | `quit` | The X quits JARVIS, or `hide` keeps it running in the tray |
-| `window.speak_typed_replies` | `true` | Answers to typed messages are also spoken (the right-click menu changes it until restart) |
+| `window.speak_typed_replies` | `true` | Answers to typed messages are also spoken (the starting value of "Speak replies" in either window) |
 | `hotkeys.*` | see file | `mute`, `push_to_talk`, `stop`, `confirm`, `cancel` |
 
 ### Confirmation
@@ -125,7 +130,8 @@ Values that are left as comments or blank are ignored.
 
 Each entry under `features:` switches a whole module on or off: `system`, `web`, `browser`,
 `reasoning`, `media`, `app_ui` (off by default), `screen`, `clipboard`, `files`, `desktop`, `memory`, `reminders`, `job_search`, `agent_hub` (needs the Hub running), `agent_mode`, `morning_briefing`
-(off by default), `tray`, `window` and `wake_word`. `test_tools` exposes two tools used only to
+(off by default), `tray`, `web_ui` (the web window: orb, chat, activity, confirmations), `window` (the
+older Tk window, off; used only when `web_ui` is off) and `wake_word`. `test_tools` exposes two tools used only to
 test the safety layer; it's off, and the test suite turns it on itself.
 
 ## Command-line options

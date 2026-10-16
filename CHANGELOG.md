@@ -224,3 +224,30 @@ First step of turning JARVIS into a general assistant you can talk or type to:
 - Live (text mode, silent, Agent Hub off): a typed question ran `get_datetime`, a typed request
   asked to confirm `test_write_note`, and a typed "yes" ran it. Every step arrived on the bus as
   `chat`. 793 tests pass in the worktree (the tray shortcut test needs the main folder's .venv).
+
+## The web window (17 October 2026)
+
+Phase 2 of the general-assistant plan. With `features.web_ui` on (now the default; the Tk window is
+used only when it's off), JARVIS's window is a local web page:
+- **The page** (`ui/static/`): an audio-reactive orb in the tray's state colours; Talk, Sleep, Mute
+  and Stop; the chat (typed and spoken lines, live captions, a "Speak replies" switch); a confirmation
+  card with Confirm / Cancel; an activity list of tools, plan steps and confirmations; and a vision
+  placeholder. Its layout narrows to two columns, then one.
+- **The server** (`ui/server.py`): FastAPI and uvicorn inside JARVIS's own loop, on 127.0.0.1 only.
+  One WebSocket streams the event bus. It needs the launch's random token, a local Host header (stops
+  DNS rebinding) and the page's own Origin, so another website can't drive JARVIS. The page accepts
+  only chat and the existing buttons, shows all text with `textContent` under a strict
+  Content-Security-Policy, and loads nothing from outside.
+- **The window** (`ui/window.py`): pywebview (Edge WebView2) in a child process, because pywebview
+  needs its own main thread. It keeps JARVIS's taskbar ID, remembers its size and place, and comes to
+  the front for a second launch. Closing it quits JARVIS, or with `web_ui.close_button: hide` keeps it
+  running in the tray.
+- New dependencies: `fastapi`, `pywebview`. uvicorn, starlette and websockets were already installed.
+- Fixed while checking it live: Windows maps `.js` to `text/plain`, and with `nosniff` the page
+  wouldn't run, so the server now sets the types itself.
+- Checked live in the browser pane against the real runtime (always-on mode, silent, no mic): a typed
+  question ran `get_datetime` and showed the reply; a test note asked to confirm in the card, Confirm
+  ran it, and the card cleared; Mute turned the orb red; a reload restored the conversation and
+  activity. Then the real WebView2 window opened and connected. In push-to-talk mode, typed text that
+  led to a tool call made Gemini Live drop the connection (error 1011). Wake-word and always-on modes
+  are fine.

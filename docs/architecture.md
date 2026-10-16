@@ -6,6 +6,7 @@
 - [The Gemini session](#the-gemini-session)
 - [Dispatcher and tools](#dispatcher-and-tools)
 - [Voice and chat: one conversation, one event bus](#voice-and-chat-one-conversation-one-event-bus)
+- [The web window (ui/)](#the-web-window-ui)
 - [Threads](#threads)
 - [Startup, single instance and shutdown](#startup-single-instance-and-shutdown)
 - [Where data lives](#where-data-lives)
@@ -184,15 +185,46 @@ Events are delivered in order on the asyncio loop. A subscriber that fails is lo
 Event text can come from web pages and apps, so views show it as plain text, and nothing a view
 receives can confirm an action.
 
+## The web window (ui/)
+
+`features.web_ui` replaces the Tk window with a local web page.
+- **Server** (`ui/server.py`): FastAPI and uvicorn, run as a task inside JARVIS's own asyncio loop,
+  bound to 127.0.0.1 only. uvicorn's Ctrl+C handling is switched off, because JARVIS owns shutdown. It
+  serves the page and one WebSocket.
+- **Page** (`ui/static/`): plain HTML, CSS and JS with nothing loaded from outside. It has the orb
+  (state and voice level), the chat with live captions, a confirmation card (Confirm / Cancel), the
+  activity list (tools, plan steps, confirmations) and a vision placeholder.
+- **Window** (`ui/window.py`): pywebview (Edge WebView2) in a child process,
+  `python -m ui.window --url …`. pywebview has to own its process's main thread, and JARVIS's main
+  thread runs the asyncio loop. A WebView2 crash also can't take the assistant down that way. The
+  child shares JARVIS's taskbar ID and remembers its size and place. Closing it quits JARVIS, or with
+  `web_ui.close_button: hide` it keeps running in the tray, where Show reopens it. A second launch
+  publishes `focus`, and the page calls the window's `bring_to_front()`.
+
+The WebSocket carries the bus (`hello` with a snapshot and recent history, then events, plus `level`
+for the orb at up to 15 fps). From the page it accepts only a chat message, which goes through
+`ChatChannel` as source `web`, and the buttons the tray and hotkeys already have: talk, sleep, mute,
+stop, confirm, cancel (`core.runtime.WebBridge`).
+
+**Safety.** WebSockets aren't covered by the browser's same-origin rules, so every connection needs:
+- the launch's random token, from the URL's `#fragment` and compared in constant time;
+- a Host header of 127.0.0.1 or localhost on this port, which stops DNS rebinding;
+- the page's own Origin.
+
+The page sets every text with `textContent`, never as HTML, and runs under a strict
+Content-Security-Policy with no inline scripts and no outside connections. Text from web pages can't
+run as code there. Confirm is the user's click in JARVIS's own window, the same as the confirm hotkey.
+
 ## Threads
 
 | Thread | Does |
 |---|---|
-| main (asyncio loop) | Gemini session, dispatcher, tools, ticker, reminders scheduler |
+| main (asyncio loop) | Gemini session, dispatcher, tools, ticker, reminders scheduler, the web UI's server |
 | PortAudio callbacks | mic capture and playback |
 | `denoise` | RNNoise, in order; if it falls behind, blocks pass through raw |
 | `ducking` | all Windows audio-session (COM) calls |
-| `face` | the Tk window; it only *reads* state, and clicks go back to the loop |
+| `face` | the Tk window (only when `web_ui` is off); it only *reads* state, and clicks go back to the loop |
+| (child process) | the web window (`ui/window.py`, pywebview); it talks to JARVIS only over the WebSocket |
 | `uia` | all UI Automation (COM) calls for the desktop tools, so elements found by a read stay usable for focus and clicks |
 | `tray` | pystray's message loop |
 | pynput | global hotkeys |
@@ -232,7 +264,8 @@ Handled in `core/app_mode.py` and `core/taskbar.py`.
 | `data/browser_profile/` | JARVIS's Chrome profile | no |
 | `data/wake/` | your wake-word clips and personal verifier | no |
 | `data/cache/` | page summaries (24 h) | no |
-| `data/window.json` | window size and position | no |
+| `data/window.json` | Tk window size and position | no |
+| `data/web_window.json` | web window size and position | no |
 | `data/ducking.json` | saved volumes, only while ducked | no |
-| `logs/` | `app.log`, `console.txt`, `actions.jsonl` | no |
+| `logs/` | `app.log`, `console.txt`, `actions.jsonl`, `window.log` (the web window's own errors) | no |
 | `%USERPROFILE%\Documents\jarvis\` | saved research notes | outside the repo |

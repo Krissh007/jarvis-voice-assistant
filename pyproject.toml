@@ -6,6 +6,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "apscheduler>=3.11,<4",
     "ddgs>=9.16.0",
+    "fastapi>=0.143",
     "google-genai>=2.25.0",
     "httpx>=0.28.1",
     "mcp==2.3.0",
@@ -20,6 +21,7 @@ dependencies = [
     "pyrnnoise>=0.4.5",
     "pystray>=0.19.5",
     "python-dotenv>=1.2.3",
+    "pywebview>=6.2",
     "pywinauto>=0.6.9",
     "pyyaml",
     "sounddevice>=0.5.6",

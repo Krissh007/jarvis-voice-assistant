@@ -111,6 +111,47 @@ class Transcript:
             self._buf[w] = ""
 
 
+class WebBridge:
+    """Everything the web UI (ui/server.py) may see and do: the event bus, a small snapshot, chat
+    messages, and the same buttons the tray and hotkeys have. Runs on the assistant's loop."""
+
+    CONTROLS = {
+        "talk": ("Talk", lambda a: a.talk()),
+        "sleep": ("Sleep", lambda a: a.sleep_now()),
+        "mute": ("Mute", lambda a: a.on_hotkey("mute", True)),
+        "stop": ("Stop", lambda a: a.stop_all()),
+        "confirm": ("Confirm", lambda a: a.on_hotkey("confirm", True)),  # the user's click = the confirm hotkey
+        "cancel": ("Cancel", lambda a: a.on_hotkey("cancel", True)),
+    }
+
+    def __init__(self, assistant: Assistant) -> None:
+        self._a = assistant
+        self.bus = assistant.bus
+
+    def snapshot(self) -> dict:
+        a = self._a
+        status = a._face_status()
+        pending = a.dispatcher.confirmer.pending if hasattr(a, "dispatcher") else None
+        return {
+            "state": status["state"],
+            "level": status["level"],
+            "user": a.transcript._labels["user"],
+            "speak": a.speak_typed,
+            "pending": {"id": pending.id, "summary": pending.summary} if pending else None,
+        }
+
+    def chat(self, text: str, speak: bool) -> bool:
+        log.info("web: typed message (%d characters, %s)", len(text), "spoken reply" if speak else "silent reply")
+        return self._a.chat.send(text, speak=speak, source="web")
+
+    def control(self, action: str) -> bool:
+        if action not in self.CONTROLS:
+            return False
+        label, run = self.CONTROLS[action]
+        self._a.ui(f"web: {label}", run, self._a)
+        return True
+
+
 class Assistant:
     """The running voice assistant: audio + session + tools behind the dispatcher."""
 
@@ -126,10 +167,27 @@ class Assistant:
         self._reply_channel = "chat" if options.text_mode else "voice"  # channel of the user's latest input
         self._last_state: str | None = None
         self.face = None
-        if config["features"].get("window") and self.mode != "text":
+        self.web = None  # ui.server.WebUI: the web page's server (features.web_ui)
+        self.window_proc = None  # ui.window.WindowProcess: the page in its own window
+        wcfg = config.get("window") or {}
+        self.speak_typed = bool(wcfg.get("speak_typed_replies", True))
+        if config["features"].get("web_ui") and self.mode != "text":
+            from ui.server import WebUI
+            from ui.window import WindowProcess
+
+            ucfg = config.get("web_ui") or {}
+            self.web = WebUI(WebBridge(self), int(ucfg.get("port") or 0))
+            if ucfg.get("window", True):
+                self.window_proc = WindowProcess(
+                    self.web.url, state_path=Services().data_dir / "web_window.json",
+                    width=int(ucfg.get("width", 980)), height=int(ucfg.get("height", 680)),
+                    on_top=bool(ucfg.get("always_on_top", False)),
+                    icon=Path(__file__).resolve().parent.parent / "assets" / "jarvis.ico",
+                    on_closed=self._window_closed, log_path=options.log_dir / "window.log",
+                )
+        elif config["features"].get("window") and self.mode != "text":
             from core.face import Face
 
-            wcfg = config.get("window") or {}
             self.face = Face(
                 status=self._face_status,
                 on_talk=lambda: self.ui("window: Talk", self.talk),
@@ -144,7 +202,7 @@ class Assistant:
                 icon_path=Path(__file__).resolve().parent.parent / "assets" / "jarvis.ico",
                 close_hides=str(wcfg.get("close_button", "quit")).lower() == "hide",
                 on_send=self._typed_from_window,
-                speak_typed=bool(wcfg.get("speak_typed_replies", True)),
+                speak_typed=self.speak_typed,
             )
         if self.face is not None and options.early_window:
             self.face.start()  # "Starting up…" while the models load
@@ -303,7 +361,8 @@ class Assistant:
                 on_quit=lambda: self.ui("tray: Quit", self.request_exit, "tray"),
                 on_sleep=lambda: self.ui("tray: Sleep", self.sleep_now),
                 is_muted=lambda: self.gate.muted,
-                on_show=self.face.show if self.face is not None else None,
+                on_show=self.face.show if self.face is not None
+                else ((lambda: self.ui("tray: Show", self._show_window)) if self.window_proc is not None else None),
             )
 
     # ---- lifecycle ----
@@ -344,6 +403,13 @@ class Assistant:
             self.tray.start()
         if self.face is not None and not self.face.started:
             self.face.start()
+        web_task = None
+        if self.web is not None:
+            web_task = asyncio.create_task(self._serve_web(), name="web-ui")
+            tasks.append(web_task)
+        if self.window_proc is not None:
+            self.window_proc.start()
+            tasks.append(asyncio.create_task(self.window_proc.watch(), name="web-window"))
         self._ready = True
         if self.services.ducker is not None:
             self.services.ducker.start()
@@ -372,6 +438,8 @@ class Assistant:
             release_single_instance()  # a relaunch can start now, while the rest shuts down
             if self.face is not None:
                 self.face.hide()  # looks closed at once
+            if self.window_proc is not None:
+                timed("web window", self.window_proc.stop)
             if self.tray is not None:
                 timed("tray", self.tray.stop)
             if self.face is not None:
@@ -380,6 +448,11 @@ class Assistant:
                 timed("denoise", self._denoise_worker.stop)
             if self.services.reminders is not None:
                 timed("reminders", self.services.reminders.stop)
+            if web_task is not None:
+                t0 = time.monotonic()
+                self.web.stop()  # closes the page's connection and the port cleanly
+                await asyncio.wait([web_task], timeout=2)
+                steps.append(f"web ui {time.monotonic() - t0:.2f}s")
             t0 = time.monotonic()
             for t in tasks:
                 t.cancel()
@@ -655,12 +728,43 @@ class Assistant:
                 self.tray.set_state(state)
             if self.services.ducker is not None:
                 self.services.ducker.set_ducked(self._should_duck())
-            if self.face is not None:
+            if self.face is not None or self.window_proc is not None:
                 from core.app_mode import show_requested
 
                 if show_requested():
                     log.info("a second launch asked for the window")
-                    self.face.bring_to_front()
+                    if self.face is not None:
+                        self.face.bring_to_front()
+                    else:
+                        self._show_window()
+
+    # ---- web UI (ui/) ----
+
+    async def _serve_web(self) -> None:
+        """The web UI must never take the assistant down: if its server fails, JARVIS carries on."""
+        try:
+            await self.web.serve()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("the web UI stopped; JARVIS carries on without it")
+            self._status("[!] The window's server stopped. Voice, hotkeys and the tray still work.", problem=True)
+
+    def _show_window(self) -> None:
+        """Tray "Show" or a second launch: bring the web window forward, or reopen it if it was closed."""
+        if self.window_proc is None:
+            return
+        if self.window_proc.alive:
+            self.bus.publish("focus")  # the page asks its window to come to the front
+        else:
+            self.window_proc.start()
+
+    def _window_closed(self) -> None:
+        """The user closed the web window: quit, or keep running in the tray (web_ui.close_button)."""
+        if str((self.config.get("web_ui") or {}).get("close_button", "quit")).lower() == "hide" and self.tray:
+            self._status("(window closed: still running; click the tray icon to open it)")
+        else:
+            self.request_exit("window closed")
 
     def _should_duck(self) -> bool:
         """Lower other apps while the user and JARVIS are talking."""

@@ -168,7 +168,7 @@ def main(argv: list[str] | None = None) -> int:
             logging.getLogger("jarvis").exception("couldn't tag the desktop shortcut")
     if windowless:
         # Without a terminal, the window or the tray is the only way to reach (and quit) JARVIS.
-        if not (config["features"].get("window") or config["features"].get("tray")):
+        if not (config["features"].get("window") or config["features"].get("web_ui") or config["features"].get("tray")):
             config["features"]["tray"] = True
 
     from google import genai

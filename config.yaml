@@ -69,6 +69,14 @@ window:                         # used when features.window is true
   close_button: quit            # the window's X: quit JARVIS, or "hide" to keep it running in the tray
   speak_typed_replies: true     # JARVIS says its answers to typed messages aloud (also in the window's menu)
 
+web_ui:                         # used when features.web_ui is true: the window is a local web page (ui/)
+  port: 0                       # 0 = any free port; always 127.0.0.1, and every connection needs the launch's token
+  window: true                  # show it in its own window (pywebview / Edge WebView2); false = tray only
+  width: 980
+  height: 680
+  always_on_top: false
+  close_button: quit            # the window's X: quit JARVIS, or "hide" to keep it running in the tray
+
 audio:
   transcription_languages: [en-IN]   # BCP-47 hints for your speech; [] = auto-detect
   input_device: null            # null = Windows default; or part of a device name, e.g. "Nord Buds"
@@ -214,5 +222,6 @@ features:
   agent_hub: true               # shortlist, approvals, job search runs, approve/skip through the Agent Hub (needs it running + AGENT_HUB_TOKEN)
   morning_briefing: false
   tray: true                    # tray icon: click to talk, Stop, Mute, Quit
-  window: true                  # animated JARVIS window with captions and Talk / Mute / Stop
+  window: false                 # the older Tk window (orb, captions, typing box); used only when web_ui is off
+  web_ui: true                  # the web window: orb, chat, activity (tools and plan steps), confirmations
   wake_word: true
