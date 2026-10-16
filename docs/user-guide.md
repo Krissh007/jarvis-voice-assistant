@@ -99,6 +99,9 @@ turns the microphone on. **Up** and **Down** bring back earlier messages, and **
 | "Open my resume" | Finds it in your folders and opens it; if several files match, asks which one |
 | "What did I download today?" / "Find my photos from last week" | Lists the newest matches |
 | "Show the second one in its folder" | Opens File Explorer with that file selected |
+| "Build a portfolio site in Downloads/portfolio" | Creates index.html, style.css and script.js there |
+| "Change the heading in index.html" / "Add a footer style to the CSS" | Reads the file, changes just that part |
+| "Delete script.js" | Asks first, then moves it to the Recycle Bin |
 | "Play Believer by Imagine Dragons" | Plays that song in your YouTube Music app |
 | "Play the Rolling Stones" | Plays that band's most popular song |
 | "Pause" / "Next" / "What's playing?" | Controls YouTube Music |
@@ -193,6 +196,15 @@ file. It opens a file with its usual app only when it's clearly the one you mean
 the matches and asks. Programs, scripts and shortcuts are never opened (it can show them in their
 folder instead), and names that look private (passwords, keys, 2FA codes, ID cards, card details) are
 never listed at all. New downloads show up at once; files deeper in folders within about 10 minutes.
+
+**Creating and changing files.** JARVIS can create text and code files (HTML, CSS, JavaScript, Python,
+notes...), read them, change part of one, and delete one, in Desktop, Documents and Downloads (plus
+`file_edit.extra_folders`). Name the folder the first time ("in Downloads/portfolio"); after that a
+bare name like `style.css` means the same folder. Files it changes are written whole, so VS Code shows
+the new version straight away (if you have unsaved edits there, VS Code asks which to keep). Every
+change keeps the old version in `data/file_backups`, and deleting always asks first and moves the file
+to the Recycle Bin. It never touches private-looking files, programs or scripts Windows runs on a
+double-click (.bat, .ps1, .exe...), or its own folder.
 
 **Web research.** It searches with Tavily or DuckDuckGo, reads up to 3 pages per question, and keeps
 summaries for 24 hours. A site that refuses plain downloads gets one retry in a throwaway Chrome.

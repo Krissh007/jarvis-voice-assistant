@@ -515,6 +515,7 @@ def register(registry: Registry, config: dict, services=None) -> None:
     tools = FileTools(config)
     if services is not None:
         services.on_start.append(tools.warm)
+        services.files = tools
     folder_names = [str(f).capitalize() for f in (config.get("files") or {}).get("folders") or []]
     kind_param = {"type": "string", "enum": list(KINDS), "description": "Type of file; 'any' if not said."}
     registry.register(Tool(

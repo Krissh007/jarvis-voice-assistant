@@ -11,7 +11,7 @@ powered by Google's Gemini Live API.
 | | |
 |---|---|
 | **Talk and research** | Answers questions, researches topics across several web pages, saves notes to `Documents\jarvis` |
-| **Your PC** | Opens, closes and switches apps; finds and opens your files by name; volume; battery and system status |
+| **Your PC** | Opens, closes and switches apps; finds and opens your files by name; creates, edits and deletes (to the Recycle Bin, asks first) your text and code files; volume; battery and system status |
 | **Music** | Plays a specific song or artist in your YouTube Music app; pause, next, "what's playing"; lowers the music while you talk |
 | **The web** | Opens sites and does short tasks in its own Chrome profile (signed in to your YouTube Premium) |
 | **Screen and clipboard** | Looks at your screen when you ask; summarises, translates or fixes text you copied |

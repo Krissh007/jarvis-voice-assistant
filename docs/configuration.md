@@ -87,6 +87,11 @@ Values that are left as comments or blank are ignored.
 | `files.extra_folders` | More folders to search, e.g. `["E:/Projects"]` |
 | `files.also_hide` | More name patterns never listed or opened, e.g. `["*bank*"]` (private-looking names are always hidden) |
 | `files.max_results` | Matches listed per search (default `5`) |
+| `file_edit.folders` | Folders whose files JARVIS may create, change and delete (default `desktop`, `documents`, `downloads`) |
+| `file_edit.extra_folders` | More, e.g. `["E:/Projects"]` (JARVIS's own folder is always excluded) |
+| `file_edit.max_kb` | Largest file read or written (default `200`) |
+| `file_edit.backups` | Keep each file's old version in `data/file_backups` before changing it (default `true`) |
+| `file_edit.editor` | `code` opens files in VS Code when `write_file` has `open`; empty = the file's usual app |
 | `chat_apps.max_chars` | Longest chat reply `read_app what=latest` and `wait_for_app` return; its start is kept (default `6000`) |
 | `chat_apps.profiles.<exe>` | Where an app's messages are in its accessibility tree: `container_role`, `message_role`, `message_name` (number and total), `streaming_name`, `roles` (text label → role), `reply_role`, `skip_inside` (`button`, `status`, `menu`, `toolbar`) and `drop_text`. Shipped for `claude.exe` (Claude's chat view); a profile that doesn't match logs a warning (once per window per session) and JARVIS reads the whole window |
 | `condense.over_chars` | Results from `read_app`, `wait_for_app` and `job_search_status` longer than this (default `1500` characters) are shortened before the Live model sees them |

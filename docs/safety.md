@@ -32,9 +32,9 @@ Every tool declares a tier, and the dispatcher enforces it.
 | Tier | Behaviour | Examples |
 |---|---|---|
 | **SAFE** | Runs at once | time, weather, search, reading pages, opening allowlisted apps and sites, media, reminders |
-| **CONFIRM** | Waits for your yes | closing apps, saving research, forgetting memories, cancelling reminders, sites off the trusted list |
+| **CONFIRM** | Waits for your yes | closing apps, deleting a file (to the Recycle Bin), saving research, forgetting memories, cancelling reminders, sites off the trusted list |
 | **Self-gated** | The tool plans, then asks before each risky step | browser tasks, app control, fixing the clipboard, agent plans |
-| **BLOCKED** | Never registered, so the model never learns it exists | shell, file deletion or moves, payments, messaging, settings |
+| **BLOCKED** | Never registered, so the model never learns it exists | shell, moving files, permanent deletion, payments, messaging, settings |
 
 Some tiers depend on the arguments:
 - `browser_open` is SAFE for sites on `sites.read_allowlist` and CONFIRM otherwise.
@@ -173,7 +173,8 @@ Enforced in `core/privacy.py` and the modules that use it.
   asks, and risky steps (Save, Delete, Enter outside chat apps...) always ask.
 
 **Your files**
-- Only file and folder *names* are read, never contents, and only in the folders under `files:`.
+- Searching reads only file and folder *names*, in the folders under `files:`. Contents are read only by
+  `read_file`, and only in the folders under `file_edit:`.
 - Names that look private are never listed or opened: passwords, credentials, keys and certificates,
   password vaults, 2FA and recovery codes, seed phrases, Aadhaar, PAN, passport, driving licence and
   voter ID scans, and card details. This list is built in; `files.also_hide` can only add to it.
@@ -181,6 +182,20 @@ Enforced in `core/privacy.py` and the modules that use it.
   scripts, shortcuts and disk images are never opened.
 - File names are untrusted (a downloaded file keeps whatever name the website gave it), so opening
   a file in the same turn as a search asks first.
+
+**Creating, changing and deleting files** (`file_edit`)
+- Only inside the folders under `file_edit:` (Desktop, Documents, Downloads by default), never JARVIS's
+  own folder. Paths are checked after resolving `..` and links, so nothing can point outside; names
+  Windows would change (a trailing dot, `CON`, `a:stream`) are refused before that.
+- The same private-name list as searching applies to every part of the path, and hidden or system
+  files are never touched. Text that looks like a password, key or card number is never written, and
+  `read_file` shows such text as [hidden].
+- Programs, scripts Windows runs on a double-click (.bat, .cmd, .ps1, .vbs, .exe...) and shortcuts are
+  never written. JARVIS never runs any file.
+- Writing an existing file needs `overwrite`; every change copies the old version to
+  `data/file_backups` (newest 200 kept). Files are written in one step, so an editor never sees half.
+- `delete_file` is CONFIRM: it always asks, and moves the file to the Recycle Bin. Folders are never deleted.
+- File contents are untrusted. After untrusted text, changing a file other than the one just read asks first.
 
 **Typed messages**
 - The window's typing box is your keyboard in JARVIS's own window, so a typed *yes* confirms, just as

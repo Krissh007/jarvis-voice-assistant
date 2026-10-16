@@ -145,6 +145,13 @@ files:                          # find_files / open_file (features.files): names
                                 # always hidden: passwords, keys, 2FA/recovery codes, ID cards, card details
   max_results: 5
 
+file_edit:                      # create, change and delete your text files (features.file_edit)
+  folders: [desktop, documents, downloads]   # only files in these can be changed (never JARVIS's own folder)
+  extra_folders: []             # more, e.g. ["E:/Projects"]
+  max_kb: 200                   # largest file read or written
+  backups: true                 # each change keeps the old version in data/file_backups (newest 200)
+  editor: code                  # write_file open=true opens it in VS Code; empty = the file's usual app
+
 desktop:                        # read_app (features.desktop)
   max_items: 150                # buttons, fields and lines read from one window
   max_chars: 4000               # text read from documents and text boxes
@@ -192,6 +199,7 @@ features:
   screen: true
   clipboard: true
   files: true                   # find and open your own files by name
+  file_edit: true               # create, change and delete (to the Recycle Bin, asks first) your text files
   desktop: true                 # read, type, click, keys, scroll, move windows in open apps (never browsers, passwords)
   memory: true
   reminders: true

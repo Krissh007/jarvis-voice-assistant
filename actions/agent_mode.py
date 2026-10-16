@@ -230,7 +230,8 @@ class AgentMode:
             "Desktop apps: open_app first if the app may not be open. To ask an AI chat app (Claude, ChatGPT), "
             "type_in_app with send=true, then wait_for_app, which returns the reply; then the answer step. To "
             "write in an app (Notepad, Word), type_in_app with the full text; in a code editor (VS Code), "
-            "field is the file name, and the file must already be open. Use click_in_app or press_keys "
+            "field is the file name, and the file must already be open; to create or change a file, prefer "
+            "write_file / edit_file. Use click_in_app or press_keys "
             "for buttons and shortcuts; don't read_app first unless you need to find something."
         )
         problem = ""

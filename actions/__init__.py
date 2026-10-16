@@ -21,6 +21,7 @@ MODULES: dict[str, str | None] = {
     "actions.screen": "screen",
     "actions.clipboard": "clipboard",
     "actions.files": "files",
+    "actions.file_edit": "file_edit",  # after files: bare names are looked up in its index
     "actions.desktop": "desktop",
     "actions.memory": "memory",
     "actions.reminders": "reminders",
@@ -39,6 +40,7 @@ class Services:
     data_dir: Path = Path(__file__).resolve().parent.parent / "data"
     browser: Any = None  # actions.browser.BrowserTools, shared with media
     desktop: Any = None  # actions.desktop.Desktop: the current app, for reading and acting in apps
+    files: Any = None  # actions.files.FileTools: the file-name index, for finding a file by name
     dispatcher: Any = None  # core.dispatcher.Dispatcher, set by the runtime (agent mode runs steps through it)
     web: Any = None  # actions.web.Web, for the morning briefing
     memory: Any = None  # actions.memory.MemoryStore, for the system instruction

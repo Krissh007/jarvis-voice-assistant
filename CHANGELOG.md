@@ -197,3 +197,15 @@ missed the editor:
 - Claims of work not done ("I have completed … the JavaScript" when none was typed): the result now
   says what was typed into which file ("6 lines (84 characters) starting … into index.html"), and the
   prompt says to report only what tool results say, ask for a new file before typing, and wait.
+
+## Creating, editing and deleting files (16 October 2026)
+
+- New `file_edit` feature (`actions/file_edit.py`): `read_file`, `write_file` (new files, or `overwrite`;
+  folders made as needed; `open` in VS Code), `edit_file` (exact find/replace, or append) and
+  `delete_file` (CONFIRM, to the Recycle Bin). Only in Desktop, Documents and Downloads (config
+  `file_edit:`), never JARVIS's own folder; private names, hidden/system files, executables and
+  scripts Windows runs, and secret-looking text are refused; every change is backed up to
+  `data/file_backups`. The prompt prefers these over typing into an editor.
+- Live: the Live model rebuilt the cleared portfolio in Downloads (three `write_file` calls), changed
+  the heading (an `edit_file` guessed without reading was refused, then it read and edited), appended a
+  footer style, and created then deleted a scratch file, which asked first and went to the Recycle Bin.
