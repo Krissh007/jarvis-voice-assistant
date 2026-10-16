@@ -126,6 +126,13 @@ class WakeWordDetector:
     def reset(self) -> None:
         self._model.reset()
 
+    def needed(self, attempt: Attempt) -> float:
+        """The voice-model score that attempt needed: higher when the stock model barely stirred
+        (STRICT_MARGIN), so a hint never says 0.61 failed against a bar of 0.50."""
+        if self.personal and attempt.base < VERIFIER_GATE:
+            return self.threshold + STRICT_MARGIN
+        return self.threshold
+
     def update(self, score: float) -> bool:
         """Feed one chunk's score. True = wake. Sets `missed` when an attempt fades out without waking."""
         if score >= self.threshold:
@@ -140,7 +147,7 @@ class WakeWordDetector:
             self._attempt.quiet += 1
             if self._attempt.quiet >= NEAR_MISS_QUIET_CHUNKS:
                 ended, self._attempt = self._attempt, Attempt()
-                log.info("wake word: no wake (need %.2f; %s)", self.threshold, ended.describe(self.personal))
+                log.info("wake word: no wake (need %.2f; %s)", self.needed(ended), ended.describe(self.personal))
                 close = ended.score >= CLOSE or ended.base >= VERIFIER_GATE if self.personal else                     ended.score >= NEAR_MISS
                 if close:
                     self.missed = ended  # close enough to tell the user

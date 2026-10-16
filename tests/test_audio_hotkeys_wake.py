@@ -518,3 +518,18 @@ def test_training_can_learn_from_clips_the_stock_model_misses() -> None:
     feats = clip_features(clip, Model(), "hey_jarvis", threshold=0.05, hard_clips=True)
     assert [int(f[0, 0]) for f in feats] == [2, 3, 4]  # the best moment and its neighbours
     assert len(clip_features(clip, Model(), "hey_jarvis", threshold=0.0)) == 6  # speech: every frame
+
+
+def test_a_miss_shows_the_bar_it_really_had_to_reach() -> None:
+    """Without the stock model stirring, the voice model must be STRICT_MARGIN surer: the hint says so."""
+    from core.wakeword import STRICT_MARGIN, VERIFIER_GATE, Attempt
+
+    det = _bare_detector(0.5)
+    det.personal = True
+    quiet, heard = Attempt(), Attempt()
+    quiet.add(0.46, 0.0, 0.61)            # stock model 0.00, voice model 0.61: needed 0.65
+    heard.add(0.40, VERIFIER_GATE, 0.40)  # the stock model stirred: the usual 0.50
+    assert det.needed(quiet) == 0.5 + STRICT_MARGIN
+    assert det.needed(heard) == 0.5
+    det.personal = False
+    assert det.needed(quiet) == 0.5

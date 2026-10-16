@@ -515,7 +515,7 @@ class Assistant:
             if self.detector.missed is not None:
                 self._status('  (heard something like "hey jarvis" but not sure enough: '
                              f"{self.detector.missed.describe(self.detector.personal)}; "
-                             f"need {self.detector.threshold:.2f})")
+                             f"need {self.detector.needed(self.detector.missed):.2f})")
                 self.detector.missed = None
             if woke:
                 self.wake.wake()
