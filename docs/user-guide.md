@@ -222,6 +222,11 @@ Put the cursor where the text should go: if it isn't in a text field and there a
 to type (VS Code's editor and terminal), JARVIS asks you to click first. Code and other long text
 is described in its question ("6 lines starting …") rather than read out.
 
+Writing code in VS Code (or Cursor): JARVIS types only into the file it means, by
+name. If `index.html` isn't the file open, nothing is typed and it asks you to open it and click
+inside; for a file that doesn't exist yet it asks you to create it first and waits. A whole file
+(up to 10,000 characters) goes in one paste, and afterwards it tells you what it typed into which file.
+
 **Clicking and keys.** Name a button ("click New chat") or use a number JARVIS read out. If it can't
 find the name, it asks "did you mean...?". Buttons such as Delete, Send, Save or Pay, and keys that save,
 close or print, ask first. Account and sign-out buttons are never clicked, and Windows-key shortcuts

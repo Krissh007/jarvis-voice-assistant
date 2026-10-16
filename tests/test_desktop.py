@@ -603,16 +603,16 @@ def test_cursor_in_the_editor_types_without_asking(screen, keyboard) -> None:
     vscode(screen)
     keyboard["focused"] = uia.Focused("text box", "The editor is not accessible at this time. To enable screen "
                                       "reader optimized mode", False, True, "", "native-edit-context")
-    out = run(Desktop(CONFIG, Services()).type_in_app(CODE, app="code"))
-    assert keyboard["typed"] == [(9, CODE)] and "into the text box in code" in out  # long notice not spoken
+    out = run(Desktop(CONFIG, Services()).type_in_app(CODE, app="code", field="Untitled-1"))
+    assert keyboard["typed"] == [(9, CODE)] and "into Untitled-1 in code" in out  # the file, not the long notice
 
 
 def test_the_whole_page_is_never_a_place_to_type(screen, keyboard, monkeypatch) -> None:
     vscode(screen, editors=2)
     focus_like_the_app(keyboard, screen, monkeypatch)
     keyboard["focused"] = uia.Focused("document", VSCODE_TITLE, False, True, "RootWebArea")  # focus on the page
-    with pytest.raises(ToolError, match="Click where the text should go"):
-        run(Desktop(CONFIG, Services()).type_in_app(CODE, app="code"))
+    with pytest.raises(ToolError, match="click inside Untitled-1"):
+        run(Desktop(CONFIG, Services()).type_in_app(CODE, app="code", field="Untitled-1"))
     assert keyboard["typed"] == []
 
 
@@ -620,7 +620,7 @@ def test_with_one_real_field_it_uses_that_one_never_the_page_or_the_terminal(scr
     vscode(screen, editors=1, terminal=True)
     focus_like_the_app(keyboard, screen, monkeypatch)
     keyboard["focused"] = uia.Focused("document", VSCODE_TITLE, False, True, "RootWebArea")
-    run(Desktop(CONFIG, Services()).type_in_app(CODE, app="code"))
+    run(Desktop(CONFIG, Services()).type_in_app(CODE, app="code", field="Untitled-1"))
     assert keyboard["focused"].class_name == "native-edit-context" and keyboard["typed"] == [(9, CODE)]
 
 
@@ -637,13 +637,13 @@ def test_the_same_text_twice_in_a_row_is_typed_once(screen, keyboard, monkeypatc
     clock = [1000.0]
     monkeypatch.setattr(desktop, "_now", lambda: clock[0])
     d = Desktop(CONFIG, Services())
-    run(d.type_in_app(CODE))
+    run(d.type_in_app(CODE, field="Untitled-1"))
     clock[0] += 6
-    again = run(d.type_in_app(CODE, app="code"))  # the model repeats it, this time naming the app
+    again = run(d.type_in_app(CODE, app="code", field="Untitled-1"))  # the model repeats it, naming the app
     assert again.startswith("I already typed that into code 6 seconds ago") and keyboard["typed"] == [(9, CODE)]
-    run(d.type_in_app("<p>more</p>", app="code"))  # different text is typed
+    run(d.type_in_app("<p>more</p>", app="code", field="Untitled-1"))  # different text is typed
     clock[0] += 11
-    run(d.type_in_app(CODE, app="code"))  # after the guard window, asking again types again
+    run(d.type_in_app(CODE, app="code", field="Untitled-1"))  # after the guard window, asking again types again
     assert [t for _, t in keyboard["typed"]] == [CODE, "<p>more</p>", CODE]
 
 
@@ -660,8 +660,8 @@ def test_a_failed_typing_does_not_block_trying_again(screen, keyboard, monkeypat
     monkeypatch.setattr(desktop.textinput, "type_text", flaky)
     d = Desktop(CONFIG, Services())
     with pytest.raises(ToolError, match="no longer in front"):
-        run(d.type_in_app("hello", app="code"))
-    assert run(d.type_in_app("hello", app="code")).startswith("Typed") and len(calls) == 2
+        run(d.type_in_app("hello", app="code", field="Untitled-1"))
+    assert run(d.type_in_app("hello", app="code", field="Untitled-1")).startswith("Typed") and len(calls) == 2
 
 
 @pytest.mark.parametrize("text,expect", [
@@ -681,3 +681,94 @@ def test_confirmations_and_plan_lines_describe_code_instead_of_reading_it(screen
     reg = Registry()
     desktop.register(reg, CONFIG, Services())
     assert reg.get("type_in_app").summary({"text": CODE, "app": "code"}).startswith(f'type 6 lines ({len(CODE)} characters)')
+
+
+# ---------------------------------------------------------------- code editors: the right file, whole files
+
+def editor_on(screen, keyboard, file: str, *, focused: bool = True) -> None:
+    """VS Code with `file` open; its editor is named after the file, as VS Code names it."""
+    title = f"{file} - portfolio - Visual Studio Code"
+    screen["windows"] = [win("code.exe", title, 9)]
+    screen["controls"][9] = [Control(1, "document", title, (0, 0, 1536, 816), auto_id="RootWebArea"),
+                             Control(2, "text box", file, (329, 221, 1231, 700), class_name="native-edit-context"),
+                             Control(9, "text box", "Terminal 1", (353, 751, 360, 769),
+                                     class_name="xterm-helper-textarea")]
+    keyboard["focused"] = (uia.Focused("text box", file, False, True, "", "native-edit-context") if focused
+                           else uia.Focused("document", title, False, True, "RootWebArea"))
+
+
+def test_code_goes_only_into_the_file_named(screen, keyboard) -> None:
+    editor_on(screen, keyboard, "index.html")
+    out = run(Desktop(CONFIG, Services()).type_in_app(CODE, app="code", field="index.html"))
+    assert keyboard["typed"] == [(9, CODE)]
+    assert out == f'Typed 6 lines ({len(CODE)} characters) starting "<!DOCTYPE html>" into index.html in code.'
+
+
+def test_code_for_another_file_is_not_typed_into_the_open_one(screen, keyboard) -> None:
+    editor_on(screen, keyboard, "style.css")  # the voice session's bug: HTML went into style.css
+    with pytest.raises(ToolError, match=r"index.html isn't open in code \(the file open now is style.css\)"):
+        run(Desktop(CONFIG, Services()).type_in_app(CODE, app="code", field="index.html"))
+    assert keyboard["typed"] == []
+
+
+def test_in_a_code_editor_the_file_must_be_named(screen, keyboard) -> None:
+    editor_on(screen, keyboard, "style.css")
+    with pytest.raises(ToolError, match="which file this goes in.*The file open now is style.css"):
+        run(Desktop(CONFIG, Services()).type_in_app(CODE, app="code"))
+    assert keyboard["typed"] == []
+
+
+def test_a_file_name_with_folders_or_in_another_case_still_matches(screen, keyboard) -> None:
+    editor_on(screen, keyboard, "script.js")
+    run(Desktop(CONFIG, Services()).type_in_app("let x = 1;", app="code", field="portfolio/Script.JS"))
+    assert keyboard["typed"] == [(9, "let x = 1;")]
+
+
+def test_with_the_cursor_outside_the_editor_it_puts_it_in_the_named_file(screen, keyboard, monkeypatch) -> None:
+    editor_on(screen, keyboard, "index.html", focused=False)
+    focus_like_the_app(keyboard, screen, monkeypatch)
+    run(Desktop(CONFIG, Services()).type_in_app(CODE, app="code", field="index.html"))
+    assert keyboard["focused"].name == "index.html" and keyboard["typed"] == [(9, CODE)]
+
+
+def test_the_terminal_can_still_be_named_and_asks_first(screen, keyboard, monkeypatch) -> None:
+    editor_on(screen, keyboard, "index.html")
+    focus_like_the_app(keyboard, screen, monkeypatch)
+    out = run(Desktop(CONFIG, Services()).type_in_app("npm start", app="code", field="terminal"))
+    assert isinstance(out, NeedsConfirmation) and "into the terminal in code" in out.summary
+    assert keyboard["typed"] == []
+
+
+def test_a_whole_file_fits_in_an_editor_but_not_elsewhere(screen, keyboard) -> None:
+    page = "<p>portfolio</p>\n" * 300  # about 5,100 characters, like the session's full page
+    editor_on(screen, keyboard, "index.html")
+    run(Desktop(CONFIG, Services()).type_in_app(page, app="code", field="index.html"))
+    assert keyboard["typed"] == [(9, page)]
+    screen["windows"] = [win("notepad.exe", "a.txt - Notepad", 3)]
+    keyboard["focused"] = uia.Focused("document", "Text editor", False, True)
+    with pytest.raises(ToolError, match="over 2000 characters.*in parts, in order"):
+        run(Desktop(CONFIG, Services()).type_in_app(page, app="notepad"))
+    editor_on(screen, keyboard, "index.html")
+    with pytest.raises(ToolError, match="over 10000 characters"):
+        run(Desktop(CONFIG, Services()).type_in_app(page * 3, app="code", field="index.html"))
+
+
+def test_long_text_is_never_pasted_into_a_terminal(screen, keyboard, monkeypatch) -> None:
+    editor_on(screen, keyboard, "index.html")
+    focus_like_the_app(keyboard, screen, monkeypatch)
+    with pytest.raises(ToolError, match="too long to paste into a terminal"):
+        run(Desktop(CONFIG, Services()).type_in_app("echo hi\n" * 400, app="code", field="terminal"))
+    assert keyboard["typed"] == []
+
+
+def test_the_limits_come_from_config(screen, keyboard) -> None:
+    editor_on(screen, keyboard, "index.html")
+    d = Desktop({**CONFIG, "desktop": {"max_typed_editor": 50}}, Services())
+    with pytest.raises(ToolError, match="over 50 characters"):
+        run(d.type_in_app(CODE, app="code", field="index.html"))
+
+
+def test_the_open_file_comes_from_the_editors_title() -> None:
+    assert desktop.open_file(win("code.exe", "\u25cf index.html - portfolio - Visual Studio Code")) == "index.html"
+    assert desktop.open_file(win("code.exe", "Visual Studio Code")) == ""
+    assert desktop.open_file(win("notepad.exe", "a.txt - Notepad")) == ""

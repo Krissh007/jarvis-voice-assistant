@@ -71,12 +71,15 @@ TERMINALS = {"windowsterminal.exe", "cmd.exe", "powershell.exe", "pwsh.exe", "co
 AI_CHATS = {"claude.exe", "chatgpt.exe", "copilot.exe", "perplexity.exe"}
 CHAT_BOX = re.compile(r"prompt|message|reply|chat|ask|write|type|compose", re.IGNORECASE)
 MAX_TYPED = 2000
+MAX_TYPED_EDITOR = 10000  # into a code editor: a whole file goes in one paste, so no part gets lost
 # A terminal panel inside an app (VS Code, Cursor...): xterm.js's input has this class. Pasting there can run
 # commands, so it's treated like a terminal app.
 TERMINAL_CLASS = re.compile(r"xterm", re.IGNORECASE)
 TERMINAL_NAME = re.compile(r"^terminal\b", re.IGNORECASE)
 IDES = {"code.exe", "cursor.exe", "windsurf.exe", "code - insiders.exe", "idea64.exe", "pycharm64.exe",
         "webstorm64.exe", "rider64.exe", "clion64.exe", "goland64.exe", "phpstorm64.exe", "devenv.exe"}
+# Editors whose title starts with the open file: "● index.html - portfolio - Visual Studio Code".
+TITLE_FILE_IDES = {"code.exe", "cursor.exe", "windsurf.exe", "code - insiders.exe"}
 WHOLE_PAGE_ID = "RootWebArea"  # a Chromium/Electron app's whole page: never a place to type
 REPEAT_GUARD_S = 10  # the same text into the same window this soon again is a repeated call, not a request
 
@@ -89,6 +92,24 @@ def is_terminal_field(win: uia.Window, name: str, class_name: str) -> bool:
 def is_whole_page(win: uia.Window, kind: str, name: str, auto_id: str) -> bool:
     """The whole window's page (Chromium's root document, named like the window), not a text field."""
     return auto_id == WHOLE_PAGE_ID or (kind == "document" and name.strip() == win.title.strip() and bool(name.strip()))
+
+
+def open_file(win: uia.Window) -> str:
+    """The file an editor has open, from its title ("" when the title doesn't say)."""
+    if win.exe not in TITLE_FILE_IDES:
+        return ""
+    title = win.title.strip().lstrip("●").strip()
+    return title.split(" - ")[0].strip() if " - " in title else ""
+
+
+def file_key(name: str) -> str:
+    """A file name to compare: lower case, without its folders."""
+    return re.split(r"[\\/]", name.strip())[-1].strip().lower()
+
+
+def same_file(field: str, name: str) -> bool:
+    want = file_key(field)
+    return bool(want) and want in name.lower()
 
 
 def field_words(name: str) -> str:
@@ -105,7 +126,7 @@ def typed_words(text: str, limit: int = 150) -> str:
         return f'"{flat}"'
     first = lines[0].strip() if lines else flat
     first = first[:60] + ("..." if len(first) > 60 else "")
-    return f'{len(lines)} lines ({len(text)} characters) starting "{first}"'
+    return f'{len(lines)} line{"s" if len(lines) != 1 else ""} ({len(text)} characters) starting "{first}"'
 RISKY = re.compile(
     r"\b(delete|remove|erase|discard|save|print|close|exit|quit|send|submit|post|publish|share|pay|purchase|buy|order|checkout|transfer|"
     r"confirm|accept|agree|allow|install|uninstall|update now|restart|shut ?down|reset|format|empty|clear all|"
@@ -298,6 +319,8 @@ class Desktop:
         self.sent_after: dict[int, int] = {}  # chat window -> newest message number just before sending
         self.mismatch_warned: set[int] = set()  # windows already warned about (once per window per session)
         self.repeat_guard_s = float(opts.get("repeat_guard_s", REPEAT_GUARD_S))
+        self.max_typed = int(opts.get("max_typed", MAX_TYPED))
+        self.max_typed_editor = int(opts.get("max_typed_editor", MAX_TYPED_EDITOR))
         self.recent_typing: dict[tuple, float] = {}  # (window, text, field, send) -> when it was typed
 
     # ------------------------------------------------------------- finding the app
@@ -484,12 +507,14 @@ class Desktop:
         text = text.strip("\r\n") if send else text
         if not text.strip():
             raise ToolError("There's nothing to type.")
-        if len(text) > MAX_TYPED:
-            raise ToolError(f"That's too long to type in one go (over {MAX_TYPED} characters).")
         if kind := secret_in_text(text):
             raise ToolError(f"That text looks like it contains {kind}, so I won't type it anywhere.")
         win = await uia.call(self.target, app, "type into")
         self.current = win
+        limit = self.max_typed_editor if win.exe in IDES else self.max_typed
+        if len(text) > limit:
+            raise ToolError(f"That's too long to type in one go (over {limit} characters). Type it in parts, in "
+                            "order, into the same place, and leave nothing out.")
         key = (win.hwnd, " ".join(text.split()), field.strip().lower(), bool(send))
         if (when := self.recent_typing.get(key)) is not None and _now() - when < self.repeat_guard_s:
             log.info("type_in_app: same text into %s %.0f s ago; not typing it twice", win.exe, _now() - when)
@@ -521,6 +546,9 @@ class Desktop:
         except BaseException:
             self.recent_typing.pop(key, None)
             raise
+        if terminal and len(text) > self.max_typed:
+            self.recent_typing.pop(key, None)
+            raise ToolError(f"That's too long to paste into a terminal (over {self.max_typed} characters).")
         if terminal and not allow_terminal and win.exe not in TERMINALS:
             self.recent_typing.pop(key, None)
 
@@ -548,9 +576,8 @@ class Desktop:
             raise ToolError(f"I stopped typing: {exc}.") from exc
         self.recent_typing[key] = _now()
         log.info("%s %d characters into %s (%s)%s", how, len(text), win.exe, label, " and sent" if send else "")
-        preview = " ".join(text.split())
-        preview = preview[:80] + ("..." if len(preview) > 80 else "")
-        return (f'Typed "{preview}" into {label} in {safe_label(win)}' + (" and pressed Enter." if send else "."))
+        return (f"Typed {typed_words(text)} into {label} in {safe_label(win)}"
+                + (" and pressed Enter." if send else "."))
 
     def _focus_field(self, win: uia.Window, field: str) -> tuple[str, bool]:
         """Bring the app to the front and put the cursor in the right field. Runs on the UIA thread.
@@ -564,10 +591,60 @@ class Desktop:
             raise ToolError(f"I couldn't bring {safe_label(win)} to the front, so I didn't type anything.")
         time.sleep(0.15)
         now = uia.focused()
-        if not field and now is not None and now.editable and not is_whole_page(win, now.kind, now.name, now.auto_id):
+        usable = now is not None and now.editable and not is_whole_page(win, now.kind, now.name, now.auto_id)
+        terminal_now = usable and is_terminal_field(win, now.name, now.class_name)
+        f = field.strip()
+        # In a code editor the file is checked, except for a read_app number or the cursor in the terminal
+        # (which asks first).
+        if win.exe in IDES and not f.isdigit() and not (not f and terminal_now):
+            return self._focus_file(win, f, now if usable and not terminal_now else None)
+        if not f and usable:
             self._check_private(now.name, now.password)
-            return field_words(now.name), is_terminal_field(win, now.name, now.class_name)
+            return field_words(now.name), terminal_now
+        return self._focus_named(win, field)
+
+    def _focus_file(self, win: uia.Window, field: str, editor: uia.Focused | None) -> tuple[str, bool]:
+        """In a code editor, type only into the file asked for (field = its name), so code can't land in
+        whatever file happens to be open. `editor` is the focused editor field, if the cursor is in one."""
+        current = open_file(win)
+        if not field:
+            where = f" The file open now is {current}." if current else ""
+            raise ToolError(f"Tell me which file this goes in (field = its file name, e.g. index.html), so it "
+                            f"can't land in the wrong one.{where} If that isn't the right file, ask the user to "
+                            "open the right one and click inside it first.")
+        if TERMINAL_NAME.search(field):  # "terminal": the usual search by name, which asks first
+            return self._focus_named(win, field)
+        if editor is not None and (same_file(field, editor.name) or same_file(field, current)):
+            self._check_private(editor.name, editor.password)
+            return (current or field), False
+        controls = uia.read(win.hwnd, limit=self.max_items)
+        self.last = Snapshot(win, controls)
+        editors = [c for c in controls if c.kind in uia.TYPEABLE and not is_private_control(c)
+                   and not is_whole_page(win, c.kind, c.name, c.auto_id)
+                   and not is_terminal_field(win, c.name, c.class_name)]
+        named = [c for c in editors if same_file(field, c.name)]
+        if not named and same_file(field, current) and editors:
+            if len(editors) > 1:  # the file's open, but its editor isn't named after it: which one is it?
+                raise ToolError(f"{field} is open in {safe_label(win)}, but the cursor isn't in it. Ask the user "
+                                f"to click inside {field}, then try again.")
+            named = editors  # its one editor just isn't named after it
+        if not named:
+            now_open = f" (the file open now is {current})" if current else ""
+            raise ToolError(f"{field} isn't open in {safe_label(win)}{now_open}, so I didn't type anything. Ask "
+                            f"the user to open {field} and click inside it, then try again.")
+        if len(named) > 1:
+            raise ToolError(f"{field} is open in more than one place in {safe_label(win)}. Ask the user to click "
+                            "inside the one to use, then try again.")
+        self._land(win, named[0])
+        return (current if same_file(field, current) else named[0].name) or field, False
+
+    def _focus_named(self, win: uia.Window, field: str) -> tuple[str, bool]:
         choice = self._choose(win, field)
+        now = self._land(win, choice)
+        return field_words(choice.name), is_terminal_field(win, now.name, now.class_name)
+
+    def _land(self, win: uia.Window, choice: uia.Control) -> uia.Focused:
+        """Put the cursor in `choice` and check where it really landed."""
         self._check_private(choice.name, choice.password)
         if not uia.set_focus(win.hwnd, choice.id):
             raise ToolError(f"I couldn't put the cursor in {choice.name or 'that field'}.")
@@ -576,7 +653,7 @@ class Desktop:
         if now is None or not now.editable or is_whole_page(win, now.kind, now.name, now.auto_id):
             raise ToolError(f"I couldn't put the cursor in {choice.name or 'that field'}.")
         self._check_private(now.name, now.password)
-        return field_words(choice.name), is_terminal_field(win, now.name, now.class_name)
+        return now
 
     # ------------------------------------------------------------- waiting
 
@@ -875,6 +952,9 @@ def register(registry: Registry, config: dict, services) -> None:
         description=("Type text into an open desktop app, e.g. 'type hello in Notepad', 'ask Claude what a "
                      "monad is' (send=true presses Enter to send it). Types where the cursor is, else into the "
                      "field named or numbered by field (numbers from read_app). app empty = the current app. "
+                     "In a code editor (VS Code, Cursor...), field must be the file name, e.g. index.html: it "
+                     "types only if that file is open. Up to 10000 characters into a code editor (a whole file "
+                     "in one call), 2000 elsewhere. "
                      "Never for passwords or payment details. Not for web browsers."),
         func=desktop.type_in_app,
         tier=Tier.SAFE,  # asks itself for terminals, Enter outside AI chat apps, and after untrusted text
@@ -884,7 +964,8 @@ def register(registry: Registry, config: dict, services) -> None:
             "properties": {
                 "text": {"type": "string", "description": "Exactly what to type."},
                 "app": {"type": "string", "description": "App name; empty = the current app."},
-                "field": {"type": "string", "description": "Field name or read_app number; empty = cursor."},
+                "field": {"type": "string", "description": ("Field name or read_app number; empty = cursor. "
+                                                            "In a code editor: the file name.")},
                 "send": {"type": "boolean", "description": "Press Enter afterwards (sends a chat message)."},
             },
             "required": ["text"],

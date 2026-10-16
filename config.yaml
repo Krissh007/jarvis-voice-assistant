@@ -149,6 +149,8 @@ desktop:                        # read_app (features.desktop)
   max_items: 150                # buttons, fields and lines read from one window
   max_chars: 4000               # text read from documents and text boxes
   repeat_guard_s: 10            # the same text into the same window again this soon isn't typed twice
+  max_typed: 2000               # longest text typed in one go (terminals, chat boxes, Notepad...)
+  max_typed_editor: 10000       # into a code editor (VS Code...): a whole file in one paste
 
 paths:
   research_dir: '%USERPROFILE%\Documents\jarvis'

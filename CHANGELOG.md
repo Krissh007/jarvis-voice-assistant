@@ -186,3 +186,14 @@ missed the editor:
   found no text field. `focus_window` now does nothing for a window already in front, switches by
   attaching to the foreground window's input, and taps Alt only as a last resort (into the window
   being left). Checked live: four bring-to-fronts in a row kept VS Code's cursor in the editor.
+- Code into the wrong file: in the same session JARVIS pasted HTML into `style.css`, JavaScript into
+  `index.html` and page sections into `script.js`, then asked the user to create the right file. In a
+  code editor `type_in_app` now needs the file name (`field`) and types only if that file is open
+  (the editor field VS Code names after the file, or the file in its title); otherwise it says which
+  file is open and types nothing.
+- Long code got cut: over 2,000 characters was refused and the model's parts left out the page's
+  start and end. Into a code editor the limit is now 10,000 (`desktop.max_typed_editor`), terminals
+  keep 2,000 (`desktop.max_typed`), and the refusal says to type the rest in order with nothing left out.
+- Claims of work not done ("I have completed … the JavaScript" when none was typed): the result now
+  says what was typed into which file ("6 lines (84 characters) starting … into index.html"), and the
+  prompt says to report only what tool results say, ask for a new file before typing, and wait.

@@ -151,6 +151,9 @@ Enforced in `core/privacy.py` and the modules that use it.
   "Terminal…") counts as a terminal: JARVIS asks first and says it's a terminal, and never picks one
   on its own. It never types into an app's whole page (Chromium's root document), and when the cursor
   isn't in a text field and there's more than one place to type, it asks you to click first.
+- In a code editor it types only into the file named in the request (checked against the editor's
+  field and title); any other file open means nothing is typed. Terminals keep the 2,000-character
+  limit even inside an editor.
 - It asks first in terminals (pasting there can run commands), before pressing Enter anywhere except
   AI chat apps (Claude, ChatGPT, Copilot, Perplexity), and after untrusted text was read in that turn.
 - Text is pasted through the clipboard, marked so Windows clipboard history and cloud clipboard don't
