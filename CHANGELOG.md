@@ -152,3 +152,16 @@ How JARVIS was built: the phases in the build spec and the finishing touches (24
   of the text are used. Plan steps get the full text. Live: the Claude window went from 4,310 to
   337 characters; summarising took about 8 s while the models were busy.
 - `condense.timeout_s` lowered to 5 s, so a slow summary never holds up a spoken reply for long.
+
+## Claude's latest reply (16 October 2026)
+
+- `core/chat.py` reads chat messages from the accessibility tree using a per-app profile
+  (`chat_apps.profiles`; shipped for Claude's chat view): the `feed` of `article`s named "Message N
+  of M", roles from the "You said:" / "Claude responded:" label (then dropped, since it repeats the
+  opening words), a reply still streaming marked unfinished, and clutter removed (text inside
+  buttons and status lines such as "Thought for 13s", Copy and Retry, plus `drop_text`).
+- `read_app what=latest` returns only the newest finished reply; `wait_for_app` waits for a new
+  finished reply instead of comparing window text. A configured profile that doesn't match logs a
+  warning (once per window per session; repeats at debug level) and JARVIS falls back to the whole window. Long replies keep their start when cut.
+- Live: "read me Claude's reply" found the reply (423 characters) in 0.4 s, with no summarising
+  needed; before, the tool took about 10 s or hit the 5 s summarising limit.

@@ -80,6 +80,11 @@ class Tool:
     def wants_condense(self, args: dict[str, Any]) -> bool:
         return bool(self.condense(args) if callable(self.condense) else self.condense)
 
+    def condense_keep(self, args: dict[str, Any]) -> str:
+        """Which part survives if a long result must be cut: "start" (one message) or "ends" (a window)."""
+        value = self.condense(args) if callable(self.condense) else self.condense
+        return "start" if value == "start" else "ends"
+
     def base_tier(self, args: dict[str, Any]) -> Tier:
         return self.tier(args) if callable(self.tier) else self.tier
 

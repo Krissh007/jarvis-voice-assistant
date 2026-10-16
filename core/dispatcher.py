@@ -374,7 +374,8 @@ class Dispatcher:
         finally:
             self._running = None
         if condense and self.condenser is not None and tool.wants_condense(args) and self.condenser.needed(result):
-            result = await self.condenser.condense(tool.name, result, self.registry.last_user_text)
+            result = await self.condenser.condense(tool.name, result, self.registry.last_user_text,
+                                                   keep=tool.condense_keep(args))
         if tool.untrusted_output:
             self.tainted = True
             result = wrap(tool.name, result)

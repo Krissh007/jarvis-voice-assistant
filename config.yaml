@@ -28,6 +28,19 @@ condense:                       # long tool results (read_app, wait_for_app, job
   model: gemini-3.5-flash-lite  # tried first (spares the main Flash model's small daily quota)
   timeout_s: 5                  # slower than this: use the start and end of the text instead
 
+chat_apps:                       # read_app what=latest and wait_for_app: the newest message, not the window
+  max_chars: 6000               # longest reply returned (its start is kept)
+  profiles:
+    claude.exe:                 # Claude's chat view (checked 2026-10-16); other views fall back, with a warning
+      container_role: feed      # web role of the message list ("Chat messages")
+      message_role: article     # one per message
+      message_name: 'Message (\d+) of (\d+)'
+      streaming_name: '^Currently streaming message$'   # a reply still being written
+      roles: {"You said:": you, "Claude responded:": claude}
+      reply_role: claude
+      skip_inside: [button, status]   # Copy, Retry, "Thought for 13s", screen-reader status lines
+      drop_text: ['^Thought for \d+s$']
+
 listening:
   mode: wake_word               # always_on | push_to_talk | wake_word
   end_pause_ms: 1000            # quiet this long = you've finished; shorter replies faster, but splits sentences
