@@ -16,6 +16,12 @@ models:
     gemini-3.5-flash-lite: minimal
   openrouter: null              # e.g. a free OpenRouter model id; used only if OPENROUTER_API_KEY is set
 
+reasoning:                      # think_through (features.reasoning): careful answers, web search optional
+  thinking: high                # thinking level for these calls only (the Flash chain above, then fallbacks)
+  max_tokens: 2000
+  # Free tier, checked on this account 2026-10-16: Gemini Pro models have a limit of 0 and Google Search
+  # grounding is refused, so think_through uses Flash + JARVIS's own search (Tavily, else DuckDuckGo).
+
 listening:
   mode: wake_word               # always_on | push_to_talk | wake_word
   end_pause_ms: 1000            # quiet this long = you've finished; shorter replies faster, but splits sentences
@@ -157,6 +163,7 @@ features:
   test_tools: false             # Phase 2 safety-test tools (the test suite turns them on itself)
   system: true
   web: true
+  reasoning: true              # think_through: harder questions, maths, comparisons (Flash, thinking high)
   browser: true
   media: true
   app_ui: false                 # older app_ui_action (allowlisted apps, every step confirmed); replaced by desktop

@@ -106,6 +106,7 @@ turns the microphone on. **Up** and **Down** bring back earlier messages, and **
 | "Close the music player" | Closes the YouTube Music app |
 | "Open naukri.com" | Opens it in JARVIS's browser (asks first for sites not on your trusted list) |
 | "What's on my screen?" | Looks once, with private windows blacked out |
+| "Think it through: should I buy an inverter AC?" / a maths or logic puzzle | Thinks carefully first (and searches the web when it needs current facts) |
 | "Read me Claude's reply" / "What does Notepad say?" | Reads the text in that app (never browsers or password fields) |
 | "What can I click here?" | Lists the buttons and fields in the app you're using |
 | "Type 'see you at six' in Notepad" | Types it where the cursor is (your clipboard is put back) |

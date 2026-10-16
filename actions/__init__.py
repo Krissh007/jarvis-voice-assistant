@@ -14,6 +14,7 @@ from core.registry import Registry
 MODULES: dict[str, str | None] = {
     "actions.system": "system",
     "actions.web": "web",
+    "actions.reasoning": "reasoning",  # after web: it searches through it
     "actions.browser": "browser",
     "actions.media": "media",
     "actions.app_ui": "app_ui",

@@ -124,3 +124,12 @@ How JARVIS was built: the phases in the build spec and the finishing touches (24
   "Which one" and "did you mean" answers stop a plan.
 - `--bench-apps` (`core/desktop_bench.py`): for each open app, the number of controls and typeable
   fields JARVIS finds and how long reads take. Read-only, and it prints no app text.
+
+## Reasoning (16 October 2026)
+
+- `think_through` (`actions/reasoning.py`, `features.reasoning`): careful answers for maths, logic,
+  comparisons and decisions, on the free Flash chain with thinking `high` (`reasoning.thinking`;
+  `LLM.generate(thinking=...)` overrides a model's level for one call). With `use_web` it searches
+  first (Tavily, else DuckDuckGo) and reasons over the results, which stay untrusted.
+- Free tier, checked on this account: Gemini Pro models have a limit of 0, and Google Search
+  grounding is refused on every Flash model, so neither is used.

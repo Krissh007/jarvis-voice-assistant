@@ -87,6 +87,8 @@ Values that are left as comments or blank are ignored.
 | `files.extra_folders` | More folders to search, e.g. `["E:/Projects"]` |
 | `files.also_hide` | More name patterns never listed or opened, e.g. `["*bank*"]` (private-looking names are always hidden) |
 | `files.max_results` | Matches listed per search (default `5`) |
+| `reasoning.thinking` | Thinking level for `think_through` calls only (default `high`); the models are the Flash chain |
+| `reasoning.max_tokens` | Longest `think_through` answer before it's cut (default `2000`) |
 | `desktop.max_items` | Buttons, fields and lines `read_app` reads from one window (default `150`) |
 | `desktop.max_chars` | Text read from documents and text boxes, and again from long labels (default `4000`) |
 
@@ -108,7 +110,7 @@ Values that are left as comments or blank are ignored.
 ### Features
 
 Each entry under `features:` switches a whole module on or off: `system`, `web`, `browser`,
-`media`, `app_ui` (off by default), `screen`, `clipboard`, `files`, `desktop`, `memory`, `reminders`, `job_search`, `agent_hub` (off by default), `agent_mode`, `morning_briefing`
+`reasoning`, `media`, `app_ui` (off by default), `screen`, `clipboard`, `files`, `desktop`, `memory`, `reminders`, `job_search`, `agent_hub` (off by default), `agent_mode`, `morning_briefing`
 (off by default), `tray`, `window` and `wake_word`. `test_tools` exposes two tools used only to
 test the safety layer; it's off, and the test suite turns it on itself.
 
