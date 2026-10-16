@@ -151,3 +151,4 @@ How JARVIS was built: the phases in the build spec and the finishing touches (24
   (`LLM.generate(start_at=...)`). Over `condense.timeout_s`, or with no model, the start and end
   of the text are used. Plan steps get the full text. Live: the Claude window went from 4,310 to
   337 characters; summarising took about 8 s while the models were busy.
+- `condense.timeout_s` lowered to 5 s, so a slow summary never holds up a spoken reply for long.

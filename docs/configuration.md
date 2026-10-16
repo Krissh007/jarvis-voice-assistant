@@ -90,7 +90,7 @@ Values that are left as comments or blank are ignored.
 | `condense.over_chars` | Results from `read_app`, `wait_for_app` and `job_search_status` longer than this (default `1500` characters) are shortened before the Live model sees them |
 | `condense.max_words` | Length of that summary (default `120` words) |
 | `condense.model` | Model tried first for it (default `gemini-3.5-flash-lite`, to spare the main Flash model's daily quota) |
-| `condense.timeout_s` | If summarising takes longer (default `8` s), the start and end of the text are used instead |
+| `condense.timeout_s` | If summarising takes longer (default `5` s), the start and end of the text are used instead |
 | `reasoning.thinking` | Thinking level for `think_through` calls only (default `high`); the models are the Flash chain |
 | `reasoning.max_tokens` | Longest `think_through` answer before it's cut (default `2000`) |
 | `desktop.max_items` | Buttons, fields and lines `read_app` reads from one window (default `150`) |

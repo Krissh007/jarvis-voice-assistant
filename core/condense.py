@@ -29,7 +29,7 @@ class Condenser:
         self.over_chars = int(opts.get("over_chars", 1500))
         self.max_words = int(opts.get("max_words", 120))
         self.model = opts.get("model") or None
-        self.timeout_s = float(opts.get("timeout_s", 8))  # a voice reply shouldn't wait longer than this
+        self.timeout_s = float(opts.get("timeout_s", 5))  # a voice reply shouldn't wait longer than this
 
     def needed(self, text: str) -> bool:
         return len(text) > self.over_chars
