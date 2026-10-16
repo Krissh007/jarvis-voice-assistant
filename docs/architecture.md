@@ -188,20 +188,30 @@ receives can confirm an action.
 ## The orb and the chat page (ui/)
 
 `features.web_ui` replaces the Tk window with two views of one conversation, both local web pages:
-- **The orb** (`/`, `ui/static/index.html`, `app.js`, `orb.js`) is a quick-action control centre.
-  - When idle, it's only the orb, about 160 px across (`web_ui.orb_size`), drawn after the user's
-    reference image: particle shell, HUD ring tunnel, tilted orbit bands with lightning, a voice wave
-    and sparks, with a bloom glow scaled to its size. It's low when asleep, brighter when listening and
-    strongest when speaking; red when muted, amber while working on a task.
+- **The orb** (`/`, `ui/static/index.html`, `app.js`) is a quick-action control centre.
+  - It's drawn in 3D by `orb3d.js`, with Three.js 0.186.1 stored in `ui/static/vendor/three`. Nothing is
+    loaded from the internet, and the add-ons' imports are rewritten to relative paths because the
+    page's security policy allows no import map. It's the user's reference design on the graphics card:
+    - a particle shell and a tunnel of HUD rings;
+    - three tilted orbit bands with flowing light and a comet each, and lightning along them;
+    - a voice wave and sparks;
+    - a bloom glow using only the tighter blur layers (the widest ones fogged the desktop).
+  - A last pass sets each pixel's alpha from its brightness, so the glow blends into the desktop.
+    Without WebGL, `orb.js` draws the 2D version (`#orb=2d` forces it).
+  - When idle, it's only the orb, about 160 px across (`web_ui.orb_size`). It's low when asleep,
+    brighter when listening and strongest when speaking; red when muted, amber while working on a task.
   - Tap it to talk. Drag it anywhere on the screen; it stays where it's left.
-  - Double-tap it to open the control centre around it:
-    - Talk, Mute, New chat, Stop and Sleep around its top;
-    - a typing box under it;
-    - quick-action chips (`web_ui.quick_actions`), each of which sends its text.
-  - While talking, the sections a reply needs (the answer, a confirmation with Confirm / Cancel, a
-    picture, what's playing) appear around the orb at equal clock positions over the arc from 8 to
-    4 o'clock. If the orb was closed, it opens to show them.
+  - Double-tap it to open the control centre, stacked under the orb:
+    - a controls bar: Talk, Mute, New chat, Stop, Sleep;
+    - the sections a reply needs (the answer, a confirmation with Confirm / Cancel, a picture, what's
+      playing), in the order they came;
+    - the typing box;
+    - quick-action chips (`web_ui.quick_actions`).
+  - If the orb was closed, it opens to show new sections.
   - Double-tap again, Esc, or JARVIS going to sleep closes it back to just the orb.
+  - The page uses no CSS animations or transitions. In the see-through Qt window the browser engine
+    doesn't advance them, so fades stopped halfway and left cards half see-through. Fades and slides
+    run on animation frames in `app.js` instead.
 - **The chat page** (`/chat`, `chat.html`, `chat.js`) is the complete interface, in its own normal
   window. New chat on the orb or the page opens it and starts a new conversation.
   - Left: a small orb and the controls.
@@ -220,8 +230,9 @@ receives can confirm an action.
     the browser engine also can't take the assistant down that way.
   - The orb window is frameless with a transparent background (per-pixel alpha), so the glow blends into
     the desktop. Edge WebView2 can't do this on Windows; that was tested on this PC.
-  - The orb window resizes between just the orb and the control centre, keeping the orb in place, or
-    easing it inward near a screen edge and back again when it closes.
+  - The orb window resizes between just the orb and the control centre (a 420 x 720 column with the orb
+    at its top), keeping the orb in place, or moving it inward near a screen edge and back when it closes.
+    Until the page reports its shapes, the orb itself takes clicks.
   - Everywhere the page draws nothing, clicks go through. The page reports its clickable shapes
     (`jarvis:shape` console lines), and a 30 ms timer turns `WS_EX_TRANSPARENT` on or off as the mouse
     moves over them.

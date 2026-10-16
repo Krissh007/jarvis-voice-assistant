@@ -76,14 +76,18 @@ def test_requests_for_another_host_name_are_refused(ui) -> None:
 
 def test_page_never_renders_text_as_html() -> None:
     html = (STATIC / "index.html").read_text(encoding="utf-8")
-    for name in ("app.js", "orb.js", "chat.js"):
+    for name in ("app.js", "orb.js", "orb3d.js", "chat.js"):
         js = (STATIC / name).read_text(encoding="utf-8")
         assert not re.search(r"innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(|new Function", js), name
     chat = (STATIC / "chat.html").read_text(encoding="utf-8")
     for page in (html, chat):
         assert "<script>" not in page and "onclick" not in page  # no inline code (the policy blocks it anyway)
     for f in STATIC.iterdir():  # nothing is loaded from outside
-        assert not re.search(r"https?://", f.read_text(encoding="utf-8")), f.name
+        if f.is_file():
+            assert not re.search(r"https?://", f.read_text(encoding="utf-8")), f.name
+    for f in (STATIC / "vendor").rglob("*.js"):  # the stored libraries import only each other
+        imports = re.findall(r"""from\s+['"]([^'"]+)['"]""", f.read_text(encoding="utf-8"))
+        assert imports == [] or all(i.startswith(".") for i in imports), (f.name, imports)
 
 
 def test_media_events_reach_the_page(ui) -> None:
@@ -447,8 +451,11 @@ def test_orb_window_geometry() -> None:
     assert 220 <= canvas <= 250
     rect, inner = orb_geometry((700, 400), False, canvas, screen)        # closed: just the orb
     assert rect[2:] == (canvas, canvas) and (rect[0] + inner[0], rect[1] + inner[1]) == (700, 400)
-    rect, inner = orb_geometry((700, 400), True, canvas, screen)         # opened: the orb stays put
-    assert rect[2:] == EXPANDED and (rect[0] + inner[0], rect[1] + inner[1]) == (700, 400)
+    rect, inner = orb_geometry((700, 160), True, canvas, screen)         # opened: the orb stays put, on top
+    assert rect[2:] == EXPANDED and (rect[0] + inner[0], rect[1] + inner[1]) == (700, 160)
+    assert inner[1] < EXPANDED[1] / 3                                     # everything else stacks under it
+    rect, inner = orb_geometry((700, 760), True, canvas, screen)         # low on the screen: moves up to fit
+    assert rect[1] + rect[3] <= 824 and rect[1] + inner[1] < 760
     rect, inner = orb_geometry((1500, 30), True, canvas, screen)         # near a corner: kept on the screen
     assert rect[0] + rect[2] <= 1536 and rect[1] >= 0 and rect[0] >= 0
     rect, inner = orb_geometry((1530, 820), False, canvas, screen)

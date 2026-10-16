@@ -1,81 +1,85 @@
-/* The orb window is transparent: only the orb (and, when opened, the control centre around it) is drawn,
-   and the desktop shows through everywhere else. */
+/* The orb window is transparent: only the orb (and, when opened, the control centre under it) is drawn, and
+   the desktop shows through everywhere else. (No backdrop-filter: in a see-through window there is nothing
+   behind the page to blur, and it made the cards see-through.) */
 :root {
-  --text: #d8f0fb;
-  --dim: #8fb2c6;
-  --title: #7fd3ff;
-  --card: rgba(4, 14, 30, 0.86);
-  --edge: rgba(80, 190, 255, 0.38);
-  --glow: rgba(0, 120, 255, 0.28);
-  --warn: #f0a830;
-  --bad: #ff5a64;
+  --text: #eaf6ff;
+  --dim: rgba(220, 238, 255, 0.62);
+  --title: #8fd8ff;
+  --glass: rgba(12, 17, 28, 0.92);
+  --glass-hi: rgba(22, 32, 50, 0.95);
+  --hair: rgba(255, 255, 255, 0.09);
+  --accent: #2aa8ff;
+  --warn: #ffb547;
+  --bad: #ff6470;
+  --spring: cubic-bezier(.2, .8, .2, 1);
   color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; color: var(--text);
-  font: 13px/1.45 "Segoe UI", system-ui, sans-serif; user-select: none; }
+  font: 13px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; user-select: none;
+  -webkit-font-smoothing: antialiased; }
 body.backdrop { background: radial-gradient(circle at 20% 15%, #1b1f3a 0, transparent 45%),
   radial-gradient(circle at 85% 85%, #0b3a45 0, transparent 50%), #0a0f18; }   /* previews in a normal browser */
 
 #stage { position: absolute; inset: 0; }
-h2 { margin: 0 0 5px; font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--title); }
+h2 { margin: 0 0 4px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--title); }
 .dim { color: var(--dim); }
 button { font: inherit; color: var(--text); cursor: pointer; }
-button:focus-visible, input:focus-visible { outline: 2px solid #4fc3ff; outline-offset: 2px; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* ---------------------------------------------------------------- the orb */
 #orb { position: absolute; transform: translate(-50%, -50%); cursor: pointer; }
 
-/* ---------------------------------------------------------------- the control centre (double-tap) */
-#centre[hidden] { display: none; }
-#centre > * { animation: rise .3s ease-out; }
-@keyframes rise { from { opacity: 0; transform: translate(-50%, 6px) scale(.97); } }
-.round { position: absolute; width: 48px; height: 48px; border-radius: 50%; transform: translate(-50%, -50%); font-size: 10px;
-  line-height: 1.1; padding: 0; background: var(--card); border: 1px solid var(--edge); box-shadow: 0 0 14px var(--glow);
-  animation: pop .3s ease-out; }
-@keyframes pop { from { opacity: 0; transform: translate(-50%, -50%) scale(.6); } }
-.round:hover { border-color: #4fc3ff; }
-.round.red { border-color: var(--bad); }
-.round.accent { border-color: #4fc3ff; background: rgba(8, 60, 110, .9); }
-.round.on { background: rgba(120, 20, 30, .85); border-color: var(--bad); }
+/* ---------------------------------------------------------------- the control centre: everything under the orb */
+#panel { position: absolute; width: 360px; transform: translateX(-50%); display: flex; flex-direction: column;
+  align-items: stretch; gap: 10px; }
+#panel[hidden] { display: none; }
+/* No CSS animations or transitions here: in the see-through Qt window the browser engine doesn't advance
+   them, so a fade would stop halfway (cards stuck half see-through). app.js animates with frames instead. */
 
-#composer { position: absolute; width: 320px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px;
-  padding: 5px 7px; border-radius: 999px; background: var(--card); border: 1px solid var(--edge); box-shadow: 0 0 20px var(--glow); }
-#input { flex: 1; min-width: 0; font: inherit; color: var(--text); background: transparent; border: 0; outline: none;
-  padding: 5px 4px; user-select: text; }
+#controls { align-self: center; display: flex; gap: 2px; padding: 3px; border-radius: 999px; background: var(--glass);
+  border: 1px solid var(--hair); box-shadow: 0 8px 28px rgba(0, 0, 0, .35); }
+#controls button { border: 0; background: transparent; border-radius: 999px; padding: 6px 12px; font-size: 12px; }
+#controls button:hover { background: rgba(255, 255, 255, .08); }
+#controls button.accent { background: rgba(42, 168, 255, .22); color: #cfeeff; }
+#controls button.red { color: #ffb3b9; }
+#controls button.on { background: rgba(255, 100, 112, .25); color: #ffd3d7; }
+
+#sections { display: flex; flex-direction: column; gap: 10px; }
+#sections:empty { display: none; }
+.card { padding: 11px 14px; border-radius: 18px; background: var(--glass); border: 1px solid var(--hair);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .35); overflow: hidden; max-height: 220px; }
+.card p { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; user-select: text; }
+.card .you { color: var(--dim); font-size: 12px; margin-bottom: 3px; }
+.card .reply { max-height: 150px; overflow-y: auto; font-size: 13.5px; }
+.card.warn { border-color: rgba(255, 181, 71, .45); }
+.card.warn h2 { color: var(--warn); }
+.card img { display: block; width: 100%; max-height: 150px; object-fit: contain; border-radius: 10px; margin: 4px 0; }
+.card.media p { font-size: 11.5px; }
+.row { display: flex; gap: 8px; margin-top: 10px; }
+.pill { font-size: 12px; border-radius: 999px; padding: 5px 16px; border: 1px solid var(--hair); background: rgba(255, 255, 255, .07); }
+.pill.yes { background: var(--accent); border-color: transparent; color: #001629; font-weight: 600; }
+.pill:hover { filter: brightness(1.15); }
+.play { display: inline-block; width: 0; height: 0; margin-right: 8px; border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent; border-left: 10px solid var(--title); vertical-align: middle; }
+
+#composer { display: flex; align-items: center; gap: 6px; padding: 5px 6px 5px 6px; border-radius: 999px;
+  background: var(--glass-hi); border: 1px solid var(--hair); box-shadow: 0 10px 30px rgba(0, 0, 0, .35);
+  }
+#input { flex: 1; min-width: 0; font: inherit; font-size: 13.5px; color: var(--text); background: transparent; border: 0;
+  outline: none; padding: 6px 4px; user-select: text; }
 #input::placeholder { color: var(--dim); }
-.icon { width: 28px; height: 28px; flex: none; border-radius: 50%; border: 1px solid var(--edge); background: rgba(10, 40, 70, .6);
+.icon { width: 30px; height: 30px; flex: none; border-radius: 50%; border: 0; background: rgba(255, 255, 255, .08);
   display: grid; place-items: center; padding: 0; }
-.icon:hover { border-color: #4fc3ff; }
-.mic { width: 8px; height: 13px; border-radius: 5px; background: #8fe0ff; box-shadow: 0 0 8px #3fb6ff; }
-.spk { width: 0; height: 0; border-top: 6px solid transparent; border-bottom: 6px solid transparent; border-right: 10px solid #8fe0ff; }
+.icon:hover { background: rgba(255, 255, 255, .16); }
+.mic { width: 8px; height: 13px; border-radius: 5px; background: #9fe1ff; box-shadow: 0 0 8px #3fb6ff; }
+.spk { width: 0; height: 0; border-top: 6px solid transparent; border-bottom: 6px solid transparent; border-right: 10px solid #9fe1ff; }
 .toggle[aria-pressed="false"] { opacity: .45; }
 
-#quick { position: absolute; width: 440px; transform: translateX(-50%); display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
-.chip { font-size: 11.5px; padding: 4px 11px; border-radius: 999px; background: var(--card); border: 1px solid var(--edge); }
-.chip:hover { border-color: #4fc3ff; }
-#status { position: absolute; width: 360px; transform: translateX(-50%); text-align: center; font-size: 11px; min-height: 16px;
-  text-shadow: 0 0 6px #000; }
-
-/* ---------------------------------------------------------------- sections around the orb */
-.card { position: absolute; width: 220px; max-height: 170px; padding: 9px 11px; border-radius: 13px; background: var(--card);
-  border: 1px solid var(--edge); box-shadow: 0 0 22px var(--glow); overflow: hidden;
-  transform: translate(-50%, -50%) scale(1); opacity: 1; transition: transform .35s cubic-bezier(.2,.9,.3,1.2), opacity .3s,
-  left .4s ease, top .4s ease; }
-.card.enter { transform: translate(-50%, -50%) scale(.6); opacity: 0; }
-.card.leave { transform: translate(-50%, -50%) scale(.85); opacity: 0; }
-.card p { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; user-select: text; }
-.card .you { color: var(--dim); font-size: 11.5px; margin-bottom: 3px; }
-.card .reply { max-height: 120px; overflow-y: auto; }
-.card.warn { border-color: var(--warn); box-shadow: 0 0 22px rgba(240, 168, 48, .25); }
-.card.warn h2 { color: var(--warn); }
-.card.media { max-height: 220px; }
-.card img { display: block; width: 100%; max-height: 130px; object-fit: contain; border-radius: 8px; margin: 3px 0; }
-.card.media p { font-size: 11px; }
-.row { display: flex; gap: 8px; margin-top: 9px; }
-.pill { font-size: 11.5px; border-radius: 999px; padding: 4px 14px; border: 1px solid rgba(80, 190, 255, .55); background: rgba(0, 80, 140, .4); }
-.pill.yes { background: #0b6a9e; border-color: #2bb6ff; }
-.pill:hover { filter: brightness(1.2); }
-.play { display: inline-block; width: 0; height: 0; margin-right: 7px; border-top: 6px solid transparent;
-  border-bottom: 6px solid transparent; border-left: 10px solid #8fe0ff; vertical-align: middle; }
+#quick { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.chip { font-size: 11.5px; padding: 5px 11px; border-radius: 999px; background: var(--glass); border: 1px solid var(--hair);
+}
+.chip:hover { background: var(--glass-hi); }
+#status { text-align: center; font-size: 11px; min-height: 15px; text-shadow: 0 0 6px #000; }
+#status:empty { display: none; }

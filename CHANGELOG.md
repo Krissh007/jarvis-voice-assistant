@@ -311,3 +311,29 @@ to its own chat page:
     keeping the orb on screen; New chat opening the chat window; double-tap closing it back to its
     place.
   - 823 tests pass in the worktree.
+
+## A 3D orb, stacked control centre (17 October 2026)
+
+- **The orb in 3D:** Three.js, one of the libraries JARVIS itself suggested and the user picked, runs
+  the orb on the graphics card (`ui/static/orb3d.js`), with the same design and a bloom glow. Version
+  0.186.1 is stored in `ui/static/vendor/three` after an integrity check, so nothing loads from the
+  internet. The 2D orb remains the fallback.
+- **The glow on the desktop:** the last pass turns brightness into alpha. Only the bloom's tighter blur
+  layers are used; the widest ones left a foggy disc on the desktop.
+- **Layout, at the user's request:** when opened, everything stacks under the orb: the controls bar, the
+  sections (answer, confirmation, picture, now playing), the typing box and the quick actions. The open
+  window is a 420 x 720 column with the orb at its top.
+- **Apple-like styling:** rounded dark glass cards and a segmented controls bar. They're solid enough to
+  read over any window.
+- **Found on the real desktop:** in the see-through Qt window the browser engine doesn't advance CSS
+  animations. Fades stopped halfway, leaving cards half see-through and hard to read. All fades and
+  slides now run on animation frames. `backdrop-filter` was dropped too (there's nothing behind the
+  page to blur).
+- **Click-through:** the orb takes clicks from the moment the window opens, instead of only after the
+  page reports its shapes.
+- **Checks:**
+  - Headless with the graphics card: the 3D orb at 47 fps, sizes 160 to 460 px, no haze.
+  - Live against the assistant: the stacked control centre.
+  - On the real desktop: a vivid orb, solid cards, clicks through empty space, double-tap open and
+    close.
+  - 825 tests pass in the worktree.

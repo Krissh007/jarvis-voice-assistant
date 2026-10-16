@@ -104,8 +104,8 @@ def set_click_through(hwnd: int, through: bool) -> None:
 
 
 ORB_SCALE = 0.68         # the orb's drawing (sphere and bands) fills this much of its canvas
-EXPANDED = (780, 620)    # the orb window opened into the control centre (page pixels)
-ORB_AT = (0.5, 0.45)     # where the orb sits in the opened window, as fractions of its size
+EXPANDED = (420, 720)    # the orb window opened into the control centre (page pixels): the orb on top,
+                         # everything else stacked under it
 
 
 def orb_canvas(size: int) -> int:
@@ -118,7 +118,7 @@ def orb_geometry(centre: tuple[int, int], expanded: bool, canvas: int,
     """Window rectangle (x, y, w, h) and the orb's position inside it, for an orb centred at `centre` on
     the screen (x, y, w, h). The window is kept on the screen: near an edge the orb moves inward."""
     w, h = EXPANDED if expanded else (canvas, canvas)
-    ox, oy = (round(w * ORB_AT[0]), round(h * ORB_AT[1])) if expanded else (w // 2, h // 2)
+    ox, oy = (w // 2, canvas // 2 + 6) if expanded else (w // 2, h // 2)
     sx, sy, sw, sh = screen
     x = min(max(centre[0] - ox, sx), sx + sw - w)
     y = min(max(centre[1] - oy, sy), sy + sh - h)
@@ -256,6 +256,8 @@ def run_window(argv: list[str] | None = None) -> int:
         view.setGeometry(*rect)
         orb["placing"] = False
         page.loadFinished.connect(lambda ok: place())
+        # until the page reports its shapes, the orb itself takes clicks (it's where it will be)
+        shapes[:] = [{"c": orb["inner"], "r": canvas * 0.36}]
 
         through = {"now": None}
 

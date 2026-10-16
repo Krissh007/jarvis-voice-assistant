@@ -1,9 +1,9 @@
 // JARVIS's orb: a quick-action control centre. Idle, only the orb is visible. Tap it to talk, drag it
-// anywhere, double-tap it to open the control centre around it: buttons (talk, mute, new chat, stop,
-// sleep), a typing box under it and quick-action chips. While talking, the sections a reply needs (the
-// answer, a confirmation, a picture, what's playing) appear around the orb at equal clock positions;
-// they stay until the orb is double-tapped closed or JARVIS goes to sleep. "New chat" opens the complete
-// chat page in its own window.
+// anywhere, double-tap it to open the control centre under it: the controls (talk, mute, new chat, stop,
+// sleep), then the sections a reply needs (the answer, a confirmation, a picture, what's playing), then the
+// typing box and quick-action chips, stacked under the orb. Sections stay until the orb is double-tapped
+// closed or JARVIS goes to sleep. "New chat" opens the complete chat page in its own window. The orb is
+// drawn in 3D (orb3d.js, Three.js) when WebGL works, else in 2D (orb.js).
 //
 // Every text is set with textContent, never as HTML: replies and tool results can contain text from web
 // pages and apps. The token comes from the URL's #fragment. Messages for the window itself go out as
@@ -16,7 +16,7 @@ const preview = params.get("preview") === "1";   // a normal browser: a backdrop
 if (params.get("bg") === "1" || preview) document.body.classList.add("backdrop");
 const $ = (id) => document.getElementById(id);
 
-const MAX_SECTIONS = 6;
+const MAX_SECTIONS = 4;
 const ACT = { starting: 0, asleep: 0, listening: 0.55, speaking: 1, working: 0.75, muted: 0.15 };
 
 let ws = null, retryMs = 500, pendingId = null, state = "starting";
@@ -51,16 +51,38 @@ function toWindow(command, data) {             // read by ui/window.py
 window.jarvisPlace = function (p) {
   Object.assign(place, p);
   sizeOrb();
-  $("centre").hidden = !place.expanded;
-  $("sections").hidden = !place.expanded;
+  const opening = place.expanded && $("panel").hidden;
+  $("panel").hidden = !place.expanded;
   layout();
+  if (opening) [...$("panel").children].forEach((el, i) => animateIn(el, i * 45));
 };
+
+// Fades and slides are driven by animation frames, not CSS (see app.css): the Qt window doesn't advance
+// CSS animations, but it does run frames (the orb draws on them).
+const ease = (k) => 1 - Math.pow(1 - k, 3);
+function animate(ms, delay, step, done) {
+  const start = performance.now() + delay;
+  (function frame(now) {
+    const k = Math.min(1, Math.max(0, (now - start) / ms));
+    step(ease(k));
+    if (k < 1) requestAnimationFrame(frame); else if (done) done();
+  })(performance.now());
+}
+function animateIn(el, delay = 0) {
+  animate(380, delay, (e) => {
+    el.style.opacity = e;
+    el.style.transform = e < 1 ? `translateY(${-8 * (1 - e)}px) scale(${0.98 + 0.02 * e})` : "";
+  }, () => { el.style.opacity = ""; sendShapeSoon(); });
+}
+function animateOut(el, done) {
+  animate(240, 0, (e) => { el.style.opacity = 1 - e; el.style.transform = `scale(${1 - 0.03 * e})`; }, done);
+}
 
 function setExpanded(expanded) {
   if (expanded === place.expanded) return;
   if (!expanded) clearSections(true);
   if (preview) {                                // no window around the page: lay it out here
-    window.jarvisPlace({ expanded, x: innerWidth / 2, y: expanded ? innerHeight * 0.45 : innerHeight / 2 });
+    window.jarvisPlace({ expanded, x: innerWidth / 2, y: expanded ? place.canvas / 2 + 6 : innerHeight / 2 });
   } else {
     toWindow("mode", { expanded });
   }
@@ -127,16 +149,16 @@ function section(key, title, cls) {
   let el = sections.get(key);
   if (!el) {
     el = document.createElement("section");
-    el.className = `card enter ${cls || ""}`;
+    el.className = `card ${cls || ""}`;
     const h = document.createElement("h2");
     h.textContent = title;
     el.append(h);
-    $("sections").append(el);
+    $("sections").append(el);                    // stacked under the orb, in the order they came
     sections.set(key, el);
     while (sections.size > MAX_SECTIONS) removeSection(sections.keys().next().value);
-    setExpanded(true);                         // something to show: open around the orb
+    setExpanded(true);                         // something to show: open the control centre
     layout();
-    requestAnimationFrame(() => requestAnimationFrame(() => el.classList.remove("enter")));
+    animateIn(el);
   }
   return el;
 }
@@ -145,8 +167,7 @@ function removeSection(key) {
   const el = sections.get(key);
   if (!el) return;
   sections.delete(key);
-  el.classList.add("leave");
-  setTimeout(() => el.remove(), 350);
+  animateOut(el, () => { el.remove(); sendShape(); });
   layout();
 }
 
@@ -157,30 +178,13 @@ function clearSections(now) {
   layout();
 }
 
-// equal clock positions over the arc from 8 to 4 o'clock (through 12); the typing box sits at 6
-function clockAngles(n) { return Array.from({ length: n }, (_, i) => -120 + (240 * (i + 0.5)) / n); }
-
 function layout() {
-  const w = innerWidth, h = innerHeight, cx = place.x || w / 2, cy = place.y || h / 2;
+  const w = innerWidth, cx = place.x || w / 2, cy = place.y || innerHeight / 2;
   const orbEl = $("orb");
   orbEl.style.left = cx + "px"; orbEl.style.top = cy + "px";
-  if (place.expanded) {
-    const ring = [...document.querySelectorAll("#ring .round")];
-    [-72, -36, 0, 36, 72].forEach((deg, i) => {
-      const r = (deg * Math.PI) / 180;
-      ring[i].style.left = cx + 122 * Math.sin(r) + "px"; ring[i].style.top = cy - 122 * Math.cos(r) + "px";
-    });
-    $("composer").style.left = cx + "px"; $("composer").style.top = cy + 104 + "px";
-    $("quick").style.left = cx + "px"; $("quick").style.top = cy + 152 + "px";
-    $("status").style.left = cx + "px"; $("status").style.top = cy + 152 + $("quick").offsetHeight + 6 + "px";
-    const rx = Math.min(270, w / 2 - 112), ry = Math.min(196, cy - 85);
-    const keys = [...sections.keys()];
-    clockAngles(keys.length).forEach((deg, i) => {
-      const el = sections.get(keys[i]), r = (deg * Math.PI) / 180;
-      el.style.left = Math.max(112, Math.min(w - 112, cx + rx * Math.sin(r))) + "px";
-      el.style.top = Math.max(88, Math.min(h - 88, cy - ry * Math.cos(r))) + "px";
-    });
-  }
+  const panel = $("panel");
+  panel.style.left = cx + "px";
+  panel.style.top = cy + place.canvas * 0.36 + "px";          // just under the orb's bands
   sendShape();
 }
 
@@ -322,7 +326,7 @@ function sendShape() {
   const cx = Math.round(place.x || innerWidth / 2), cy = Math.round(place.y || innerHeight / 2);
   const shapes = [{ c: [cx, cy], r: Math.round(orbRadius()) }];
   if (place.expanded) {
-    for (const el of document.querySelectorAll("#ring .round, #composer, #quick .chip, #sections .card:not(.leave)")) {
+    for (const el of document.querySelectorAll("#controls, #composer, #quick .chip, #sections .card")) {
       const b = el.getBoundingClientRect();
       if (b.width && b.height) shapes.push({ x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height) });
     }
@@ -337,15 +341,25 @@ addEventListener("resize", layout);
 
 // ---------------------------------------------------------------- drawing
 
-let orb = null, orbPixels = 0;
+let orb = null, orbPixels = 0, orbMaking = null;
+async function makeOrb(canvas) {
+  if (params.get("orb") === "2d") return createOrb(canvas);   // #orb=2d: the 2D orb, for comparison
+  try {
+    const { createOrb3D } = await import("/static/orb3d.js");
+    const o = await createOrb3D(canvas);
+    if (o) return o;
+  } catch (err) {
+    console.warn("the 3D orb didn't load; using the 2D one", err);
+  }
+  return createOrb(canvas);
+}
 function sizeOrb() {
   const c = $("orb"), css = place.canvas, px = Math.round(css * (window.devicePixelRatio || 1));
   c.style.width = c.style.height = css + "px";
-  if (px !== orbPixels) {                       // a new size: a new canvas resolution and a fresh orb
-    orbPixels = px; c.width = c.height = px;
-    orb = createOrb(c);
-    setState(state);
-  }
+  if (px === orbPixels || orbMaking) return;
+  orbPixels = px;
+  if (!orb) c.width = c.height = px;          // the 3D orb sizes its own canvas
+  orbMaking = makeOrb(c).then((o) => { orb = o; orbMaking = null; setState(state); });
 }
 
 const t0 = performance.now();
@@ -363,7 +377,7 @@ function frame(now) {
 }
 
 if (preview) window.jarvisPlace({ expanded: params.get("open") === "1", x: innerWidth / 2,
-  y: params.get("open") === "1" ? innerHeight * 0.45 : innerHeight / 2 });
+  y: params.get("open") === "1" ? place.canvas / 2 + 6 : innerHeight / 2 });
 else sizeOrb();
 layout();
 requestAnimationFrame(frame);

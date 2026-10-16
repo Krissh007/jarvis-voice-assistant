@@ -9,15 +9,15 @@
 <body>
   <div id="stage">
     <canvas id="orb" aria-label="JARVIS. Tap to talk, double-tap for the control centre, drag to move."></canvas>
-    <div id="sections" aria-live="polite"></div>
-    <div id="centre" hidden>
-      <div id="ring">
-        <button data-action="talk" class="round" title="Talk (Ctrl+Alt+Space)">Talk</button>
-        <button data-action="mute" class="round" id="mute" title="Mute the microphone (Ctrl+Alt+M)">Mute</button>
-        <button data-action="new_chat" class="round accent" title="Start a new chat in the full chat window">New chat</button>
-        <button data-action="stop" class="round red" title="Stop (Ctrl+Alt+S)">Stop</button>
-        <button data-action="sleep" class="round" title="Go to sleep">Sleep</button>
+    <div id="panel" hidden>
+      <div id="controls" role="toolbar" aria-label="Controls">
+        <button data-action="talk" title="Talk (Ctrl+Alt+Space)">Talk</button>
+        <button data-action="mute" id="mute" title="Mute the microphone (Ctrl+Alt+M)">Mute</button>
+        <button data-action="new_chat" class="accent" title="Start a new chat in the full chat window">New chat</button>
+        <button data-action="stop" class="red" title="Stop (Ctrl+Alt+S)">Stop</button>
+        <button data-action="sleep" title="Go to sleep">Sleep</button>
       </div>
+      <div id="sections" aria-live="polite"></div>
       <form id="composer" autocomplete="off">
         <button type="button" id="talk" class="icon" title="Talk to JARVIS" aria-label="Talk"><span class="mic"></span></button>
         <input id="input" maxlength="2000" placeholder="Ask JARVIS to do something…" aria-label="Message to JARVIS">
