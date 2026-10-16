@@ -5,6 +5,7 @@
 - [Audio pipeline](#audio-pipeline)
 - [The Gemini session](#the-gemini-session)
 - [Dispatcher and tools](#dispatcher-and-tools)
+- [Voice and chat: one conversation, one event bus](#voice-and-chat-one-conversation-one-event-bus)
 - [Threads](#threads)
 - [Startup, single instance and shutdown](#startup-single-instance-and-shutdown)
 - [Where data lives](#where-data-lives)
@@ -150,6 +151,38 @@ Long results from tools that opt in (`Tool.condense`: `read_app` except its cont
 `wait_for_app`, `job_search_status`) are shortened by `core/condense.py` in `Dispatcher._run`,
 focused on the user's latest request, before being wrapped and returned to the model. Plan steps
 get the full text: the plan's answer step summarises them, and blanks are filled from it.
+
+## Voice and chat: one conversation, one event bus
+
+Voice and chat share one brain: the same Live conversation, tools, dispatcher, memory and
+confirmations.
+- **Voice** is the mic, the wake word and Gemini Live's transcription.
+- **Chat** is typed text from any surface: the window's box, the terminal in `--text` mode, and later
+  the web UI. All of them go through `core/channels.py` `ChatChannel.send(text, speak, source)`, which
+  is safe from any thread. A typed "yes" answers a pending confirmation, because it comes from the
+  user's keyboard. `speak=False` gives a text-only answer.
+
+Everything the conversation says and does is published once on `core/bus.py`'s `EventBus`
+(`Assistant.bus`, also `Services.bus`):
+
+| Event | Published by | Data |
+|---|---|---|
+| `partial`, `message` | the transcript | role, text (`message` also: label, source) |
+| `tool_started`, `tool_finished` | the dispatcher, for every run including plan steps | tool, args (secrets hidden), result (cut), step, paused |
+| `confirm_requested`, `confirm_resolved` | the dispatcher | id, tool, summary / outcome, result |
+| `state` | the ticker, on change | starting, asleep, listening, speaking, working, muted |
+| `notice` | `_notify` | first line of a `[system notice]` |
+| `status` | the runtime | console lines such as `(awake)` and `[tool] …` |
+
+Each event's `channel` is `voice` or `chat`, the channel of the user's latest input, or `None` for
+the app itself. Views subscribe:
+- The console (`ConsoleSink`) prints messages and status lines as before.
+- A WebSocket can use `bus.stream()`, a bounded async iterator that drops the oldest events if it
+  falls behind, together with `bus.recent()` to catch up.
+
+Events are delivered in order on the asyncio loop. A subscriber that fails is logged and skipped.
+Event text can come from web pages and apps, so views show it as plain text, and nothing a view
+receives can confirm an action.
 
 ## Threads
 

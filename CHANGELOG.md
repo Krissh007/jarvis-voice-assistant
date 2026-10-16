@@ -209,3 +209,18 @@ missed the editor:
 - Live: the Live model rebuilt the cleared portfolio in Downloads (three `write_file` calls), changed
   the heading (an `edit_file` guessed without reading was refused, then it read and edited), appended a
   footer style, and created then deleted a scratch file, which asked first and went to the Recycle Bin.
+
+## Shared core for voice and chat (17 October 2026)
+
+First step of turning JARVIS into a general assistant you can talk or type to:
+- New event bus (`core/bus.py`). Messages, partial captions, tool start and finish (plan steps
+  included), confirmation requests and outcomes, state changes, notices and status lines are
+  published once, tagged with the channel (`voice` or `chat`) of the user's latest input. The console
+  is now one subscriber and prints exactly what it did before. The web UI will be another.
+- New chat channel (`core/channels.py`). The window's typing box and `--text` mode go through one
+  thread-safe entry point, into the same Live conversation, tools and confirmations as speech.
+- The audit log now hides the value of every `*_KEY`, `*_TOKEN` and `*_SECRET` environment variable.
+  Before, it missed `AGENT_HUB_TOKEN`.
+- Live (text mode, silent, Agent Hub off): a typed question ran `get_datetime`, a typed request
+  asked to confirm `test_write_note`, and a typed "yes" ran it. Every step arrived on the bus as
+  `chat`. 793 tests pass in the worktree (the tray shortcut test needs the main folder's .venv).

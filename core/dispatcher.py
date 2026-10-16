@@ -15,6 +15,7 @@ import inspect
 import json
 import logging
 import os
+import re
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,7 +33,7 @@ CONFIRM_INSTRUCTION = (
     "The app will send a [system notice] with the outcome."
 )
 _SECRET_KEYS = ("password", "passwd", "token", "secret", "api_key", "apikey", "card", "cvv")
-_SECRET_ENV = ("GOOGLE_API_KEY", "OPENROUTER_API_KEY", "TAVILY_API_KEY")
+_SECRET_ENV_NAME = re.compile(r"(_KEY|_TOKEN|_SECRET)$")  # GOOGLE_API_KEY, AGENT_HUB_TOKEN...
 TRUNCATE = 200
 
 
@@ -40,6 +41,11 @@ def _truncate(value: Any) -> Any:
     if isinstance(value, str) and len(value) > TRUNCATE:
         return value[:TRUNCATE] + "…"
     return value
+
+
+def _secret_values() -> set[str]:
+    """Values of the keys and tokens in the environment (.env is loaded into it), never to be logged."""
+    return {v for k, v in os.environ.items() if _SECRET_ENV_NAME.search(k.upper()) and len(v) >= 8}
 
 
 class AuditLog:
@@ -50,7 +56,7 @@ class AuditLog:
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def _redact(self, args: dict[str, Any]) -> dict[str, Any]:
-        secrets = {v for k in _SECRET_ENV if (v := os.environ.get(k))}
+        secrets = _secret_values()
         out = {}
         for k, v in args.items():
             if any(s in k.lower() for s in _SECRET_KEYS) or (isinstance(v, str) and v in secrets):
@@ -112,6 +118,8 @@ class Dispatcher:
         self._bg: set[asyncio.Task] = set()
         self._inflight: dict[str, asyncio.Future] = {}  # identical read-only calls share one run
         self.condenser = None  # core.condense.Condenser, set by the runtime: long results are shortened
+        # events(kind, **data): tool and confirmation progress for every view (core.bus); set by the runtime
+        self.events: Callable[..., Any] | None = None
 
     # ------------------------------------------------------------------ model side
 
@@ -153,6 +161,7 @@ class Dispatcher:
             pending = self.confirmer.create(name, args, summary, call_id)
             self._pending_meta[pending.id] = {"tier": base.name, "effective_tier": effective.name, "tainted": self.tainted}
             log.info("pending #%d: %s", pending.id, summary)
+            self._emit("confirm_requested", id=pending.id, tool=name, summary=summary)
             return {**response, "status": "awaiting_confirmation", "summary": summary, "instruction": CONFIRM_INSTRUCTION}
 
         key = self._share_key(tool, args)
@@ -210,7 +219,7 @@ class Dispatcher:
         """Run one approved plan step: same execution, untrusted wrapping, taint and audit as a tool call."""
         base, effective = self.effective_tier(tool, args)
         was_tainted = self.tainted
-        result = await self._run(tool, args, None)
+        result = await self._run(tool, args, None, step=True)
         if isinstance(result, NeedsConfirmation):
             self._audit(tool.name, args, base.name, effective.name, outcome, f"paused: {result.summary}",
                         tainted=was_tainted)
@@ -291,6 +300,7 @@ class Dispatcher:
                                           "tainted": self.tainted, "resume": needs.resume,
                                           "on_cancel": needs.on_cancel}
         log.info("pending #%d (step): %s", pending.id, needs.summary)
+        self._emit("confirm_requested", id=pending.id, tool=tool.name, summary=needs.summary)
         return pending
 
     async def _confirm(self, outcome: str) -> None:
@@ -302,6 +312,8 @@ class Dispatcher:
             result = await self._run(tool, pending.args, pending.call_id, resume=meta.get("resume"), condense=True)
         finally:
             self._confirmed_running = None
+        self._emit("confirm_resolved", id=pending.id, tool=pending.tool, outcome=outcome,
+                   result=_truncate(result.summary if isinstance(result, NeedsConfirmation) else result))
         if isinstance(result, NeedsConfirmation):
             self._audit(pending.tool, pending.args, "CONFIRM", "CONFIRM", outcome, f"next: {result.summary}",
                         tainted=meta.get("tainted", False))
@@ -324,6 +336,7 @@ class Dispatcher:
         self._audit(pending.tool, pending.args, meta.get("tier", "CONFIRM"), meta.get("effective_tier", "CONFIRM"),
                     outcome, reason, tainted=meta.get("tainted", False))
         log.info("pending #%d %s: %s", pending.id, outcome, reason)
+        self._emit("confirm_resolved", id=pending.id, tool=pending.tool, outcome=outcome, result=reason)
         if on_cancel := meta.get("on_cancel"):
             self._spawn(self._release(on_cancel))
         if notify:
@@ -340,9 +353,19 @@ class Dispatcher:
             log.exception("cancel hook failed")
 
     async def _run(self, tool: Tool, args: dict[str, Any], call_id: str | None,
-                   resume=None, condense: bool = False) -> str | NeedsConfirmation:
-        """Execute a tool (or resume a paused step), returning a short speakable string.
-        With `condense`, a long result from a tool that opts in is shortened first (not for plan
+                   resume=None, condense: bool = False, step: bool = False) -> str | NeedsConfirmation:
+        """Execute a tool (or resume a paused step), returning a short speakable string, and publish
+        its start and end. `step`: one step of an approved plan."""
+        self._emit("tool_started", tool=tool.name, args=self.audit._redact(args), step=step)
+        result = await self._execute(tool, args, call_id, resume, condense)
+        paused = isinstance(result, NeedsConfirmation)
+        self._emit("tool_finished", tool=tool.name, step=step, paused=paused,
+                   result=_truncate(result.summary if paused else result))
+        return result
+
+    async def _execute(self, tool: Tool, args: dict[str, Any], call_id: str | None,
+                       resume, condense: bool) -> str | NeedsConfirmation:
+        """With `condense`, a long result from a tool that opts in is shortened first (not for plan
         steps: the plan's answer step summarises them, and blanks are filled from the full text)."""
         if self.dry_run and not tool.read_only:
             return f"[dry run] Would {tool.summary(args)}."
@@ -391,6 +414,15 @@ class Dispatcher:
             )
         except OSError:
             log.exception("audit log write failed")
+
+    def _emit(self, kind: str, **data: Any) -> None:
+        """Publish progress for the views; a broken view never affects the action."""
+        if self.events is None:
+            return
+        try:
+            self.events(kind, **data)
+        except Exception:
+            log.exception("publishing %s failed", kind)
 
     def _spawn(self, coro) -> None:
         task = asyncio.ensure_future(coro)

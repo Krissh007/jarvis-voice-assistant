@@ -16,6 +16,8 @@ import os
 import numpy as np
 
 from actions import Services, load_actions
+from core.bus import ConsoleSink, EventBus
+from core.channels import ChatChannel
 from core.audio import (
     Mic, MicGate, PlaybackState, Player, chime, default_output_name, refresh_portaudio, resolve_echo_mode,
     resolve_input_device, windows_audio_state,
@@ -51,11 +53,14 @@ class Options:
 
 
 class Transcript:
-    """Collects streamed transcript fragments and prints whole lines."""
+    """Collects streamed transcript fragments and publishes whole lines (the console prints them)."""
 
-    def __init__(self, user_label: str) -> None:
+    def __init__(self, user_label: str, bus: EventBus | None = None) -> None:
         self._labels = {"user": user_label, "jarvis": "JARVIS"}
         self._buf = {"user": "", "jarvis": ""}
+        self._channel = {"user": "voice", "jarvis": "voice"}  # where the line being built came from
+        self._source = {"user": "mic", "jarvis": "live"}
+        self._bus = bus or EventBus()
         self.last: tuple[str, str] = ("", "")  # (label, line) of the last finished line
         self.lines: deque[tuple[str, str]] = deque(maxlen=60)  # finished lines, for the window
         self.version = 0  # bumps on every change, so the window only redraws when needed
@@ -75,27 +80,34 @@ class Transcript:
                 return self._labels[w], self._buf[w]
         return self.last
 
-    def add(self, who: str, text: str) -> None:
+    def add(self, who: str, text: str, channel: str = "voice") -> None:
         if who == "jarvis":
             self.flush("user")
+        if not self._buf[who]:
+            self._channel[who] = channel
+            self._source[who] = "mic" if who == "user" else "live"
         self._buf[who] += text
         self.version += 1
+        self._bus.publish("partial", channel=channel, role=who, text=text)
 
-    def add_typed(self, text: str) -> None:
-        """A message typed in the window: a whole line at once, after anything still being said."""
+    def add_typed(self, text: str, source: str = "window") -> None:
+        """A typed message: a whole line at once, after anything still being said."""
         self.flush()
         self._buf["user"] = text
+        self._channel["user"] = "chat"
+        self._source["user"] = source
         self.flush("user")
 
     def flush(self, who: str | None = None) -> None:
         for w in [who] if who else ["user", "jarvis"]:
             line = " ".join(self._buf[w].split())
             if line:
-                print(f"{self._labels[w]}: {line}", flush=True)
                 self.last = (self._labels[w], line)
                 self.lines.append(self.last)
                 self.version += 1
                 log.info("%s: %s", w, line)
+                self._bus.publish("message", channel=self._channel[w], role=w, label=self._labels[w], text=line,
+                                  source=self._source[w])
             self._buf[w] = ""
 
 
@@ -107,6 +119,12 @@ class Assistant:
         self.options = options
         mode = config["listening"]["mode"]
         self.mode = "text" if options.text_mode else mode
+        # One conversation, two ways in: everything it says and does is published on the bus (core/bus.py).
+        self.bus = EventBus()
+        self.bus.subscribe(ConsoleSink())
+        self.chat = ChatChannel(self.submit_text)  # typed text from the window, the terminal, the web UI
+        self._reply_channel = "chat" if options.text_mode else "voice"  # channel of the user's latest input
+        self._last_state: str | None = None
         self.face = None
         if config["features"].get("window") and self.mode != "text":
             from core.face import Face
@@ -139,7 +157,7 @@ class Assistant:
         self._drop_reply = False  # set by the stop key: discard the rest of the current reply
         self._quiet_reply = False  # a typed message asked for a silent (text-only) answer
         self.player = Player(self.playback)
-        self.transcript = Transcript(config["user"].get("name") or "You")
+        self.transcript = Transcript(config["user"].get("name") or "You", self.bus)
 
         self.wake: WakeState | None = None
         self.detector = None
@@ -166,7 +184,7 @@ class Assistant:
                 base_delay_s=0.5,
                 thinking=models.get("thinking"),
             )
-        self.services = Services(llm=llm)
+        self.services = Services(llm=llm, bus=self.bus)
         duck_cfg = config.get("ducking") or {}
         if duck_cfg.get("enabled") and self.mode != "text":
             from core.ducking import Ducker
@@ -209,6 +227,7 @@ class Assistant:
             accept_phrases=confirm_cfg["accept_phrases"],
             dry_run=options.dry_run,
         )
+        self.dispatcher.events = lambda kind, **data: self.bus.publish(kind, channel=self._reply_channel, **data)
         self.gate.confirmation_pending = lambda: self.dispatcher.awaiting_confirmation
         if self.services.memory is not None:
             from actions.memory import preferred_name
@@ -291,6 +310,8 @@ class Assistant:
 
     async def run(self) -> None:
         self._loop = asyncio.get_running_loop()
+        self.bus.attach(self._loop)
+        self.chat.attach(self._loop)
         self.player.start()
         self.hotkeys.start()
         tasks = [asyncio.create_task(self.session.run(), name="session")]
@@ -407,15 +428,15 @@ class Assistant:
         if self.wake and not self.wake.awake:  # the wake word always hears raw audio (it was trained on it)
             woke = self.detector.detect(pcm)
             if self.detector.missed is not None:
-                print('  (heard something like "hey jarvis" but not sure enough: '
-                      f"{self.detector.missed.describe(self.detector.personal)}; need {self.detector.threshold:.2f})",
-                      flush=True)
+                self._status('  (heard something like "hey jarvis" but not sure enough: '
+                             f"{self.detector.missed.describe(self.detector.personal)}; "
+                             f"need {self.detector.threshold:.2f})")
                 self.detector.missed = None
             if woke:
                 self.wake.wake()
                 if self.wake_chime:
                     self.player.enqueue(self.wake_chime)
-                print("(awake)", flush=True)
+                self._status("(awake)")
             return
         if self.gate.allows():
             if self._denoise_worker is not None:
@@ -450,7 +471,7 @@ class Assistant:
         def reader() -> None:
             for line in sys.stdin:
                 if line.strip():
-                    asyncio.run_coroutine_threadsafe(self._on_typed(line.strip()), self._loop)
+                    self.chat.send(line, source="stdin")
             # Input closed (piped text ran out): let the last reply finish, then exit cleanly.
             asyncio.run_coroutine_threadsafe(self._exit_after_input(), self._loop)
 
@@ -460,10 +481,14 @@ class Assistant:
         await asyncio.sleep(grace_s)
         self.request_exit("input ended")
 
+    def _status(self, text: str, problem: bool = False) -> None:
+        """A status line such as "(awake)": printed by the console, shown by any other view."""
+        self.bus.publish("status", text=text, problem=problem)
+
     def request_exit(self, why: str) -> None:
         """Shut down cleanly (same clean-up as Ctrl+C)."""
         self._exiting = True
-        print(f"({why}: shutting down)", flush=True)
+        self._status(f"({why}: shutting down)")
         if self._main_task is not None:
             self._main_task.cancel()
 
@@ -495,9 +520,9 @@ class Assistant:
         busy = self._busy()
         self.on_hotkey("stop", True)
         if busy:
-            print("(stopped)", flush=True)
+            self._status("(stopped)")
             return
-        print("(stopped: paused the music)", flush=True)
+        self._status("(stopped: paused the music)")
         media = self.registry.get("media_key")
         if media is not None and not self.options.dry_run:
             asyncio.ensure_future(self._pause_music(media))
@@ -517,7 +542,7 @@ class Assistant:
         if self.wake.awake:
             self.wake.awake = False
             self.transcript.flush()
-            print("(sleeping)", flush=True)
+            self._status("(sleeping)")
 
     def _acknowledge(self) -> None:
         """Talk pressed while JARVIS is already awake: cut off any reply and answer "Yes?"."""
@@ -537,7 +562,7 @@ class Assistant:
         """'Talk to JARVIS' without the wake word: tray click, or the push-to-talk key in wake-word mode."""
         if self.gate.muted:
             self.gate.muted = False
-            print("(mic live)", flush=True)
+            self._status("(mic live)")
         if self.wake is not None and self.wake.awake:
             self.wake.touch()
             self._acknowledge()
@@ -548,23 +573,29 @@ class Assistant:
         self.wake.wake()
         if self.wake_chime:
             self.player.enqueue(self.wake_chime)
-        print("(awake)", flush=True)
+        self._status("(awake)")
 
     def _typed_from_window(self, text: str, speak: bool) -> None:
         """The window's thread: a message was typed (the text itself is logged with the conversation)."""
         log.info("window: typed message (%d characters, %s)", len(text), "spoken reply" if speak else "silent reply")
-        self._from_thread(self.send_typed, text, speak)
+        self.chat.send(text, speak=speak, source="window")
 
     def send_typed(self, text: str, speak: bool = True) -> None:
-        """A message typed in the window: shown in the conversation and answered like speech.
+        """A message typed in the window (on the loop). Kept for callers that predate the chat channel."""
+        self.submit_text(text, speak, "window")
+
+    def submit_text(self, text: str, speak: bool = True, source: str = "window") -> None:
+        """A chat message (on the loop): shown in the conversation and answered like speech, in the same
+        Live conversation and with the same tools.
 
         It doesn't wake the microphone. A typed "yes" answers a pending confirmation, as in --text mode:
-        it comes from the user's own keyboard, in JARVIS's own window.
+        it comes from the user's own keyboard, never from the model or a tool.
         """
         text = " ".join(text.split())
         if not text:
             return
-        self.transcript.add_typed(text)
+        self._reply_channel = "chat"
+        self.transcript.add_typed(text, source)
         self.player.clear()  # typing while JARVIS talks interrupts it, like speaking would
         self._quiet_reply = not speak
         if self.wake is not None and self.wake.awake:
@@ -581,7 +612,7 @@ class Assistant:
     def on_hotkey(self, name: str, pressed: bool) -> None:
         if name == "mute" and pressed:
             self.gate.muted = not self.gate.muted
-            print("(mic muted)" if self.gate.muted else "(mic live)", flush=True)
+            self._status("(mic muted)" if self.gate.muted else "(mic live)")
         elif name == "push_to_talk" and pressed and self.wake is not None:
             self.talk()  # wake-word mode: the key works like saying "hey jarvis"
         elif name == "push_to_talk" and self.gate.push_to_talk:
@@ -611,13 +642,17 @@ class Assistant:
             working = time.monotonic() - self._last_tool_at < WORKING_MAX_S  # a tool call's turn isn't over
             if (self.wake and not self.wake.awake and self.tasks.active and self.dispatcher.awaiting_confirmation):
                 self.wake.wake()  # the task needs a yes or no: listen for it
-                print("(awake)", flush=True)
+                self._status("(awake)")
             if self.wake and self.wake.check_sleep(self.playback.playing or self.dispatcher.awaiting_confirmation
                                                    or working):
                 self.transcript.flush()
-                print("(sleeping)", flush=True)
+                self._status("(sleeping)")
+            state = self._tray_state()
+            if state != self._last_state:
+                self._last_state = state
+                self.bus.publish("state", state=state)
             if self.tray is not None:
-                self.tray.set_state(self._tray_state())
+                self.tray.set_state(state)
             if self.services.ducker is not None:
                 self.services.ducker.set_ducked(self._should_duck())
             if self.face is not None:
@@ -690,7 +725,7 @@ class Assistant:
             self._mic.start()
         mode = "speaker mode: I stop listening while I talk" if self.gate.mute_while_speaking \
             else "headphone mode: interrupt me by talking"
-        print(f"(audio: now using {self.output_name or 'the default device'}, {mode})", flush=True)
+        self._status(f"(audio: now using {self.output_name or 'the default device'}, {mode})")
         log.info("audio switched to %s (%s)", self.output_name, self.echo_mode)
 
     # ---- task mode (core.task) ----
@@ -699,7 +734,7 @@ class Assistant:
         """Finished, stopped or out of rounds: be awake for the report, so the user can answer it."""
         if self.wake and not self.wake.awake:
             self.wake.wake()
-            print("(awake)", flush=True)
+            self._status("(awake)")
 
     def _schedule_task_round(self) -> None:
         if self._task_next is not None:
@@ -732,7 +767,7 @@ class Assistant:
         """Rung 2 (app state). Tier SAFE. Ends the wake window; the reply still finishes playing."""
         self.wake.awake = False
         self.transcript.flush()
-        print("(sleeping)", flush=True)
+        self._status("(sleeping)")
         return 'Now asleep. Say a short goodbye; the user wakes you with "hey jarvis".'
 
     # ---- reminders + briefing ----
@@ -743,11 +778,11 @@ class Assistant:
         from actions.reminders import show_toast, spoken_time
 
         when = spoken_time(due, datetime.now())
-        print(f"  [reminder] {text}" + (f" (was due {when})" if late else ""), flush=True)
+        self._status(f"  [reminder] {text}" + (f" (was due {when})" if late else ""))
         asyncio.get_running_loop().run_in_executor(None, show_toast, "JARVIS reminder", text)
         if self.wake and not self.wake.awake:
             self.wake.wake()  # so the user can answer
-            print("(awake)", flush=True)
+            self._status("(awake)")
         self.dispatcher.tainted = True  # the text is read out, never acted on without a confirmation
         missed = f" It was due at {when}, while I was switched off, so say it's late." if late else ""
         self._notify(
@@ -766,7 +801,9 @@ class Assistant:
             log.exception("morning briefing failed")
 
     def _notify(self, text: str) -> None:
-        log.info("notice: %s", text.splitlines()[0])
+        first = text.splitlines()[0]
+        log.info("notice: %s", first)
+        self.bus.publish("notice", text=first)
         self.session.send_notice(text)
 
     # ---- SessionEvents ----
@@ -788,13 +825,14 @@ class Assistant:
         self._last_heard = time.monotonic()
         if self.wake:
             self.wake.touch()
-        self.transcript.add("user", text)
+        self._reply_channel = "voice"
+        self.transcript.add("user", text, "voice")
         self.dispatcher.on_input_fragment(text)
 
     def on_output_transcript(self, text: str) -> None:
         self._turn_open = True
         self.dispatcher.flush_utterance()
-        self.transcript.add("jarvis", text)
+        self.transcript.add("jarvis", text, self._reply_channel)
 
     def on_turn_complete(self) -> None:
         self._drop_reply = False
@@ -815,21 +853,21 @@ class Assistant:
         self._turn_open = True
         self.tasks.tool_called(name)
         self.transcript.flush()
-        print(f"  [tool] {name}({', '.join(f'{k}={v!r}' for k, v in args.items())})", flush=True)
+        self._status(f"  [tool] {name}({', '.join(f'{k}={v!r}' for k, v in args.items())})")
         result = await self.dispatcher.handle_call(name, args, call_id)
         self._last_tool_at = time.monotonic()  # the model still has to answer with the result
         status = result.get("status")
         if status == "awaiting_confirmation":
             keys = self.config["hotkeys"]
-            print(f"  [confirm?] {result['summary']}  (say \"confirm\" / {keys['confirm']}, or {keys['cancel']})", flush=True)
+            self._status(f"  [confirm?] {result['summary']}  (say \"confirm\" / {keys['confirm']}, or {keys['cancel']})")
         else:
-            print(f"  [tool] -> {status}", flush=True)
+            self._status(f"  [tool] -> {status}")
         return result
 
     def on_tool_cancellation(self, ids: list[str]) -> None:
         self.dispatcher.on_tool_cancellation(ids)
 
     def on_status(self, message: str, *, problem: bool = False) -> None:
-        print(f"[{'!' if problem else 'i'}] {message}", flush=True)
+        self._status(f"[{'!' if problem else 'i'}] {message}", problem=problem)
         if problem:
             self.player.enqueue(chime(440, 0.2) + chime(330, 0.3))
