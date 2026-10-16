@@ -218,6 +218,9 @@ fields. A minimised app has nothing on screen to read.
 **Typing in apps.** JARVIS types where the cursor is, or into a field you name. It asks first before
 pressing Enter (except in AI chat apps like Claude), before typing into a terminal, and after it has
 read text from an app or page in the same request. It never types into password or payment fields.
+Put the cursor where the text should go: if it isn't in a text field and there are several places
+to type (VS Code's editor and terminal), JARVIS asks you to click first. Code and other long text
+is described in its question ("6 lines starting …") rather than read out.
 
 **Clicking and keys.** Name a button ("click New chat") or use a number JARVIS read out. If it can't
 find the name, it asks "did you mean...?". Buttons such as Delete, Send, Save or Pay, and keys that save,

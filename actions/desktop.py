@@ -71,6 +71,41 @@ TERMINALS = {"windowsterminal.exe", "cmd.exe", "powershell.exe", "pwsh.exe", "co
 AI_CHATS = {"claude.exe", "chatgpt.exe", "copilot.exe", "perplexity.exe"}
 CHAT_BOX = re.compile(r"prompt|message|reply|chat|ask|write|type|compose", re.IGNORECASE)
 MAX_TYPED = 2000
+# A terminal panel inside an app (VS Code, Cursor...): xterm.js's input has this class. Pasting there can run
+# commands, so it's treated like a terminal app.
+TERMINAL_CLASS = re.compile(r"xterm", re.IGNORECASE)
+TERMINAL_NAME = re.compile(r"^terminal\b", re.IGNORECASE)
+IDES = {"code.exe", "cursor.exe", "windsurf.exe", "code - insiders.exe", "idea64.exe", "pycharm64.exe",
+        "webstorm64.exe", "rider64.exe", "clion64.exe", "goland64.exe", "phpstorm64.exe", "devenv.exe"}
+WHOLE_PAGE_ID = "RootWebArea"  # a Chromium/Electron app's whole page: never a place to type
+REPEAT_GUARD_S = 10  # the same text into the same window this soon again is a repeated call, not a request
+
+
+def is_terminal_field(win: uia.Window, name: str, class_name: str) -> bool:
+    """A terminal inside an app: by xterm's class, or an IDE field named "Terminal..."."""
+    return bool(TERMINAL_CLASS.search(class_name)) or (win.exe in IDES and bool(TERMINAL_NAME.search(name)))
+
+
+def is_whole_page(win: uia.Window, kind: str, name: str, auto_id: str) -> bool:
+    """The whole window's page (Chromium's root document, named like the window), not a text field."""
+    return auto_id == WHOLE_PAGE_ID or (kind == "document" and name.strip() == win.title.strip() and bool(name.strip()))
+
+
+def field_words(name: str) -> str:
+    """How to name a field aloud: short names as they are; long accessibility notices as 'the text box'."""
+    name = " ".join(name.split())
+    return f"the {name} box" if name and len(name) <= 40 else "the text box"
+
+
+def typed_words(text: str, limit: int = 150) -> str:
+    """How to describe text to be typed: the words if short and on one line, else its size and first line."""
+    lines = [l for l in text.strip().splitlines() if l.strip()]
+    flat = " ".join(text.split())
+    if len(lines) <= 2 and len(flat) <= limit:
+        return f'"{flat}"'
+    first = lines[0].strip() if lines else flat
+    first = first[:60] + ("..." if len(first) > 60 else "")
+    return f'{len(lines)} lines ({len(text)} characters) starting "{first}"'
 RISKY = re.compile(
     r"\b(delete|remove|erase|discard|save|print|close|exit|quit|send|submit|post|publish|share|pay|purchase|buy|order|checkout|transfer|"
     r"confirm|accept|agree|allow|install|uninstall|update now|restart|shut ?down|reset|format|empty|clear all|"
@@ -262,6 +297,8 @@ class Desktop:
         self.baseline: dict[int, str] = {}  # window -> its text just before a message was sent
         self.sent_after: dict[int, int] = {}  # chat window -> newest message number just before sending
         self.mismatch_warned: set[int] = set()  # windows already warned about (once per window per session)
+        self.repeat_guard_s = float(opts.get("repeat_guard_s", REPEAT_GUARD_S))
+        self.recent_typing: dict[tuple, float] = {}  # (window, text, field, send) -> when it was typed
 
     # ------------------------------------------------------------- finding the app
 
@@ -453,6 +490,11 @@ class Desktop:
             raise ToolError(f"That text looks like it contains {kind}, so I won't type it anywhere.")
         win = await uia.call(self.target, app, "type into")
         self.current = win
+        key = (win.hwnd, " ".join(text.split()), field.strip().lower(), bool(send))
+        if (when := self.recent_typing.get(key)) is not None and _now() - when < self.repeat_guard_s:
+            log.info("type_in_app: same text into %s %.0f s ago; not typing it twice", win.exe, _now() - when)
+            return (f"I already typed that into {safe_label(win)} {_now() - when:.0f} seconds ago, so I didn't type "
+                    "it again.")
         reasons = []
         if win.exe in TERMINALS:
             reasons.append("terminal")
@@ -461,8 +503,8 @@ class Desktop:
         if self._tainted():
             reasons.append("untrusted")
         field_label = f" the {field} field of" if field and not field.strip().isdigit() else ""
-        shown = text[:150] + ("..." if len(text) > 150 else "")
-        summary = (f'type "{shown}" into{field_label} {redact(win.label)}' + (" and press Enter" if send else ""))
+        summary = (f"type {typed_words(text)} into{field_label} {redact(win.label)}"
+                   + (" and press Enter" if send else ""))
         if reasons:
             async def resume() -> str:
                 return await self._type(win, text, field, send)
@@ -470,8 +512,24 @@ class Desktop:
                                      step={"app": win.exe, "field": field, "send": send, "why": reasons})
         return await self._type(win, text, field, send)
 
-    async def _type(self, win: uia.Window, text: str, field: str, send: bool) -> str:
-        label = await uia.call(self._focus_field, win, field)
+    async def _type(self, win: uia.Window, text: str, field: str, send: bool,
+                    allow_terminal: bool = False) -> str | NeedsConfirmation:
+        key = (win.hwnd, " ".join(text.split()), field.strip().lower(), bool(send))
+        self.recent_typing[key] = _now()  # a repeat that arrives while this one is typing is caught too
+        try:
+            label, terminal = await uia.call(self._focus_field, win, field)
+        except BaseException:
+            self.recent_typing.pop(key, None)
+            raise
+        if terminal and not allow_terminal and win.exe not in TERMINALS:
+            self.recent_typing.pop(key, None)
+
+            async def resume() -> str | NeedsConfirmation:
+                return await self._type(win, text, field, send, allow_terminal=True)
+            return NeedsConfirmation(
+                summary=(f"type {typed_words(text)} into the terminal in {safe_label(win)}"
+                         + (" and press Enter" if send else "") + " (pasting into a terminal can run commands)")[:300],
+                resume=resume, step={"app": win.exe, "field": "terminal", "send": send, "why": ["terminal"]})
         try:
             how = await uia.call(textinput.type_text, win.hwnd, text)
             if send:
@@ -486,15 +544,17 @@ class Desktop:
                     log.exception("couldn't read %s before sending", win.exe)
                 await uia.call(textinput.press_enter, win.hwnd)
         except RuntimeError as exc:
+            self.recent_typing.pop(key, None)  # it didn't go through: asking again must work
             raise ToolError(f"I stopped typing: {exc}.") from exc
+        self.recent_typing[key] = _now()
         log.info("%s %d characters into %s (%s)%s", how, len(text), win.exe, label, " and sent" if send else "")
         preview = " ".join(text.split())
         preview = preview[:80] + ("..." if len(preview) > 80 else "")
         return (f'Typed "{preview}" into {label} in {safe_label(win)}' + (" and pressed Enter." if send else "."))
 
-    def _focus_field(self, win: uia.Window, field: str) -> str:
+    def _focus_field(self, win: uia.Window, field: str) -> tuple[str, bool]:
         """Bring the app to the front and put the cursor in the right field. Runs on the UIA thread.
-        Returns a description of the field; raises ToolError if there's no safe one."""
+        Returns (how to name the field, whether it's a terminal); raises ToolError if there's no safe one."""
         focus_window(win.hwnd)
         for _ in range(10):
             if textinput.foreground_root() == win.hwnd:
@@ -504,19 +564,19 @@ class Desktop:
             raise ToolError(f"I couldn't bring {safe_label(win)} to the front, so I didn't type anything.")
         time.sleep(0.15)
         now = uia.focused()
-        if not field and now is not None and now.editable:
+        if not field and now is not None and now.editable and not is_whole_page(win, now.kind, now.name, now.auto_id):
             self._check_private(now.name, now.password)
-            return f"the {now.name} box" if now.name else "the text box"
+            return field_words(now.name), is_terminal_field(win, now.name, now.class_name)
         choice = self._choose(win, field)
         self._check_private(choice.name, choice.password)
         if not uia.set_focus(win.hwnd, choice.id):
             raise ToolError(f"I couldn't put the cursor in {choice.name or 'that field'}.")
         time.sleep(0.15)
         now = uia.focused()  # check where the cursor really landed
-        if now is None or not now.editable:
+        if now is None or not now.editable or is_whole_page(win, now.kind, now.name, now.auto_id):
             raise ToolError(f"I couldn't put the cursor in {choice.name or 'that field'}.")
         self._check_private(now.name, now.password)
-        return f"the {choice.name} box" if choice.name else "the text box"
+        return field_words(choice.name), is_terminal_field(win, now.name, now.class_name)
 
     # ------------------------------------------------------------- waiting
 
@@ -722,20 +782,30 @@ class Desktop:
             return c
         controls = uia.read(win.hwnd, limit=self.max_items)
         self.last = Snapshot(win, controls)
-        boxes = [c for c in controls if c.kind in uia.TYPEABLE and not is_private_control(c)]
+        boxes = [c for c in controls if c.kind in uia.TYPEABLE and not is_private_control(c)
+                 and not is_whole_page(win, c.kind, c.name, c.auto_id)]
         if f and not f.isdigit():
             want = f.lower()
             boxes = [c for c in boxes if want in c.name.lower()]
             if not boxes:
                 raise ToolError(f"I can't find a {field} field in {safe_label(win)}.")
+            return max(boxes, key=lambda c: (c.kind == "text box", _area(c)))
+        boxes = [c for c in boxes if not is_terminal_field(win, c.name, c.class_name)]  # never guess a terminal
         if not boxes:
-            raise ToolError(f"I can't find anywhere to type in {safe_label(win)}.")
+            raise ToolError(f"I can't find anywhere to type in {safe_label(win)}. Click where the text should go, "
+                            "then ask me again.")
+        if len(boxes) == 1:
+            return boxes[0]
+        chat_boxes = [c for c in boxes if c.kind == "text box" and CHAT_BOX.search(c.name)]
+        if len(chat_boxes) == 1:
+            return chat_boxes[0]
+        raise ToolError(f"The cursor isn't in a text field in {safe_label(win)}, and there are {len(boxes)} places "
+                        "I could type. Click where the text should go, then ask me again.")
 
-        def score(c: uia.Control):
-            left, top, right, bottom = c.rect
-            return (c.kind == "text box" and bool(CHAT_BOX.search(c.name)), c.kind != "dropdown",
-                    (right - left) * (bottom - top))
-        return max(boxes, key=score)
+
+def _area(c: uia.Control) -> int:
+    left, top, right, bottom = c.rect
+    return (right - left) * (bottom - top)
 
 
 def _move_window(hwnd: int, action: str) -> None:
@@ -770,10 +840,9 @@ def _app_words(args: dict) -> str:
 
 def _type_summary(args: dict) -> str:
     """Plan line: the exact words, so the user approves what will be typed."""
-    text = " ".join(str(args.get("text", "")).split())
-    shown = text[:150] + ("..." if len(text) > 150 else "")
     field = f" the {args['field']} field of" if args.get("field") and not str(args["field"]).isdigit() else ""
-    return f'type "{shown}" into{field} {_app_words(args)}' + (" and press Enter" if args.get("send") else "")
+    return (f"type {typed_words(str(args.get('text', '')))} into{field} {_app_words(args)}"
+            + (" and press Enter" if args.get("send") else ""))
 
 
 def register(registry: Registry, config: dict, services) -> None:

@@ -96,6 +96,7 @@ Values that are left as comments or blank are ignored.
 | `reasoning.thinking` | Thinking level for `think_through` calls only (default `high`); the models are the Flash chain |
 | `reasoning.max_tokens` | Longest `think_through` answer before it's cut (default `2000`) |
 | `desktop.max_items` | Buttons, fields and lines `read_app` reads from one window (default `150`) |
+| `desktop.repeat_guard_s` | The same text into the same window again within this many seconds (default `10`) is a repeated call, so it isn't typed twice |
 | `desktop.max_chars` | Text read from documents and text boxes, and again from long labels (default `4000`) |
 
 ### Limits

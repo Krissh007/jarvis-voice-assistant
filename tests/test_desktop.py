@@ -553,3 +553,131 @@ def test_benchmark_prints_counts_but_never_app_text(screen, capsys) -> None:
     out = capsys.readouterr().out
     assert "notepad" in out and "skipped" in out and "1 private field" in out
     assert "diary" not in out and "Bank" not in out and "secret" not in out
+
+
+# ---------------------------------------------------------------- typing fixes: IDE terminals, whole page, repeats
+
+CODE = "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n    <title>Portfolio</title>\n</head>\n</html>"
+VSCODE_TITLE = "● Untitled-1 - agent-hub - Visual Studio Code"
+
+
+def vscode(screen, *, editors=1, terminal=True) -> None:
+    screen["windows"] = [win("code.exe", VSCODE_TITLE, 9)]
+    controls = [Control(1, "document", VSCODE_TITLE, (0, 0, 1536, 816), auto_id="RootWebArea")]
+    for i in range(editors):
+        controls.append(Control(2 + i, "text box", "The editor is not accessible at this time. To enable screen "
+                                "reader optimized mode, use Shift+Alt+F1", (329, 221 + 400 * i, 1231, 240 + 400 * i),
+                                class_name="native-edit-context"))
+    if terminal:
+        controls.append(Control(9, "text box", "Terminal 1 environment is stale", (353, 751, 360, 769),
+                                class_name="xterm-helper-textarea"))
+    screen["controls"][9] = controls
+
+
+def focus_like_the_app(keyboard, screen, monkeypatch) -> None:
+    """set_focus reports the control's own class and automation id, as UI Automation would."""
+    def set_focus(hwnd, cid):
+        c = next(c for c in screen["controls"][hwnd] if c.id == cid)
+        keyboard["focused"] = uia.Focused(c.kind, c.name, c.password, c.kind in uia.TYPEABLE, c.auto_id, c.class_name)
+        return True
+    monkeypatch.setattr(uia, "set_focus", set_focus)
+
+
+def test_cursor_in_vs_codes_terminal_asks_first_and_says_its_a_terminal(screen, keyboard) -> None:
+    vscode(screen)
+    keyboard["focused"] = uia.Focused("text box", "Terminal 1 environment is stale", False, True, "",
+                                      "xterm-helper-textarea")
+    out = run(Desktop(CONFIG, Services()).type_in_app(CODE, app="code"))
+    assert isinstance(out, NeedsConfirmation) and keyboard["typed"] == []
+    assert "into the terminal in code" in out.summary and "can run commands" in out.summary
+    assert run(out.resume()).startswith("Typed") and keyboard["typed"] == [(9, CODE)]
+
+
+def test_an_ide_field_named_terminal_counts_as_a_terminal_even_without_the_class(screen, keyboard) -> None:
+    vscode(screen)
+    keyboard["focused"] = uia.Focused("text box", "Terminal input", False, True)
+    assert isinstance(run(Desktop(CONFIG, Services()).type_in_app("ls", app="code")), NeedsConfirmation)
+
+
+def test_cursor_in_the_editor_types_without_asking(screen, keyboard) -> None:
+    vscode(screen)
+    keyboard["focused"] = uia.Focused("text box", "The editor is not accessible at this time. To enable screen "
+                                      "reader optimized mode", False, True, "", "native-edit-context")
+    out = run(Desktop(CONFIG, Services()).type_in_app(CODE, app="code"))
+    assert keyboard["typed"] == [(9, CODE)] and "into the text box in code" in out  # long notice not spoken
+
+
+def test_the_whole_page_is_never_a_place_to_type(screen, keyboard, monkeypatch) -> None:
+    vscode(screen, editors=2)
+    focus_like_the_app(keyboard, screen, monkeypatch)
+    keyboard["focused"] = uia.Focused("document", VSCODE_TITLE, False, True, "RootWebArea")  # focus on the page
+    with pytest.raises(ToolError, match="Click where the text should go"):
+        run(Desktop(CONFIG, Services()).type_in_app(CODE, app="code"))
+    assert keyboard["typed"] == []
+
+
+def test_with_one_real_field_it_uses_that_one_never_the_page_or_the_terminal(screen, keyboard, monkeypatch) -> None:
+    vscode(screen, editors=1, terminal=True)
+    focus_like_the_app(keyboard, screen, monkeypatch)
+    keyboard["focused"] = uia.Focused("document", VSCODE_TITLE, False, True, "RootWebArea")
+    run(Desktop(CONFIG, Services()).type_in_app(CODE, app="code"))
+    assert keyboard["focused"].class_name == "native-edit-context" and keyboard["typed"] == [(9, CODE)]
+
+
+def test_a_document_named_like_the_window_counts_as_the_whole_page() -> None:
+    w = win("someapp.exe", "Report - Some App")
+    assert desktop.is_whole_page(w, "document", "Report - Some App", "")
+    assert not desktop.is_whole_page(w, "document", "Text editor", "")
+    assert desktop.is_whole_page(w, "text box", "anything", "RootWebArea")
+
+
+def test_the_same_text_twice_in_a_row_is_typed_once(screen, keyboard, monkeypatch) -> None:
+    vscode(screen)
+    keyboard["focused"] = uia.Focused("text box", "editor", False, True, "", "native-edit-context")
+    clock = [1000.0]
+    monkeypatch.setattr(desktop, "_now", lambda: clock[0])
+    d = Desktop(CONFIG, Services())
+    run(d.type_in_app(CODE))
+    clock[0] += 6
+    again = run(d.type_in_app(CODE, app="code"))  # the model repeats it, this time naming the app
+    assert again.startswith("I already typed that into code 6 seconds ago") and keyboard["typed"] == [(9, CODE)]
+    run(d.type_in_app("<p>more</p>", app="code"))  # different text is typed
+    clock[0] += 11
+    run(d.type_in_app(CODE, app="code"))  # after the guard window, asking again types again
+    assert [t for _, t in keyboard["typed"]] == [CODE, "<p>more</p>", CODE]
+
+
+def test_a_failed_typing_does_not_block_trying_again(screen, keyboard, monkeypatch) -> None:
+    vscode(screen)
+    keyboard["focused"] = uia.Focused("text box", "editor", False, True, "", "native-edit-context")
+    calls = []
+
+    def flaky(hwnd, text):
+        calls.append(text)
+        if len(calls) == 1:
+            raise RuntimeError("the app is no longer in front")
+        return "pasted"
+    monkeypatch.setattr(desktop.textinput, "type_text", flaky)
+    d = Desktop(CONFIG, Services())
+    with pytest.raises(ToolError, match="no longer in front"):
+        run(d.type_in_app("hello", app="code"))
+    assert run(d.type_in_app("hello", app="code")).startswith("Typed") and len(calls) == 2
+
+
+@pytest.mark.parametrize("text,expect", [
+    ("see you at six", '"see you at six"'),
+    (CODE, f'6 lines ({len(CODE)} characters) starting "<!DOCTYPE html>"'),
+])
+def test_long_or_multi_line_text_is_described_not_read_out(text, expect) -> None:
+    assert desktop.typed_words(text) == expect
+
+
+def test_confirmations_and_plan_lines_describe_code_instead_of_reading_it(screen, keyboard) -> None:
+    screen["windows"] = [win("notepad.exe", "a.txt - Notepad", 3)]
+    keyboard["focused"] = uia.Focused("document", "Text editor", False, True)
+    out = run(Desktop(CONFIG, Services()).type_in_app(CODE, app="notepad", send=True))
+    assert out.summary == (f'type 6 lines ({len(CODE)} characters) starting "<!DOCTYPE html>" into a.txt - Notepad '
+                           'and press Enter')
+    reg = Registry()
+    desktop.register(reg, CONFIG, Services())
+    assert reg.get("type_in_app").summary({"text": CODE, "app": "code"}).startswith(f'type 6 lines ({len(CODE)} characters)')

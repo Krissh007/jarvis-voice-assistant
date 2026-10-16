@@ -165,3 +165,19 @@ How JARVIS was built: the phases in the build spec and the finishing touches (24
   warning (once per window per session; repeats at debug level) and JARVIS falls back to the whole window. Long replies keep their start when cut.
 - Live: "read me Claude's reply" found the reply (423 characters) in 0.4 s, with no summarising
   needed; before, the tool took about 10 s or hit the 5 s summarising limit.
+
+## Typing fixes (16 October 2026)
+
+From a voice session in VS Code, where code went into the built-in terminal, was typed twice, and
+missed the editor:
+
+- A terminal inside an app (xterm's `xterm-helper-textarea`, or an IDE field named "Terminal…") is
+  treated like a terminal app: `type_in_app` asks first and says so, and never chooses one itself.
+- The same text into the same window within `desktop.repeat_guard_s` (10 s) is typed once; a repeat
+  gets "I already typed that". A failed attempt doesn't block trying again.
+- An app's whole page (Chromium's `RootWebArea`, or a document named like the window) is never a place
+  to type. With the cursor outside a text field, JARVIS types only when there's one obvious field (or
+  one chat box); otherwise it asks you to click where the text should go.
+- Confirmations and plan lines describe long or multi-line text ("6 lines (84 characters) starting
+  …") instead of reading it out; field names that are long accessibility notices are said as "the
+  text box". `uia.Control` and `uia.Focused` carry the automation id and class name.

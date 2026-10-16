@@ -147,6 +147,10 @@ Enforced in `core/privacy.py` and the modules that use it.
 - Typing into apps (`type_in_app`) has the same off-limits apps. It never types into password or
   payment fields (checked again where the cursor actually lands), never types text that looks like a
   key, token or card number, and types only while that app is in front.
+- A terminal panel inside an app (VS Code's, found by its xterm input or an IDE field named
+  "Terminal…") counts as a terminal: JARVIS asks first and says it's a terminal, and never picks one
+  on its own. It never types into an app's whole page (Chromium's root document), and when the cursor
+  isn't in a text field and there's more than one place to type, it asks you to click first.
 - It asks first in terminals (pasting there can run commands), before pressing Enter anywhere except
   AI chat apps (Claude, ChatGPT, Copilot, Perplexity), and after untrusted text was read in that turn.
 - Text is pasted through the clipboard, marked so Windows clipboard history and cloud clipboard don't

@@ -167,6 +167,8 @@ class Control:
     rect: tuple[int, int, int, int]
     password: bool = False
     value: str = ""  # a text box's or document's visible text (filled only when reading text)
+    auto_id: str = ""  # e.g. "RootWebArea": the whole page of a Chromium/Electron app, not a field
+    class_name: str = ""  # e.g. "xterm-helper-textarea": a terminal inside an app (VS Code)
 
     @property
     def center(self) -> tuple[int, int]:
@@ -232,7 +234,8 @@ def _read(hwnd: int, with_text: bool, limit: int, max_chars: int) -> list[Contro
         types = {k: v for k, v in types.items() if v != "text"}
     cache = uia.CreateCacheRequest()
     for prop in (UIA.UIA_NamePropertyId, UIA.UIA_ControlTypePropertyId, UIA.UIA_BoundingRectanglePropertyId,
-                 UIA.UIA_IsOffscreenPropertyId, UIA.UIA_IsEnabledPropertyId, UIA.UIA_IsPasswordPropertyId):
+                 UIA.UIA_IsOffscreenPropertyId, UIA.UIA_IsEnabledPropertyId, UIA.UIA_IsPasswordPropertyId,
+                 UIA.UIA_AutomationIdPropertyId, UIA.UIA_ClassNamePropertyId):
         cache.AddProperty(prop)
     condition = uia.CreateOrConditionFromArray([uia.CreatePropertyCondition(UIA.UIA_ControlTypePropertyId, t)
                                                 for t in types])
@@ -273,7 +276,8 @@ def _read(hwnd: int, with_text: bool, limit: int, max_chars: int) -> list[Contro
             if key in seen or (not name and not value and kind not in TYPEABLE):
                 continue
             seen.add(key)
-            out.append((Control(0, kind, name, (r.left, r.top, r.right, r.bottom), password, value), el))
+            out.append((Control(0, kind, name, (r.left, r.top, r.right, r.bottom), password, value,
+                                el.CachedAutomationId or "", el.CachedClassName or ""), el))
         except comtypes.COMError:
             continue
     out.sort(key=lambda pair: (pair[0].rect[1] // 20, pair[0].rect[0]))
@@ -357,6 +361,8 @@ class Focused:
     name: str
     password: bool
     editable: bool
+    auto_id: str = ""
+    class_name: str = ""
 
 
 def focused() -> Focused | None:
@@ -369,6 +375,7 @@ def focused() -> Focused | None:
         kinds = _type_ids(UIA)
         kind = kinds.get(el.CurrentControlType, "control")
         editable = el.CurrentControlType in {getattr(UIA, f"UIA_{t}ControlTypeId") for t in EDIT_TYPES}
-        return Focused(kind, " ".join((el.CurrentName or "").split())[:200], bool(el.CurrentIsPassword), editable)
+        return Focused(kind, " ".join((el.CurrentName or "").split())[:200], bool(el.CurrentIsPassword), editable,
+                       el.CurrentAutomationId or "", el.CurrentClassName or "")
     except comtypes.COMError:
         return None
