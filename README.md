@@ -64,6 +64,7 @@ signing JARVIS's browser in to YouTube, the desktop and taskbar icon), see the
 | [Configuration](docs/configuration.md) | Every setting in `config.yaml` and `.env`, and the command-line options |
 | [Developer guide](docs/developer-guide.md) | Adding a capability, tests, conventions, debugging |
 | [Changelog](CHANGELOG.md) | How JARVIS was built, phase by phase |
+| [Backlog](docs/backlog.md) | Agreed work not done yet, and what it needs |
 
 ## Project layout
 
