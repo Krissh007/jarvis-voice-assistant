@@ -189,6 +189,27 @@ async def test_server_runs_on_loopback_and_leaves_ctrl_c_alone() -> None:
     await asyncio.wait_for(task, 3)
 
 
+async def test_the_token_never_reaches_the_log(caplog) -> None:
+    import logging
+
+    import websockets
+
+    caplog.set_level(logging.DEBUG)
+    web = WebUI(FakeBridge())
+    task = asyncio.create_task(web.serve())
+    for _ in range(100):
+        if web._server is not None and web._server.started:
+            break
+        await asyncio.sleep(0.02)
+    async with websockets.connect(f"ws://127.0.0.1:{web.port}/ws?t={web.token}", origin=f"http://127.0.0.1:{web.port}") as ws:
+        await ws.recv()
+    logging.getLogger("uvicorn.error").warning("request /ws?t=%s failed", web.token)  # even a warning is masked
+    web.stop()
+    await asyncio.wait_for(task, 3)
+    ours = " | ".join(r.getMessage() for r in caplog.records if r.name.startswith(("uvicorn", "ui.")))  # not the test's client
+    assert web.token not in ours and "/ws?t=***" in ours
+
+
 # ---------------------------------------------------------------- the bridge and the runtime
 
 

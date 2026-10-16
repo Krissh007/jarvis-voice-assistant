@@ -174,6 +174,20 @@ async def _send_levels(socket_, bridge: Bridge) -> None:
         await asyncio.sleep(1 / LEVEL_FPS)
 
 
+class _HideToken(logging.Filter):
+    """Replaces the launch's token with *** in a log line (it's in every WebSocket's request line)."""
+
+    def __init__(self, token: str) -> None:
+        super().__init__()
+        self.token = token
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        if self.token in message:
+            record.msg, record.args = message.replace(self.token, "***"), ()
+        return True
+
+
 class WebUI:
     """Owns the server's socket, token and lifetime, inside the assistant's loop."""
 
@@ -202,6 +216,13 @@ class WebUI:
             def capture_signals(self):  # JARVIS owns Ctrl+C and its own shutdown
                 return contextlib.nullcontext()
 
+        # uvicorn logs each WebSocket's request line, token included: keep only its warnings, and hide the
+        # token in anything it does log.
+        hide = _HideToken(self.token)
+        for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+            logger = logging.getLogger(name)
+            logger.addFilter(hide)
+            logger.setLevel(logging.WARNING)
         config = uvicorn.Config(create_app(self.bridge, self.token, self.port), log_config=None, access_log=False,
                                 lifespan="off", ws_max_size=MAX_MESSAGE_BYTES * 2, timeout_graceful_shutdown=1)
         self._server = _Server(config)
