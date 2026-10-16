@@ -152,6 +152,12 @@ file_edit:                      # create, change and delete your text files (fea
   backups: true                 # each change keeps the old version in data/file_backups (newest 200)
   editor: code                  # write_file open=true opens it in VS Code; empty = the file's usual app
 
+task:                           # start_task: JARVIS keeps working on one job until it's done, then tells you
+  max_rounds: 30                # "keep going" turns before it stops and reports what's left
+  max_minutes: 30
+  stall_rounds: 3               # turns in a row without using a tool = stuck: stop and say so
+  pause_s: 2.0                  # quiet this long after each turn before carrying on (time for you to speak)
+
 desktop:                        # read_app (features.desktop)
   max_items: 150                # buttons, fields and lines read from one window
   max_chars: 4000               # text read from documents and text boxes

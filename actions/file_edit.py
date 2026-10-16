@@ -163,6 +163,23 @@ class FileEditor:
             raise ToolError(f"There's no {target.name} in {self.where(target)}.")
         return target
 
+    def resolve_folder(self, folder: str) -> Path:
+        """A folder for a task ("Downloads", "Downloads/portfolio"), checked like a file path. Bare file
+        names used afterwards go there."""
+        raw = str(folder or "").strip().strip('"').strip().replace("/", "\\").rstrip("\\")
+        root = next((r for n, r in self.roots().items() if n.lower() == raw.lower()), None)
+        if root is not None:
+            target = root
+        else:
+            probe = self.resolve(raw + "\\x.txt")  # same checks as a file in that folder
+            target = probe.parent
+            if target.exists() and not target.is_dir():
+                raise ToolError(f"{target.name} is a file, not a folder.")
+        if not self._allowed(target):
+            raise ToolError(f"I can only change files in {', '.join(self.roots())}, so I won't work there.")
+        self.folder = target
+        return target
+
     def _allowed(self, target: Path) -> bool:
         return (any(target.is_relative_to(r) for r in self.roots().values())
                 and not target.is_relative_to(PROJECT_DIR))
@@ -229,8 +246,10 @@ class FileEditor:
         return bool(getattr(getattr(self.services, "dispatcher", None), "tainted", False))
 
     def _gate(self, target: Path, summary: str, run) -> str | NeedsConfirmation:
-        """After untrusted text, changing a file other than the one just read asks first."""
-        if self._tainted() and target != self.last_read:
+        """After untrusted text, changing a file other than the one just read asks first, unless the
+        running task (core.task) covers its folder."""
+        task = getattr(self.services, "task", None)
+        if self._tainted() and target != self.last_read and not (task is not None and task.covers(target)):
             async def resume() -> str:
                 return run()
             return NeedsConfirmation(summary=summary[:300], resume=resume,
@@ -328,6 +347,8 @@ class FileEditor:
 
 def register(registry: Registry, config: dict, services=None) -> None:
     editor = FileEditor(config, services)
+    if services is not None:
+        services.file_editor = editor  # task mode resolves its folder with the same checks
     folders = ", ".join(str(f).capitalize() for f in (config.get("file_edit") or {}).get(
         "folders", ["desktop", "documents", "downloads"]))
     path_param = {"type": "string", "description": "The file, starting with its folder, e.g. "

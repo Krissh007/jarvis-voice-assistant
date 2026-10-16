@@ -22,6 +22,7 @@ STATES: dict[str, tuple[str, str, str]] = {
     "asleep": ("#4a6b82", "#9fb4c4", 'asleep - say "hey jarvis" or click'),
     "listening": ("#00b4ff", "#e6f7ff", "listening"),
     "speaking": ("#00e0ff", "#ffffff", "speaking"),
+    "working": ("#f0a830", "#fff1d6", "working on a task"),
     "muted": ("#d93a3a", "#f3c2c2", "microphone muted"),
 }
 

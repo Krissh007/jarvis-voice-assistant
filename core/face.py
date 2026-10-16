@@ -38,6 +38,7 @@ STATE_LABELS = {
     "asleep": 'Asleep · say "hey jarvis"',
     "listening": "Listening…",
     "speaking": "Speaking",
+    "working": "Working on a task…",
     "muted": "Microphone muted",
 }
 
@@ -71,7 +72,7 @@ def orb_shapes(state: str, t: float, level: float, size: int = SIZE) -> list[tup
     """
     ring, core, _ = STATES[state]
     c, s = size / 2, size / 200
-    speed = {"starting": 25, "asleep": 12, "listening": 40, "speaking": 90, "muted": 6}[state]
+    speed = {"starting": 25, "asleep": 12, "listening": 40, "speaking": 90, "working": 60, "muted": 6}[state]
     breathe = 0.5 + 0.5 * math.sin(t * (1.2 if state == "asleep" else 2.5))
     energy = level if state in {"listening", "speaking"} else 0.15 * breathe
     shapes: list[tuple] = []

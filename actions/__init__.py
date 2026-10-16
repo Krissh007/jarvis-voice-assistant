@@ -41,6 +41,8 @@ class Services:
     browser: Any = None  # actions.browser.BrowserTools, shared with media
     desktop: Any = None  # actions.desktop.Desktop: the current app, for reading and acting in apps
     files: Any = None  # actions.files.FileTools: the file-name index, for finding a file by name
+    file_editor: Any = None  # actions.file_edit.FileEditor: task mode checks its folder with it
+    task: Any = None  # core.task.TaskMode: the running task, if any (file edits in its folder don't ask)
     dispatcher: Any = None  # core.dispatcher.Dispatcher, set by the runtime (agent mode runs steps through it)
     web: Any = None  # actions.web.Web, for the morning briefing
     memory: Any = None  # actions.memory.MemoryStore, for the system instruction

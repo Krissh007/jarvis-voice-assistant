@@ -183,6 +183,22 @@ class Assistant:
                 tier=Tier.SAFE,
                 read_only=True,  # changes nothing outside JARVIS
             ))
+        from core.task import TaskMode, register as register_task_tools
+
+        editor = self.services.file_editor
+        def user_name() -> str:
+            from actions.memory import preferred_name
+
+            store = self.services.memory
+            return (preferred_name(store) if store is not None else None) or config["user"].get("name") or ""
+
+        self.tasks = TaskMode(config, notify=self._notify, user_name=user_name,
+                              resolve_folder=editor.resolve_folder if editor is not None else None)
+        self.tasks.on_finished = self._task_ended
+        self.services.task = self.tasks
+        register_task_tools(self.registry, self.tasks)
+        self._task_next: asyncio.Task | None = None  # the pending "keep going" notice
+        self._turn_open = False  # the model is answering (audio, words or tool calls since the last turn end)
         confirm_cfg = config["confirm"]
         self.dispatcher = Dispatcher(
             self.registry,
@@ -578,6 +594,8 @@ class Assistant:
         elif name == "stop" and pressed:
             self._drop_reply = True  # the model keeps streaming this reply; don't play the rest
             self.player.clear()
+            if self.tasks.stop() and self._task_next is not None:
+                self._task_next.cancel()
             asyncio.ensure_future(self.dispatcher.on_hotkey("stop"))
         elif name in {"confirm", "cancel"} and pressed:
             asyncio.ensure_future(self.dispatcher.on_hotkey(name))
@@ -591,6 +609,9 @@ class Assistant:
             except Exception:
                 log.exception("dispatcher tick failed")
             working = time.monotonic() - self._last_tool_at < WORKING_MAX_S  # a tool call's turn isn't over
+            if (self.wake and not self.wake.awake and self.tasks.active and self.dispatcher.awaiting_confirmation):
+                self.wake.wake()  # the task needs a yes or no: listen for it
+                print("(awake)", flush=True)
             if self.wake and self.wake.check_sleep(self.playback.playing or self.dispatcher.awaiting_confirmation
                                                    or working):
                 self.transcript.flush()
@@ -618,6 +639,8 @@ class Assistant:
             return "muted"
         if self.playback.playing:
             return "speaking"  # includes answers to typed messages while asleep
+        if self.tasks.active and not self.dispatcher.awaiting_confirmation:
+            return "working"
         if self.wake is not None and not self.wake.awake:
             return "asleep"
         return "listening"
@@ -670,6 +693,41 @@ class Assistant:
         print(f"(audio: now using {self.output_name or 'the default device'}, {mode})", flush=True)
         log.info("audio switched to %s (%s)", self.output_name, self.echo_mode)
 
+    # ---- task mode (core.task) ----
+
+    def _task_ended(self) -> None:
+        """Finished, stopped or out of rounds: be awake for the report, so the user can answer it."""
+        if self.wake and not self.wake.awake:
+            self.wake.wake()
+            print("(awake)", flush=True)
+
+    def _schedule_task_round(self) -> None:
+        if self._task_next is not None:
+            self._task_next.cancel()
+        self._task_next = asyncio.ensure_future(self._task_round())
+
+    async def _task_round(self) -> None:
+        """After a turn ends during a task: once things are quiet, send "keep going". Waits while JARVIS is
+        talking, the user is speaking, the model is answering or a confirmation is waiting; the next turn
+        end replaces this wait with a fresh one."""
+        try:
+            await asyncio.sleep(self.tasks.pause_s)
+            deadline = time.monotonic() + 600
+            while time.monotonic() < deadline:
+                if not self.tasks.active:
+                    return
+                if not (self.playback.playing or self._turn_open or self.dispatcher.awaiting_confirmation
+                        or self.dispatcher._running is not None
+                        or time.monotonic() - self._last_heard < self.tasks.pause_s):
+                    break
+                await asyncio.sleep(0.3)
+            else:
+                return
+        except asyncio.CancelledError:
+            return
+        if notice := self.tasks.next_notice():
+            self._notify(notice)
+
     async def _go_to_sleep(self) -> str:
         """Rung 2 (app state). Tier SAFE. Ends the wake window; the reply still finishes playing."""
         self.wake.awake = False
@@ -714,6 +772,7 @@ class Assistant:
     # ---- SessionEvents ----
 
     def on_audio(self, pcm: bytes) -> None:
+        self._turn_open = True
         self.dispatcher.flush_utterance()
         if self.wake:
             self.wake.touch()
@@ -733,6 +792,7 @@ class Assistant:
         self.dispatcher.on_input_fragment(text)
 
     def on_output_transcript(self, text: str) -> None:
+        self._turn_open = True
         self.dispatcher.flush_utterance()
         self.transcript.add("jarvis", text)
 
@@ -746,9 +806,14 @@ class Assistant:
         self.dispatcher.flush_utterance()
         self.dispatcher.on_turn_complete()
         self.transcript.flush()
+        self._turn_open = False
+        if self.tasks.active:
+            self._schedule_task_round()
 
     async def on_tool_call(self, name: str, args: dict, call_id: str | None) -> dict:
         self._last_tool_at = time.monotonic()
+        self._turn_open = True
+        self.tasks.tool_called(name)
         self.transcript.flush()
         print(f"  [tool] {name}({', '.join(f'{k}={v!r}' for k, v in args.items())})", flush=True)
         result = await self.dispatcher.handle_call(name, args, call_id)
