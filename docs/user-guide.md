@@ -253,7 +253,15 @@ The LinkedIn resume upload status still comes from `job_search.sync_dir`. JobPil
 (`E:\JobPilot\scripts\run_api.ps1`); if it isn't, JARVIS says so. It only reads: it never changes a
 status, approves or applies.
 
-**Agent Hub.** Off by default; turn it on with `features.agent_hub: true`. The Hub is a separate
+**Agent Hub.** On (`features.agent_hub: true`). Start the Hub before JARVIS, once per boot:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File E:\agent-hub\scripts\start_all.ps1
+```
+
+It starts the JobPilot API (port 8000), JobPilot's MCP server (8766) and the Hub (8765), skipping any
+that are already running; add `-Stop` to stop what it started. JARVIS's `AGENT_HUB_TOKEN` in `.env`
+must equal `HUB_TOKEN` in `E:\agent-hub\.env`. The Hub is a separate
 program (`E:\agent-hub`) that runs JobPilot's agents in the background. Ask "what's on my
 shortlist?", "what's waiting for my approval?", "run a new job search", "approve the Infosys
 application" or "skip the Wipro one", and JARVIS answers at once ("On it") and speaks the result

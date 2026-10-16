@@ -110,7 +110,7 @@ Values that are left as comments or blank are ignored.
 ### Features
 
 Each entry under `features:` switches a whole module on or off: `system`, `web`, `browser`,
-`reasoning`, `media`, `app_ui` (off by default), `screen`, `clipboard`, `files`, `desktop`, `memory`, `reminders`, `job_search`, `agent_hub` (off by default), `agent_mode`, `morning_briefing`
+`reasoning`, `media`, `app_ui` (off by default), `screen`, `clipboard`, `files`, `desktop`, `memory`, `reminders`, `job_search`, `agent_hub` (needs the Hub running), `agent_mode`, `morning_briefing`
 (off by default), `tray`, `window` and `wake_word`. `test_tools` exposes two tools used only to
 test the safety layer; it's off, and the test suite turns it on itself.
 

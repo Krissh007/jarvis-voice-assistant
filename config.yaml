@@ -175,7 +175,7 @@ features:
   reminders: true
   agent_mode: true
   job_search: true                # "how's my job search?" reads JobPilot (read only)
-  agent_hub: false              # shortlist, approvals, job search runs, approve/skip through the Agent Hub (needs it running + AGENT_HUB_TOKEN)
+  agent_hub: true               # shortlist, approvals, job search runs, approve/skip through the Agent Hub (needs it running + AGENT_HUB_TOKEN)
   morning_briefing: false
   tray: true                    # tray icon: click to talk, Stop, Mute, Quit
   window: true                  # animated JARVIS window with captions and Talk / Mute / Stop

@@ -139,3 +139,6 @@ How JARVIS was built: the phases in the build spec and the finishing touches (24
   With the Hub on, `job_search_status` is the quick overall summary. `search_web`, `run_plan` and
   `look_at_screen` say when not to use them; the persona has a short tool-choice rule. On the real
   Live model, 17 of 17 test requests picked the intended tool.
+- Agent Hub on (`features.agent_hub: true`), with `AGENT_HUB_TOKEN` set. Tested through the real Live
+  model and the running Hub: shortlist and approval questions answered by the Hub; "run discovery"
+  and "skip application 5" read the Hub's own question and were released on "no".
