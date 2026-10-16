@@ -254,3 +254,77 @@ async def test_focus_app_is_safe_and_brings_the_window_forward(h, desktop, monke
     resp = await h.model_calls("focus_app", name="notepad")
     assert resp["status"] == "ok" and resp["result"] == "Switched to notepad." and focused == [101]
     assert "isn't open" in (await h.model_calls("focus_app", name="word"))["result"]
+
+
+# ---------------------------------------------------------------- focus_window: no Alt tap into the app itself
+
+class FakeUser32:
+    """Just enough of user32 for focus_window: who is in front, and which keys were sent."""
+
+    def __init__(self, front, attach_works=True, iconic=False):
+        self.front, self.attach_works, self.iconic = front, attach_works, iconic
+        self.keys, self.calls = [], []
+
+    def GetForegroundWindow(self):
+        return self.front
+
+    def GetAncestor(self, hwnd, flag):
+        return hwnd
+
+    def IsIconic(self, hwnd):
+        return self.iconic
+
+    def ShowWindow(self, hwnd, cmd):
+        self.calls.append(("show", cmd))
+        self.iconic = False
+
+    def GetWindowThreadProcessId(self, hwnd, pid):
+        return 111 if hwnd == self.front else 222
+
+    def AttachThreadInput(self, a, b, on):
+        self.calls.append(("attach", on))
+        return 1
+
+    def BringWindowToTop(self, hwnd):
+        pass
+
+    def SetForegroundWindow(self, hwnd):
+        if self.attach_works or self.keys:
+            self.front = hwnd
+
+    def keybd_event(self, vk, scan, flags, extra):
+        self.keys.append((vk, flags))
+
+
+def focus_with(monkeypatch, fake):
+    import ctypes
+
+    from actions import system
+
+    monkeypatch.setattr(ctypes.windll, "user32", fake, raising=False)
+    monkeypatch.setattr(ctypes.windll.kernel32, "GetCurrentThreadId", lambda: 999, raising=False)
+    system.focus_window(42)
+
+
+def test_a_window_already_in_front_gets_no_key_press(monkeypatch) -> None:
+    fake = FakeUser32(front=42)
+    focus_with(monkeypatch, fake)
+    assert fake.keys == [] and fake.calls == []  # an Alt tap here would open VS Code's menu
+
+
+def test_switching_uses_attached_input_not_alt(monkeypatch) -> None:
+    fake = FakeUser32(front=7)
+    focus_with(monkeypatch, fake)
+    assert fake.front == 42 and fake.keys == [] and fake.calls == [("attach", True), ("attach", False)]
+
+
+def test_alt_is_only_the_last_resort(monkeypatch) -> None:
+    fake = FakeUser32(front=7, attach_works=False)
+    focus_with(monkeypatch, fake)
+    assert fake.front == 42 and fake.keys == [(0x12, 0), (0x12, 2)]
+
+
+def test_a_minimised_window_is_restored_and_brought_forward(monkeypatch) -> None:
+    fake = FakeUser32(front=42, iconic=True)  # minimised windows can still be "foreground"
+    focus_with(monkeypatch, fake)
+    assert ("show", 9) in fake.calls

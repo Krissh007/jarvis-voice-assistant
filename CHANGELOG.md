@@ -181,3 +181,8 @@ missed the editor:
 - Confirmations and plan lines describe long or multi-line text ("6 lines (84 characters) starting
   …") instead of reading it out; field names that are long accessibility notices are said as "the
   text box". `uia.Control` and `uia.Focused` carry the automation id and class name.
+- Typing more than once in VS Code: bringing an app to the front tapped Alt even when it was already
+  in front, and in VS Code Alt moves the cursor to the File menu, so every typing after the first
+  found no text field. `focus_window` now does nothing for a window already in front, switches by
+  attaching to the foreground window's input, and taps Alt only as a last resort (into the window
+  being left). Checked live: four bring-to-fronts in a row kept VS Code's cursor in the editor.

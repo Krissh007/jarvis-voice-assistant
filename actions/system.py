@@ -277,15 +277,38 @@ def click_dont_save(command: str, timeout_s: float = 4.0) -> int:
 
 
 def focus_window(hwnd: int) -> None:
+    """Bring a window to the front, leaving its cursor where it is.
+
+    Already in front: nothing to do. A synthetic Alt tap there would land in the app itself, and in
+    VS Code (and other apps with a custom menu bar) Alt moves focus to the File menu, so the next
+    typing found no text field. Otherwise the switch is made by attaching to the foreground window's
+    input, which Windows accepts without a key press; the Alt tap is only the last resort, and then it
+    goes to the window being left, not the one coming to the front."""
     import ctypes
 
     user32 = ctypes.windll.user32
+
+    def in_front() -> bool:
+        return int(user32.GetAncestor(user32.GetForegroundWindow(), 3) or 0) == int(hwnd)  # GA_ROOTOWNER
+
     if user32.IsIconic(hwnd):
         user32.ShowWindow(hwnd, 9)  # SW_RESTORE
-    # Windows only lets the foreground app hand over focus; a tap of Alt makes the request count as user input.
-    user32.keybd_event(0x12, 0, 0, 0)
-    user32.keybd_event(0x12, 0, 2, 0)
-    user32.SetForegroundWindow(hwnd)
+    elif in_front():
+        return
+    me = ctypes.windll.kernel32.GetCurrentThreadId()
+    theirs = user32.GetWindowThreadProcessId(user32.GetForegroundWindow(), None)
+    attached = bool(theirs and theirs != me and user32.AttachThreadInput(me, theirs, True))
+    try:
+        user32.BringWindowToTop(hwnd)
+        user32.SetForegroundWindow(hwnd)
+    finally:
+        if attached:
+            user32.AttachThreadInput(me, theirs, False)
+    if not in_front():
+        # Windows only lets the foreground app hand over focus; a tap of Alt makes the request count as input.
+        user32.keybd_event(0x12, 0, 0, 0)
+        user32.keybd_event(0x12, 0, 2, 0)
+        user32.SetForegroundWindow(hwnd)
 
 
 def make_focus_app(config: dict):
