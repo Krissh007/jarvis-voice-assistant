@@ -122,6 +122,8 @@ class WebBridge:
         "stop": ("Stop", lambda a: a.stop_all()),
         "confirm": ("Confirm", lambda a: a.on_hotkey("confirm", True)),  # the user's click = the confirm hotkey
         "cancel": ("Cancel", lambda a: a.on_hotkey("cancel", True)),
+        "new_chat": ("New chat", lambda a: a.new_conversation(open_chat=True)),
+        "open_chat": ("Open chat", lambda a: a.open_chat()),
     }
 
     def __init__(self, assistant: Assistant) -> None:
@@ -138,6 +140,7 @@ class WebBridge:
             "user": a.transcript._labels["user"],
             "speak": a.speak_typed,
             "pending": {"id": pending.id, "summary": pending.summary} if pending else None,
+            "quick_actions": [str(q)[:80] for q in ((a.config.get("web_ui") or {}).get("quick_actions") or [])][:8],
         }
 
     def chat(self, text: str, speak: bool) -> bool:
@@ -168,7 +171,8 @@ class Assistant:
         self._last_state: str | None = None
         self.face = None
         self.web = None  # ui.server.WebUI: the web page's server (features.web_ui)
-        self.window_proc = None  # ui.window.WindowProcess: the page in its own window
+        self.window_proc = None  # ui.window.WindowProcess: the orb (control centre), see-through
+        self.chat_proc = None  # ui.window.WindowProcess: the complete chat page, in a normal window
         wcfg = config.get("window") or {}
         self.speak_typed = bool(wcfg.get("speak_typed_replies", True))
         if config["features"].get("web_ui") and self.mode != "text":
@@ -177,14 +181,18 @@ class Assistant:
 
             ucfg = config.get("web_ui") or {}
             self.web = WebUI(WebBridge(self), int(ucfg.get("port") or 0))
+            icon = Path(__file__).resolve().parent.parent / "assets" / "jarvis.ico"
             if ucfg.get("window", True):
                 self.window_proc = WindowProcess(
-                    self.web.url, state_path=Services().data_dir / "web_window.json",
-                    width=int(ucfg.get("width", 1180)), height=int(ucfg.get("height", 860)),
-                    on_top=bool(ucfg.get("always_on_top", True)),
-                    icon=Path(__file__).resolve().parent.parent / "assets" / "jarvis.ico",
-                    on_closed=self._window_closed, log_path=options.log_dir / "window.log",
+                    self.web.url, state_path=Services().data_dir / "orb_window.json", mode="orb",
+                    size=int(ucfg.get("orb_size", 160)), on_top=bool(ucfg.get("always_on_top", True)),
+                    icon=icon, on_closed=self._window_closed, log_path=options.log_dir / "window.log",
                 )
+            self.chat_proc = WindowProcess(
+                self.web.chat_url, state_path=Services().data_dir / "chat_window.json", mode="chat",
+                width=int(ucfg.get("chat_width", 1100)), height=int(ucfg.get("chat_height", 760)), on_top=False,
+                icon=icon, log_path=options.log_dir / "window.log",
+            )
         elif config["features"].get("window") and self.mode != "text":
             from core.face import Face
 
@@ -410,6 +418,8 @@ class Assistant:
         if self.window_proc is not None:
             self.window_proc.start()
             tasks.append(asyncio.create_task(self.window_proc.watch(), name="web-window"))
+        if self.chat_proc is not None:
+            tasks.append(asyncio.create_task(self.chat_proc.watch(), name="chat-window"))
         self._ready = True
         if self.services.ducker is not None:
             self.services.ducker.start()
@@ -440,6 +450,8 @@ class Assistant:
                 self.face.hide()  # looks closed at once
             if self.window_proc is not None:
                 timed("web window", self.window_proc.stop)
+            if self.chat_proc is not None:
+                timed("chat window", self.chat_proc.stop)
             if self.tray is not None:
                 timed("tray", self.tray.stop)
             if self.face is not None:
@@ -758,6 +770,25 @@ class Assistant:
             self.bus.publish("focus")  # the page asks its window to come to the front
         else:
             self.window_proc.start()
+
+    def open_chat(self) -> None:
+        """The complete chat page, in its own normal window (brought forward if it's already open)."""
+        if self.chat_proc is None:
+            return
+        if self.chat_proc.alive:
+            self.bus.publish("focus", target="chat")
+        else:
+            self.chat_proc.start()
+
+    def new_conversation(self, open_chat: bool = False) -> None:
+        """A new chat: the model starts without the conversation so far, and every view clears its
+        conversation. Memory, reminders and settings are untouched."""
+        self.transcript.flush()
+        self.session.new_conversation()
+        self.bus.publish("conversation", action="new")
+        self._status("(new conversation)")
+        if open_chat:
+            self.open_chat()
 
     def _window_closed(self) -> None:
         """The user closed the web window: quit, or keep running in the tray (web_ui.close_button)."""

@@ -6,7 +6,7 @@
 - [The Gemini session](#the-gemini-session)
 - [Dispatcher and tools](#dispatcher-and-tools)
 - [Voice and chat: one conversation, one event bus](#voice-and-chat-one-conversation-one-event-bus)
-- [The orb window (ui/)](#the-orb-window-ui)
+- [The orb and the chat page (ui/)](#the-orb-and-the-chat-page-ui)
 - [Threads](#threads)
 - [Startup, single instance and shutdown](#startup-single-instance-and-shutdown)
 - [Where data lives](#where-data-lives)
@@ -185,35 +185,51 @@ Events are delivered in order on the asyncio loop. A subscriber that fails is lo
 Event text can come from web pages and apps, so views show it as plain text, and nothing a view
 receives can confirm an action.
 
-## The orb window (ui/)
+## The orb and the chat page (ui/)
 
-`features.web_ui` replaces the Tk window with the orb window: a local web page in a see-through window.
-- **Page** (`ui/static/`): plain HTML, CSS and JS with nothing loaded from outside.
-  - `orb.js` draws the orb, after the user's reference image: a particle shell, a tunnel of HUD rings,
-    three tilted orbit bands with lightning, a voice wave through the middle, sparks and a bloom glow.
-    Its intensity follows the state: low when asleep, brighter when listening, strongest when speaking.
-    It turns red when muted and amber while working on a task.
-  - `app.js` puts the typing box under the orb and lays out sections around it at equal clock
-    positions over the arc from 8 to 4 o'clock: the answer, a confirmation (Confirm / Cancel), what JARVIS
-    is doing, a picture a tool showed, what's playing. Sections stay until the orb is double-clicked or
-    JARVIS goes to sleep. A click on the orb opens the full panel: controls orbiting the orb, the whole
-    conversation, activity and vision. Dragging the orb moves the window.
+`features.web_ui` replaces the Tk window with two views of one conversation, both local web pages:
+- **The orb** (`/`, `ui/static/index.html`, `app.js`, `orb.js`) is a quick-action control centre.
+  - When idle, it's only the orb, about 160 px across (`web_ui.orb_size`), drawn after the user's
+    reference image: particle shell, HUD ring tunnel, tilted orbit bands with lightning, a voice wave
+    and sparks, with a bloom glow scaled to its size. It's low when asleep, brighter when listening and
+    strongest when speaking; red when muted, amber while working on a task.
+  - Tap it to talk. Drag it anywhere on the screen; it stays where it's left.
+  - Double-tap it to open the control centre around it:
+    - Talk, Mute, New chat, Stop and Sleep around its top;
+    - a typing box under it;
+    - quick-action chips (`web_ui.quick_actions`), each of which sends its text.
+  - While talking, the sections a reply needs (the answer, a confirmation with Confirm / Cancel, a
+    picture, what's playing) appear around the orb at equal clock positions over the arc from 8 to
+    4 o'clock. If the orb was closed, it opens to show them.
+  - Double-tap again, Esc, or JARVIS going to sleep closes it back to just the orb.
+- **The chat page** (`/chat`, `chat.html`, `chat.js`) is the complete interface, in its own normal
+  window. New chat on the orb or the page opens it and starts a new conversation.
+  - Left: a small orb and the controls.
+  - Middle: the conversation, typed and spoken, with confirmations and pictures inline.
+  - Right: activity (tools and plan steps) and vision.
+- **New chat** (`Assistant.new_conversation`): the Live session reconnects without its resumption
+  handle, so the model starts fresh (`LiveSession.new_conversation`). The bus publishes `conversation`,
+  views clear, and a page that connects later only gets the history since then. Memory, reminders and
+  settings are untouched.
 - **Server** (`ui/server.py`): FastAPI and uvicorn, run as a task inside JARVIS's own asyncio loop,
   bound to 127.0.0.1 only. uvicorn's Ctrl+C handling is switched off, because JARVIS owns shutdown. It
-  serves the page and one WebSocket.
-- **Window** (`ui/window.py`): Qt WebEngine (PySide6) in a child process, `python -m ui.window --url …`.
+  serves both pages and one WebSocket.
+- **Windows** (`ui/window.py`): Qt WebEngine (PySide6), each in a child process
+  (`python -m ui.window --mode orb|chat …`).
   - Qt has to own its process's main thread, and JARVIS's main thread runs the asyncio loop. A crash in
     the browser engine also can't take the assistant down that way.
-  - The window is frameless with a transparent background (per-pixel alpha), so the orb's glow blends
-    into the desktop. Edge WebView2 can't do this on Windows; that was tested on this PC.
-  - Everywhere except the orb, the typing box and the sections, clicks go through to whatever is behind.
-    The page reports its clickable shapes (`jarvis:shape` console lines), and a 30 ms timer turns
-    `WS_EX_TRANSPARENT` on or off as the mouse moves over them.
-  - It shares JARVIS's taskbar ID, opens at the top centre of the screen the first time and remembers its
-    place (`data/web_window.json`).
-  - Closing it (Alt+F4) quits JARVIS, or with `web_ui.close_button: hide` it keeps running in the tray,
-    where Show reopens it. A second launch publishes `focus`, and the page asks the window to come forward.
-  - Stopping it ends the whole process tree, because the venv's `python.exe` is a launcher.
+  - The orb window is frameless with a transparent background (per-pixel alpha), so the glow blends into
+    the desktop. Edge WebView2 can't do this on Windows; that was tested on this PC.
+  - The orb window resizes between just the orb and the control centre, keeping the orb in place, or
+    easing it inward near a screen edge and back again when it closes.
+  - Everywhere the page draws nothing, clicks go through. The page reports its clickable shapes
+    (`jarvis:shape` console lines), and a 30 ms timer turns `WS_EX_TRANSPARENT` on or off as the mouse
+    moves over them.
+  - Each window shares JARVIS's taskbar ID and remembers its place (`data/orb_window.json`,
+    `data/chat_window.json`).
+  - Closing the orb (Alt+F4) quits JARVIS, or with `web_ui.close_button: hide` keeps it running in the
+    tray. Closing the chat window just closes it.
+  - Stopping a window ends its whole process tree, because the venv's `python.exe` is a launcher.
 - `look_at_screen` publishes a small preview of the capture, with private windows already blacked out,
   as a `media` event. The bus never keeps `media` events in its history, and nothing is saved.
 
@@ -240,7 +256,7 @@ run as code there. Confirm is the user's click in JARVIS's own window, the same 
 | `denoise` | RNNoise, in order; if it falls behind, blocks pass through raw |
 | `ducking` | all Windows audio-session (COM) calls |
 | `face` | the Tk window (only when `web_ui` is off); it only *reads* state, and clicks go back to the loop |
-| (child process) | the orb window (`ui/window.py`, Qt WebEngine); it talks to JARVIS only over the WebSocket |
+| (child processes) | the orb and chat windows (`ui/window.py`, Qt WebEngine); they talk to JARVIS only over the WebSocket |
 | `uia` | all UI Automation (COM) calls for the desktop tools, so elements found by a read stay usable for focus and clicks |
 | `tray` | pystray's message loop |
 | pynput | global hotkeys |
@@ -281,7 +297,7 @@ Handled in `core/app_mode.py` and `core/taskbar.py`.
 | `data/wake/` | your wake-word clips and personal verifier | no |
 | `data/cache/` | page summaries (24 h) | no |
 | `data/window.json` | Tk window size and position | no |
-| `data/web_window.json` | web window size and position | no |
+| `data/orb_window.json`, `data/chat_window.json` | where the orb and the chat window were left | no |
 | `data/ducking.json` | saved volumes, only while ducked | no |
 | `logs/` | `app.log`, `console.txt`, `actions.jsonl`, `window.log` (the web window's own errors) | no |
 | `%USERPROFILE%\Documents\jarvis\` | saved research notes | outside the repo |

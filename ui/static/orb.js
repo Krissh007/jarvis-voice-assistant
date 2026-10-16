@@ -20,10 +20,11 @@ function createOrb(canvas) {
   off.width = canvas.width; off.height = canvas.height;
   const x = off.getContext("2d");                 // the scene; out gets it with a bloom glow
   const S = canvas.width, m = S / 2, R = S * 0.27;
+  const k = Math.max(0.3, S / 900);               // line widths and glows were tuned at 900 px; scale them
   const TAU = Math.PI * 2;
 
   const shell = [];                               // points on a sphere, a little scattered like dust
-  for (let i = 0, N = 2400; i < N; i++) {
+  for (let i = 0, N = Math.round(600 + 1800 * Math.min(1, S / 700)); i < N; i++) {
     const y = 1 - (i / (N - 1)) * 2, rad = Math.sqrt(1 - y * y), th = i * 2.399963;
     const k = 1 + (Math.random() - 0.5) * 0.06;
     shell.push([Math.cos(th) * rad * k, y * k, Math.sin(th) * rad * k, Math.random()]);
@@ -68,30 +69,31 @@ function createOrb(canvas) {
     }
     buckets.forEach((pts, i) => {
       x.fillStyle = cyan((0.18 + i * 0.26) * I);
-      for (let k = 0; k < pts.length; k += 2) x.fillRect(pts[k] - 1.2, pts[k + 1] - 1.2, 2.4, 2.4);
+      const d = Math.max(1, 2.4 * k);
+      for (let j = 0; j < pts.length; j += 2) x.fillRect(pts[j] - d / 2, pts[j + 1] - d / 2, d, d);
     });
   }
 
   function drawTunnel(t, act, lv, I) {
     const rings = 16;
-    for (let k = 0; k < rings; k++) {
-      const f = k / (rings - 1);
-      const r = R * (0.07 + 0.83 * Math.pow(f, 1.15)) * (1 + 0.015 * Math.sin(t * 1.3 + k));
-      const b = Math.min(0.85, I * (0.3 + 0.55 * (1 - f))) * (0.85 + 0.3 * lv * act * Math.sin(t * 9 + k * 1.7));
-      const dir = k % 2 ? 1 : -1, spin = t * dir * (0.15 + 0.5 * act) * (1.4 - f);
+    for (let ring = 0; ring < rings; ring++) {
+      const f = ring / (rings - 1);
+      const r = R * (0.07 + 0.83 * Math.pow(f, 1.15)) * (1 + 0.015 * Math.sin(t * 1.3 + ring));
+      const b = Math.min(0.85, I * (0.3 + 0.55 * (1 - f))) * (0.85 + 0.3 * lv * act * Math.sin(t * 9 + ring * 1.7));
+      const dir = ring % 2 ? 1 : -1, spin = t * dir * (0.15 + 0.5 * act) * (1.4 - f);
       x.strokeStyle = (f < 0.5 ? ice : cyan)(Math.min(1, b * 1.25));
-      if (k % 3 === 0) {
-        x.lineWidth = 2; x.beginPath(); x.arc(m, m, r, 0, TAU); x.stroke();
-      } else if (k % 3 === 1) {
-        const n = 18 + k * 3; x.lineWidth = 3.5 + 4 * (1 - f);
+      if (ring % 3 === 0) {
+        x.lineWidth = 2 * k; x.beginPath(); x.arc(m, m, r, 0, TAU); x.stroke();
+      } else if (ring % 3 === 1) {
+        const n = 18 + ring * 3; x.lineWidth = (3.5 + 4 * (1 - f)) * k;
         for (let i = 0; i < n; i++) {
-          if ((i * 7 + k) % 5 === 0) continue;
+          if ((i * 7 + ring) % 5 === 0) continue;
           const a = spin + (i / n) * TAU; x.beginPath(); x.arc(m, m, r, a, a + (TAU / n) * 0.62); x.stroke();
         }
       } else {
-        const n = 60 + k * 6; x.lineWidth = 1.6;
+        const n = 60 + ring * 6; x.lineWidth = Math.max(0.6, 1.6 * k);
         for (let i = 0; i < n; i++) {
-          const a = spin + (i / n) * TAU, l = i % 6 === 0 ? 7 : 3.5;
+          const a = spin + (i / n) * TAU, l = (i % 6 === 0 ? 7 : 3.5) * k;
           x.beginPath(); x.moveTo(m + Math.cos(a) * r, m + Math.sin(a) * r);
           x.lineTo(m + Math.cos(a) * (r + l), m + Math.sin(a) * (r + l)); x.stroke();
         }
@@ -107,13 +109,13 @@ function createOrb(canvas) {
   // The voice: a horizontal line through the middle that ripples into a wave as anyone speaks
   // (no vertical bars; the user asked for those to go).
   function drawWave(t, act, lv, I) {
-    const half = R * 1.95 * 1.15, step = 2;
+    const half = R * 1.95 * 1.15, step = Math.max(1, 2 * k);
     const amp = R * (0.015 + 0.05 * act + 0.32 * lv * act);
     const lg = x.createLinearGradient(m - half, 0, m + half, 0);
     lg.addColorStop(0, ice(0)); lg.addColorStop(0.5, ice(Math.min(1, 0.9 * I))); lg.addColorStop(1, ice(0));
     const traces = [[1, 2.6, 0], [-0.6, 1.4, 1.7], [0.35, 1, 3.1]];   // a main trace and two fainter echoes
     traces.forEach(([k, w, phase], i) => {
-      x.strokeStyle = i ? cyan(Math.min(1, 0.55 * I)) : lg; x.lineWidth = w;
+      x.strokeStyle = i ? cyan(Math.min(1, 0.55 * I)) : lg; x.lineWidth = Math.max(0.6, w * k);
       x.beginPath();
       for (let px = -half; px <= half; px += step) {
         const u = px / half, env = Math.exp(-u * u * 3.2);
@@ -130,7 +132,7 @@ function createOrb(canvas) {
     const segs = 140;
     bands.forEach((b, bi) => {
       for (const [o, w, al] of [[-0.05, 1.6, 0.5], [-0.022, 3.6, 1], [0, 6, 0.55], [0.022, 2.8, 0.9], [0.05, 1.6, 0.45]]) {
-        x.lineWidth = w;
+        x.lineWidth = Math.max(0.5, w * k);
         let prev = bandPoint(b, 0, t, o);
         for (let s = 1; s <= segs; s++) {
           const th = (s / segs) * TAU, p = bandPoint(b, th, t, o);
@@ -144,11 +146,11 @@ function createOrb(canvas) {
       }
       if (!back) {                                  // a bright comet travelling round each band
         const c0 = t * b.flow * (0.8 + 1.6 * act) + bi * 2;
-        x.lineCap = "round"; x.shadowColor = cyan(1); x.shadowBlur = 14;
-        for (let k = 0; k < 14; k++) {
-          const p1 = bandPoint(b, c0 - k * 0.03, t, 0), p2 = bandPoint(b, c0 - (k + 1) * 0.03, t, 0);
+        x.lineCap = "round"; x.shadowColor = cyan(1); x.shadowBlur = 14 * k;
+        for (let j = 0; j < 14; j++) {
+          const p1 = bandPoint(b, c0 - j * 0.03, t, 0), p2 = bandPoint(b, c0 - (j + 1) * 0.03, t, 0);
           if (p1[2] < -0.2) continue;
-          x.strokeStyle = ice(Math.min(1, (1 - k / 14) * (I + 0.3))); x.lineWidth = 6 * (1 - k / 14) + 1;
+          x.strokeStyle = ice(Math.min(1, (1 - j / 14) * (I + 0.3))); x.lineWidth = (6 * (1 - j / 14) + 1) * k;
           x.beginPath(); x.moveTo(p1[0], p1[1]); x.lineTo(p2[0], p2[1]); x.stroke();
         }
         x.shadowBlur = 0;
@@ -168,16 +170,16 @@ function createOrb(canvas) {
       const bo = bolts[i], age = (t - bo.born) / bo.life;
       if (age > 1 || age < 0) { bolts.splice(i, 1); continue; }
       const pts = [];
-      for (let k = 0; k <= bo.n; k++) {
-        const p = bandPoint(bo.b, bo.th0 + (k / bo.n) * bo.len, t, 0);
-        const j = (k === 0 || k === bo.n) ? 0 : Math.sin(bo.seed + k * 12.9898 + Math.floor(t * 30)) * 0.5 * R * 0.09;
+      for (let q = 0; q <= bo.n; q++) {
+        const p = bandPoint(bo.b, bo.th0 + (q / bo.n) * bo.len, t, 0);
+        const j = (q === 0 || q === bo.n) ? 0 : Math.sin(bo.seed + q * 12.9898 + Math.floor(t * 30)) * 0.5 * R * 0.09;
         const dx = p[0] - m, dy = p[1] - m, dl = Math.hypot(dx, dy) || 1;
         pts.push([p[0] + (dx / dl) * j, p[1] + (dy / dl) * j]);
       }
       const al = (1 - age) * Math.min(1, I + 0.2);
       for (const [w, col, blur] of [[5, deep(0.5 * al), 16], [2, cyan(0.9 * al), 8], [0.9, ice(al), 0]]) {
-        x.strokeStyle = col; x.lineWidth = w; x.shadowColor = deep(1); x.shadowBlur = blur;
-        x.beginPath(); pts.forEach(([px, py], k) => (k ? x.lineTo(px, py) : x.moveTo(px, py))); x.stroke();
+        x.strokeStyle = col; x.lineWidth = Math.max(0.5, w * k); x.shadowColor = deep(1); x.shadowBlur = blur * k;
+        x.beginPath(); pts.forEach(([px, py], q) => (q ? x.lineTo(px, py) : x.moveTo(px, py))); x.stroke();
       }
     }
     x.shadowBlur = 0;
@@ -186,8 +188,9 @@ function createOrb(canvas) {
   function drawSparks(t, act, lv, I, dt) {
     if (Math.random() < (18 + 150 * act * (0.3 + lv)) * dt) {
       const a = Math.random() * TAU, r = R * (1 + Math.random() * 0.3);
-      sparks.push({ x: m + Math.cos(a) * r, y: m + Math.sin(a) * r, vx: Math.cos(a) * (18 + Math.random() * 60),
-        vy: Math.sin(a) * (18 + Math.random() * 60), born: t, life: 0.8 + Math.random() * 1.4, s: 1 + Math.random() * 2.2 });
+      sparks.push({ x: m + Math.cos(a) * r, y: m + Math.sin(a) * r, vx: Math.cos(a) * (18 + Math.random() * 60) * k,
+        vy: Math.sin(a) * (18 + Math.random() * 60) * k, born: t, life: 0.8 + Math.random() * 1.4,
+        s: Math.max(1, (1 + Math.random() * 2.2) * k) });
     }
     for (let i = sparks.length - 1; i >= 0; i--) {
       const p = sparks[i], age = (t - p.born) / p.life;

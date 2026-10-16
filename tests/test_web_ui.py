@@ -76,10 +76,12 @@ def test_requests_for_another_host_name_are_refused(ui) -> None:
 
 def test_page_never_renders_text_as_html() -> None:
     html = (STATIC / "index.html").read_text(encoding="utf-8")
-    for name in ("app.js", "orb.js"):
+    for name in ("app.js", "orb.js", "chat.js"):
         js = (STATIC / name).read_text(encoding="utf-8")
         assert not re.search(r"innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(|new Function", js), name
-    assert "<script>" not in html and "onclick" not in html  # no inline code (the policy blocks it anyway)
+    chat = (STATIC / "chat.html").read_text(encoding="utf-8")
+    for page in (html, chat):
+        assert "<script>" not in page and "onclick" not in page  # no inline code (the policy blocks it anyway)
     for f in STATIC.iterdir():  # nothing is loaded from outside
         assert not re.search(r"https?://", f.read_text(encoding="utf-8")), f.name
 
@@ -383,3 +385,86 @@ async def test_looking_at_the_screen_shows_a_redacted_preview_that_is_never_kept
     assert ev.data["type"] == "image" and ev.data["data"].startswith("data:image/jpeg;base64,")
     assert len(ev.data["data"]) < 120_000  # a small preview, not the full capture
     assert bus.recent() == []
+
+
+# ---------------------------------------------------------------- the control centre and the chat page
+
+
+def test_chat_page_is_served_and_history_starts_at_the_new_chat(ui) -> None:
+    from ui.server import current_conversation
+
+    bridge, client = ui
+    page = client.get("/chat")
+    assert page.status_code == 200 and 'id="messages"' in page.text and "content-security-policy" in page.headers
+    bridge.bus.publish("message", channel="chat", role="user", label="Krishna", text="old chat", source="web")
+    bridge.bus.publish("conversation", action="new")
+    bridge.bus.publish("message", channel="chat", role="user", label="Krishna", text="new chat", source="web")
+    assert [e.data["text"] for e in current_conversation(bridge.bus)] == ["new chat"]
+    with connect(client) as ws:
+        hello = json.loads(ws.receive_text())
+    assert [e["text"] for e in hello["history"]] == ["new chat"]
+
+
+def test_new_chat_and_open_chat_are_buttons_the_page_may_press(ui) -> None:
+    bridge, client = ui
+    with connect(client) as ws:
+        json.loads(ws.receive_text())
+        for action in ("new_chat", "open_chat", "delete_everything"):
+            ws.send_text(json.dumps({"type": "control", "action": action}))
+        for _ in range(50):
+            if len(bridge.controls) == 2:
+                break
+            json.loads(ws.receive_text())
+    assert bridge.controls == ["new_chat", "open_chat"]
+
+
+def test_orb_window_geometry() -> None:
+    from ui.window import EXPANDED, orb_canvas, orb_geometry
+
+    screen = (0, 0, 1536, 824)
+    canvas = orb_canvas(160)
+    assert 220 <= canvas <= 250
+    rect, inner = orb_geometry((700, 400), False, canvas, screen)        # closed: just the orb
+    assert rect[2:] == (canvas, canvas) and (rect[0] + inner[0], rect[1] + inner[1]) == (700, 400)
+    rect, inner = orb_geometry((700, 400), True, canvas, screen)         # opened: the orb stays put
+    assert rect[2:] == EXPANDED and (rect[0] + inner[0], rect[1] + inner[1]) == (700, 400)
+    rect, inner = orb_geometry((1500, 30), True, canvas, screen)         # near a corner: kept on the screen
+    assert rect[0] + rect[2] <= 1536 and rect[1] >= 0 and rect[0] >= 0
+    rect, inner = orb_geometry((1530, 820), False, canvas, screen)
+    assert rect[0] + rect[2] <= 1536 and rect[1] + rect[3] <= 824
+
+
+def test_window_commands_carry_the_mode_and_size(tmp_path) -> None:
+    from ui.window import WindowProcess
+
+    orb = WindowProcess("http://127.0.0.1:1/#t=x", state_path=tmp_path / "o.json", mode="orb", size=150)
+    chat = WindowProcess("http://127.0.0.1:1/chat#t=x", state_path=tmp_path / "c.json", mode="chat", on_top=False)
+    o, c = orb.command(), chat.command()
+    assert o[o.index("--mode") + 1] == "orb" and o[o.index("--size") + 1] == "150" and "--on-top" in o
+    assert c[c.index("--mode") + 1] == "chat" and "--on-top" not in c
+
+
+async def test_new_chat_starts_fresh_clears_views_and_opens_the_chat_page(assistant, monkeypatch) -> None:
+    from core.runtime import WebBridge
+
+    a = assistant
+    a._loop = asyncio.get_running_loop()
+    fresh, opened, events = [], [], []
+    monkeypatch.setattr(a.session, "new_conversation", lambda: fresh.append(1))
+    monkeypatch.setattr(a.chat_proc, "start", lambda: opened.append(1))
+    a.bus.subscribe(events.append)
+    assert WebBridge(a).control("new_chat")
+    await asyncio.sleep(0.01)
+    assert fresh == [1] and opened == [1]
+    assert any(e.kind == "conversation" and e.data == {"action": "new"} for e in events)
+    monkeypatch.setattr(type(a.chat_proc), "alive", property(lambda self: True))
+    a.open_chat()  # already open: it's asked to come forward instead
+    assert opened == [1] and events[-1].kind == "focus" and events[-1].data == {"target": "chat"}
+
+
+def test_quick_actions_come_from_the_config(assistant) -> None:
+    from core.runtime import WebBridge
+
+    assistant.config["web_ui"]["quick_actions"] = ["What's on my screen?", "x" * 200]
+    snap = WebBridge(assistant).snapshot()
+    assert snap["quick_actions"][0] == "What's on my screen?" and len(snap["quick_actions"][1]) == 80

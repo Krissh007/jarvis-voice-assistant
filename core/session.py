@@ -23,6 +23,10 @@ AUDIO_MIME = "audio/pcm;rate=16000"
 OUTGOING_MAX = 25  # ~2 s of mic audio; older chunks are dropped while reconnecting
 
 
+class _NewConversation(Exception):
+    """Ends the current connection so the next one starts a fresh conversation (no resumption)."""
+
+
 class SessionEvents(Protocol):
     def on_audio(self, pcm: bytes) -> None: ...
     def on_interrupted(self) -> None: ...
@@ -143,6 +147,13 @@ class LiveSession:
         """Add an app message to the conversation, in order, and let the model respond to it."""
         self._outgoing.put_nowait(("notice", text))
 
+    def new_conversation(self) -> None:
+        """Forget the conversation so far: reconnect without the resumption handle, so the model starts
+        fresh (a new chat). Anything already queued is sent first."""
+        self.resume_handle = None
+        if self.connected.is_set():
+            self._outgoing.put_nowait(("new_conversation", None))
+
     def activity_start(self) -> None:
         self._outgoing.put_nowait(("activity_start", None))
 
@@ -159,6 +170,9 @@ class LiveSession:
                 log.info("connection ended cleanly; resuming")
             except asyncio.CancelledError:
                 raise
+            except _NewConversation:
+                self.resume_handle = None
+                log.info("starting a new conversation")
             except Exception as exc:
                 self.connected.clear()
                 self._consecutive_failures += 1
@@ -180,12 +194,18 @@ class LiveSession:
             self.connected.set()
             log.info("connected (resumed=%s)", self.resume_handle is not None)
             sender = asyncio.create_task(self._send_loop(session))
+            receiver = asyncio.create_task(self._receive_loop(session))
             try:
-                await self._receive_loop(session)
+                # The receiver ends on GoAway (or raises if the socket dies); the sender ends only to start
+                # a new conversation (or raises if sending fails). Either way this connection is over.
+                done, _ = await asyncio.wait({sender, receiver}, return_when=asyncio.FIRST_COMPLETED)
             finally:
                 self.connected.clear()
-                sender.cancel()
-                await asyncio.gather(sender, return_exceptions=True)
+                for task in (sender, receiver):
+                    task.cancel()
+                await asyncio.gather(sender, receiver, return_exceptions=True)
+            for task in done:
+                task.result()  # re-raise what ended it
 
     async def _send_loop(self, session: Any) -> None:
         while True:
@@ -200,6 +220,8 @@ class LiveSession:
                 await session.send_realtime_input(activity_end=types.ActivityEnd())
             elif kind == "tool_response":
                 await session.send_tool_response(function_responses=payload)
+            elif kind == "new_conversation":
+                raise _NewConversation()
             elif kind == "notice":
                 await session.send_client_content(
                     turns=types.Content(role="user", parts=[types.Part(text=payload)]), turn_complete=True

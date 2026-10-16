@@ -1,88 +1,81 @@
-/* JARVIS's window is transparent: only the orb, the typing box and the sections around the orb are drawn,
+/* The orb window is transparent: only the orb (and, when opened, the control centre around it) is drawn,
    and the desktop shows through everywhere else. */
 :root {
   --text: #d8f0fb;
   --dim: #8fb2c6;
   --title: #7fd3ff;
-  --card: rgba(4, 14, 30, 0.84);
+  --card: rgba(4, 14, 30, 0.86);
   --edge: rgba(80, 190, 255, 0.38);
   --glow: rgba(0, 120, 255, 0.28);
   --warn: #f0a830;
   --bad: #ff5a64;
-  --good: #3ccf8e;
   color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; color: var(--text);
-  font: 14px/1.45 "Segoe UI", system-ui, sans-serif; user-select: none; }
+  font: 13px/1.45 "Segoe UI", system-ui, sans-serif; user-select: none; }
 body.backdrop { background: radial-gradient(circle at 20% 15%, #1b1f3a 0, transparent 45%),
   radial-gradient(circle at 85% 85%, #0b3a45 0, transparent 50%), #0a0f18; }   /* previews in a normal browser */
 
 #stage { position: absolute; inset: 0; }
-h2 { margin: 0 0 6px; font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--title); }
+h2 { margin: 0 0 5px; font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--title); }
 .dim { color: var(--dim); }
 button { font: inherit; color: var(--text); cursor: pointer; }
 button:focus-visible, input:focus-visible { outline: 2px solid #4fc3ff; outline-offset: 2px; }
 
 /* ---------------------------------------------------------------- the orb */
-#orb { position: absolute; width: 400px; height: 400px; transform: translate(-50%, -50%); cursor: pointer; }
+#orb { position: absolute; transform: translate(-50%, -50%); cursor: pointer; }
 
-/* ---------------------------------------------------------------- the typing box (always under the orb) */
-#composer { position: absolute; width: 380px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px;
-  padding: 6px 8px; border-radius: 999px; background: var(--card); border: 1px solid var(--edge);
-  box-shadow: 0 0 22px var(--glow); }
+/* ---------------------------------------------------------------- the control centre (double-tap) */
+#centre[hidden] { display: none; }
+#centre > * { animation: rise .3s ease-out; }
+@keyframes rise { from { opacity: 0; transform: translate(-50%, 6px) scale(.97); } }
+.round { position: absolute; width: 48px; height: 48px; border-radius: 50%; transform: translate(-50%, -50%); font-size: 10px;
+  line-height: 1.1; padding: 0; background: var(--card); border: 1px solid var(--edge); box-shadow: 0 0 14px var(--glow);
+  animation: pop .3s ease-out; }
+@keyframes pop { from { opacity: 0; transform: translate(-50%, -50%) scale(.6); } }
+.round:hover { border-color: #4fc3ff; }
+.round.red { border-color: var(--bad); }
+.round.accent { border-color: #4fc3ff; background: rgba(8, 60, 110, .9); }
+.round.on { background: rgba(120, 20, 30, .85); border-color: var(--bad); }
+
+#composer { position: absolute; width: 320px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px;
+  padding: 5px 7px; border-radius: 999px; background: var(--card); border: 1px solid var(--edge); box-shadow: 0 0 20px var(--glow); }
 #input { flex: 1; min-width: 0; font: inherit; color: var(--text); background: transparent; border: 0; outline: none;
-  padding: 6px 4px; user-select: text; }
+  padding: 5px 4px; user-select: text; }
 #input::placeholder { color: var(--dim); }
-.icon { width: 32px; height: 32px; flex: none; border-radius: 50%; border: 1px solid var(--edge); background: rgba(10, 40, 70, .6);
+.icon { width: 28px; height: 28px; flex: none; border-radius: 50%; border: 1px solid var(--edge); background: rgba(10, 40, 70, .6);
   display: grid; place-items: center; padding: 0; }
 .icon:hover { border-color: #4fc3ff; }
-.mic { width: 10px; height: 15px; border-radius: 6px; background: #8fe0ff; box-shadow: 0 0 8px #3fb6ff; }
-.spk { width: 0; height: 0; border-top: 7px solid transparent; border-bottom: 7px solid transparent; border-right: 11px solid #8fe0ff; }
+.mic { width: 8px; height: 13px; border-radius: 5px; background: #8fe0ff; box-shadow: 0 0 8px #3fb6ff; }
+.spk { width: 0; height: 0; border-top: 6px solid transparent; border-bottom: 6px solid transparent; border-right: 10px solid #8fe0ff; }
 .toggle[aria-pressed="false"] { opacity: .45; }
-#status { position: absolute; width: 380px; transform: translateX(-50%); text-align: center; font-size: 12px; min-height: 18px;
-  text-shadow: 0 0 6px #000; transition: opacity .4s; }
+
+#quick { position: absolute; width: 440px; transform: translateX(-50%); display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.chip { font-size: 11.5px; padding: 4px 11px; border-radius: 999px; background: var(--card); border: 1px solid var(--edge); }
+.chip:hover { border-color: #4fc3ff; }
+#status { position: absolute; width: 360px; transform: translateX(-50%); text-align: center; font-size: 11px; min-height: 16px;
+  text-shadow: 0 0 6px #000; }
 
 /* ---------------------------------------------------------------- sections around the orb */
-.card { position: absolute; width: 270px; max-height: 190px; padding: 10px 12px; border-radius: 14px; background: var(--card);
-  border: 1px solid var(--edge); box-shadow: 0 0 24px var(--glow); overflow: hidden;
+.card { position: absolute; width: 220px; max-height: 170px; padding: 9px 11px; border-radius: 13px; background: var(--card);
+  border: 1px solid var(--edge); box-shadow: 0 0 22px var(--glow); overflow: hidden;
   transform: translate(-50%, -50%) scale(1); opacity: 1; transition: transform .35s cubic-bezier(.2,.9,.3,1.2), opacity .3s,
   left .4s ease, top .4s ease; }
 .card.enter { transform: translate(-50%, -50%) scale(.6); opacity: 0; }
 .card.leave { transform: translate(-50%, -50%) scale(.85); opacity: 0; }
 .card p { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; user-select: text; }
-.card .you { color: var(--dim); font-size: 12px; margin-bottom: 4px; }
-.card .reply { max-height: 130px; overflow-y: auto; }
-.card.warn { border-color: var(--warn); box-shadow: 0 0 24px rgba(240, 168, 48, .25); }
+.card .you { color: var(--dim); font-size: 11.5px; margin-bottom: 3px; }
+.card .reply { max-height: 120px; overflow-y: auto; }
+.card.warn { border-color: var(--warn); box-shadow: 0 0 22px rgba(240, 168, 48, .25); }
 .card.warn h2 { color: var(--warn); }
-.card img { display: block; width: 100%; max-height: 150px; object-fit: contain; border-radius: 8px; margin: 4px 0; }
-.card.media { max-height: 250px; }
-.card.media p { font-size: 12px; }
-.row { display: flex; gap: 8px; margin-top: 10px; }
-.pill { font-size: 12px; border-radius: 999px; padding: 5px 16px; border: 1px solid rgba(80, 190, 255, .55); background: rgba(0, 80, 140, .4); }
+.card.media { max-height: 220px; }
+.card img { display: block; width: 100%; max-height: 130px; object-fit: contain; border-radius: 8px; margin: 3px 0; }
+.card.media p { font-size: 11px; }
+.row { display: flex; gap: 8px; margin-top: 9px; }
+.pill { font-size: 11.5px; border-radius: 999px; padding: 4px 14px; border: 1px solid rgba(80, 190, 255, .55); background: rgba(0, 80, 140, .4); }
 .pill.yes { background: #0b6a9e; border-color: #2bb6ff; }
 .pill:hover { filter: brightness(1.2); }
-.steps { list-style: none; margin: 0; padding: 0; }
-.steps li { font-size: 12px; padding: 3px 0 3px 9px; border-left: 2px solid var(--edge); margin-bottom: 4px; overflow-wrap: anywhere; }
-.steps li.running { border-left-color: #4fc3ff; }
-.steps li.done { border-left-color: var(--good); }
-.steps li.wait { border-left-color: var(--warn); }
-.steps li.failed { border-left-color: var(--bad); }
-.steps li .detail { display: block; color: var(--dim); }
-.play { display: inline-block; width: 0; height: 0; margin-right: 8px; border-top: 7px solid transparent;
-  border-bottom: 7px solid transparent; border-left: 11px solid #8fe0ff; vertical-align: middle; }
-
-/* ---------------------------------------------------------------- the full panel (click the orb) */
-#panel[hidden] { display: none; }
-.card.big { width: 300px; max-height: 420px; }
-.scroll { max-height: 370px; overflow-y: auto; }
-#history .msg { padding: 5px 9px; border-radius: 10px; background: rgba(20, 50, 80, .5); margin-bottom: 5px; font-size: 13px;
-  overflow-wrap: anywhere; user-select: text; }
-#history .msg.user { margin-left: 22px; background: rgba(10, 70, 120, .55); }
-#history .meta { display: block; font-size: 10px; color: var(--dim); }
-.round { position: absolute; width: 54px; height: 54px; border-radius: 50%; transform: translate(-50%, -50%); font-size: 11px;
-  background: var(--card); border: 1px solid var(--edge); box-shadow: 0 0 16px var(--glow); }
-.round:hover { border-color: #4fc3ff; }
-.round.red { border-color: var(--bad); }
-.round.on { background: rgba(120, 20, 30, .85); border-color: var(--bad); }
+.play { display: inline-block; width: 0; height: 0; margin-right: 7px; border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent; border-left: 10px solid #8fe0ff; vertical-align: middle; }

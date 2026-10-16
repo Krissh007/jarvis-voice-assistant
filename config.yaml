@@ -69,13 +69,19 @@ window:                         # used when features.window is true
   close_button: quit            # the window's X: quit JARVIS, or "hide" to keep it running in the tray
   speak_typed_replies: true     # JARVIS says its answers to typed messages aloud (also in the window's menu)
 
-web_ui:                         # used when features.web_ui is true: the orb window, a local web page (ui/)
+web_ui:                         # used when features.web_ui is true: the orb and the chat page (ui/)
   port: 0                       # 0 = any free port; always 127.0.0.1, and every connection needs the launch's token
-  window: true                  # show it (a see-through Qt window: only the orb, typing box and sections are drawn)
-  width: 1180                   # the window's area; outside the orb and sections clicks go to whatever is behind
-  height: 860
+  window: true                  # show the orb: tap = talk, double-tap = control centre, drag it anywhere
+  orb_size: 160                 # how big the orb looks, in pixels
   always_on_top: true
-  close_button: quit            # closing the window (Alt+F4) quits JARVIS, or "hide" keeps it running in the tray
+  close_button: quit            # closing the orb (Alt+F4) quits JARVIS, or "hide" keeps it running in the tray
+  quick_actions:                # buttons in the control centre; each sends its text to JARVIS
+    - "What's on my screen?"
+    - "Play some music"
+    - "What are my reminders?"
+    - "How's my job search going?"
+  chat_width: 1100              # the chat page's window ("New chat"), first time; then it remembers
+  chat_height: 760
 
 audio:
   transcription_languages: [en-IN]   # BCP-47 hints for your speech; [] = auto-detect
@@ -223,5 +229,5 @@ features:
   morning_briefing: false
   tray: true                    # tray icon: click to talk, Stop, Mute, Quit
   window: false                 # the older Tk window (orb, captions, typing box); used only when web_ui is off
-  web_ui: true                  # the orb window: sections around the orb, full panel on click, typing box
+  web_ui: true                  # the orb (quick-action control centre) and the chat page (New chat)
   wake_word: true

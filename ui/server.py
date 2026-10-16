@@ -39,12 +39,12 @@ STATIC = Path(__file__).resolve().parent / "static"
 # Windows' registry often maps .js to text/plain, and with nosniff the browser then won't run it.
 for _type, _ext in (("text/javascript", ".js"), ("text/css", ".css"), ("text/html", ".html")):
     mimetypes.add_type(_type, _ext)
-ACTIONS = {"talk", "sleep", "mute", "stop", "confirm", "cancel"}
+ACTIONS = {"talk", "sleep", "mute", "stop", "confirm", "cancel", "new_chat", "open_chat"}
 MAX_MESSAGE_BYTES = 8000  # one WebSocket message from the page (chat is limited to 2000 characters)
 LEVEL_FPS = 15  # orb updates
 HISTORY_KINDS = {"message", "tool_started", "tool_finished", "confirm_requested", "confirm_resolved"}
 HISTORY_MAX = 150
-STREAM_KINDS = HISTORY_KINDS | {"partial", "state", "status", "focus", "media"}  # media: not kept as history
+STREAM_KINDS = HISTORY_KINDS | {"partial", "state", "status", "focus", "media", "conversation"}
 
 
 class Bridge(Protocol):
@@ -89,8 +89,12 @@ def create_app(bridge: Bridge, token: str, port: int) -> FastAPI:
         return response
 
     @app.get("/")
-    async def index():
+    async def index():  # the orb: JARVIS's control centre
         return FileResponse(STATIC / "index.html", media_type="text/html")
+
+    @app.get("/chat")
+    async def chat():  # the complete chat page
+        return FileResponse(STATIC / "chat.html", media_type="text/html")
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
@@ -106,7 +110,7 @@ def create_app(bridge: Bridge, token: str, port: int) -> FastAPI:
         await socket_.accept()
         log.info("web UI connected")
         stream = bridge.bus.stream(kinds=STREAM_KINDS)
-        history = [e.to_dict() for e in bridge.bus.recent(HISTORY_KINDS)][-HISTORY_MAX:]
+        history = [e.to_dict() for e in current_conversation(bridge.bus)][-HISTORY_MAX:]
         await socket_.send_text(_dumps({"kind": "hello", "snapshot": bridge.snapshot(), "history": history}))
         tasks = [asyncio.create_task(_send_events(socket_, stream)),
                  asyncio.create_task(_send_levels(socket_, bridge))]
@@ -124,6 +128,13 @@ def create_app(bridge: Bridge, token: str, port: int) -> FastAPI:
             log.info("web UI disconnected")
 
     return app
+
+
+def current_conversation(bus: EventBus) -> list:
+    """The history since the last "new chat" (earlier conversations aren't shown again)."""
+    events = bus.recent(HISTORY_KINDS | {"conversation"})
+    starts = [i for i, e in enumerate(events) if e.kind == "conversation"]
+    return events[starts[-1] + 1:] if starts else events
 
 
 def _handle(bridge: Bridge, text: str) -> None:
@@ -176,8 +187,13 @@ class WebUI:
 
     @property
     def url(self) -> str:
-        """The page's address, with the token in the #fragment (pass it only to JARVIS's own window)."""
+        """The orb page's address, with the token in the #fragment (pass it only to JARVIS's own windows)."""
         return f"http://127.0.0.1:{self.port}/#t={self.token}"
+
+    @property
+    def chat_url(self) -> str:
+        """The complete chat page's address (same token)."""
+        return f"http://127.0.0.1:{self.port}/chat#t={self.token}"
 
     async def serve(self) -> None:
         import uvicorn

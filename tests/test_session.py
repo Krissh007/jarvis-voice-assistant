@@ -170,3 +170,24 @@ def test_a_pause_mid_sentence_does_not_end_the_turn() -> None:
     assert vad.end_of_speech_sensitivity == types.EndSensitivity.END_SENSITIVITY_LOW
     default = build_live_config(system_instruction="x", voice=None, push_to_talk=False, resume_handle=None)
     assert default.realtime_input_config.automatic_activity_detection.silence_duration_ms is None
+
+
+async def test_new_conversation_reconnects_without_the_old_context() -> None:
+    client = fl.FakeClient([[fl.resumption("h1")], []])
+    session = make_session(client)
+    task = asyncio.create_task(session.run())
+    await asyncio.wait_for(session.connected.wait(), 1)
+    await asyncio.sleep(0.05)
+    assert session.resume_handle == "h1"
+    session.send_text("before")
+    session.new_conversation()
+    for _ in range(40):
+        if len(client.connects) == 2:
+            break
+        await asyncio.sleep(0.02)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert len(client.connects) == 2
+    assert client.connects[1]["config"].session_resumption.handle is None  # a fresh conversation
+    assert client.sessions[0].sent == [{"text": "before"}]  # what was queued first still went out

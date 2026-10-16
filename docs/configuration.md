@@ -59,10 +59,12 @@ Values that are left as comments or blank are ignored.
 | Setting | Default | Meaning |
 |---|---|---|
 | `web_ui.port` | `0` | The web window's port on 127.0.0.1 (`0` = any free port). Every connection needs this launch's random token |
-| `web_ui.window` | `true` | Show the orb window (see-through, Qt WebEngine); `false` = tray only |
-| `web_ui.width` / `web_ui.height` | `1180` / `860` | The window's area. Outside the orb and its sections, clicks go through to whatever is behind. It opens at the top centre and remembers where you drag it (`data/web_window.json`) |
+| `web_ui.window` | `true` | Show the orb (tap = talk, double-tap = control centre, drag anywhere); `false` = tray only |
+| `web_ui.orb_size` | `160` | How big the orb looks, in pixels |
+| `web_ui.quick_actions` | 4 examples | Buttons in the control centre; each sends its text to JARVIS (up to 8, 80 characters) |
+| `web_ui.chat_width` / `web_ui.chat_height` | `1100` / `760` | The chat page's window the first time; then it remembers |
 | `web_ui.always_on_top` | `true` | Keep the orb above other windows |
-| `web_ui.close_button` | `quit` | Closing the orb window (Alt+F4) quits JARVIS, or `hide` keeps it running in the tray |
+| `web_ui.close_button` | `quit` | Closing the orb (Alt+F4) quits JARVIS, or `hide` keeps it running in the tray |
 | `window.always_on_top` | `true` | The older Tk window (`features.window`, used only when `web_ui` is off): keep it above others |
 | `window.opacity` | `1.0` | Below 1 lets windows behind show through |
 | `window.close_button` | `quit` | The X quits JARVIS, or `hide` keeps it running in the tray |
@@ -130,7 +132,7 @@ Values that are left as comments or blank are ignored.
 
 Each entry under `features:` switches a whole module on or off: `system`, `web`, `browser`,
 `reasoning`, `media`, `app_ui` (off by default), `screen`, `clipboard`, `files`, `desktop`, `memory`, `reminders`, `job_search`, `agent_hub` (needs the Hub running), `agent_mode`, `morning_briefing`
-(off by default), `tray`, `web_ui` (the web window: orb, chat, activity, confirmations), `window` (the
+(off by default), `tray`, `web_ui` (the orb control centre and the chat page), `window` (the
 older Tk window, off; used only when `web_ui` is off) and `wake_word`. `test_tools` exposes two tools used only to
 test the safety layer; it's off, and the test suite turns it on itself.
 

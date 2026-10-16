@@ -284,3 +284,30 @@ options, then supplied a reference image, and the result works like this:
   - 816 tests pass in the worktree.
 - Dependencies: `pyside6-essentials`, `pyside6-webengine` (about 400 MB in the venv on E:); `pywebview`
   removed.
+
+## The orb as a control centre, and a chat page (17 October 2026)
+
+At the user's request, the orb became a small quick-action control centre, and the full interface moved
+to its own chat page:
+- **Orb:** idle, it's only the orb, about 160 px (`web_ui.orb_size`). It opens near the top right the
+  first time and can be dragged anywhere; it stays where it's left.
+- **Tap / double-tap:** a tap talks. A double-tap opens the control centre around the orb: Talk, Mute,
+  New chat, Stop and Sleep, a typing box under it, and quick-action chips (`web_ui.quick_actions`).
+- **Sections:** the answer, a confirmation, a picture and what's playing appear around the orb while
+  talking. Double-tap, Esc or sleep closes it back to the orb. Near a screen edge the orb eases inward
+  while open, and goes back when it closes.
+- **Removed from the orb:** the conversation, activity and vision panels, and the "working on it"
+  section.
+- **New chat** starts a fresh conversation (the Live session reconnects without its resumption handle),
+  clears every view, and opens the complete chat page (`/chat`) in its own normal window. The page shows
+  a small orb and controls, the conversation with confirmations and pictures inline, then activity and
+  vision.
+- The orb's lines and glows now scale with its size, so it stays crisp small. Before, it washed out into
+  a white blob.
+- **Checks:**
+  - Live (headless): the control centre, sections around the orb, a confirmation from the chat page, and
+    New chat starting a fresh conversation.
+  - On the real desktop: closed orb at the top right with clicks going around it; double-tap opening and
+    keeping the orb on screen; New chat opening the chat window; double-tap closing it back to its
+    place.
+  - 823 tests pass in the worktree.

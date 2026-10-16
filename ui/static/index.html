@@ -8,28 +8,25 @@
 </head>
 <body>
   <div id="stage">
-    <canvas id="orb" width="800" height="800" aria-label="JARVIS. Click for the full panel, double-click to clear, drag to move."></canvas>
+    <canvas id="orb" aria-label="JARVIS. Tap to talk, double-tap for the control centre, drag to move."></canvas>
     <div id="sections" aria-live="polite"></div>
-
-    <div id="panel" hidden>
-      <div class="ring-buttons">
+    <div id="centre" hidden>
+      <div id="ring">
         <button data-action="talk" class="round" title="Talk (Ctrl+Alt+Space)">Talk</button>
-        <button data-action="sleep" class="round" title="Go to sleep">Sleep</button>
         <button data-action="mute" class="round" id="mute" title="Mute the microphone (Ctrl+Alt+M)">Mute</button>
+        <button data-action="new_chat" class="round accent" title="Start a new chat in the full chat window">New chat</button>
         <button data-action="stop" class="round red" title="Stop (Ctrl+Alt+S)">Stop</button>
+        <button data-action="sleep" class="round" title="Go to sleep">Sleep</button>
       </div>
-      <section class="card big" id="history-card"><h2>Conversation</h2><div id="history" class="scroll"></div></section>
-      <section class="card big" id="activity-card"><h2>Activity</h2><ol id="activity" class="scroll steps"></ol></section>
-      <section class="card" id="vision-card"><h2>Vision</h2><p class="dim">Off. JARVIS only looks at your screen when you ask it to.</p></section>
+      <form id="composer" autocomplete="off">
+        <button type="button" id="talk" class="icon" title="Talk to JARVIS" aria-label="Talk"><span class="mic"></span></button>
+        <input id="input" maxlength="2000" placeholder="Ask JARVIS to do something…" aria-label="Message to JARVIS">
+        <button type="button" id="speak" class="icon toggle" title="Speak replies aloud" aria-pressed="true" aria-label="Speak replies">
+          <span class="spk"></span></button>
+      </form>
+      <div id="quick" aria-label="Quick actions"></div>
+      <div id="status" class="dim"></div>
     </div>
-
-    <form id="composer" autocomplete="off">
-      <button type="button" id="talk" class="icon" title="Talk to JARVIS" aria-label="Talk"><span class="mic"></span></button>
-      <input id="input" maxlength="2000" placeholder="Type to JARVIS…" aria-label="Message to JARVIS">
-      <button type="button" id="speak" class="icon toggle" title="Speak replies aloud" aria-pressed="true" aria-label="Speak replies">
-        <span class="spk"></span></button>
-    </form>
-    <div id="status" class="dim"></div>
   </div>
   <script src="/static/orb.js"></script>
   <script src="/static/app.js"></script>

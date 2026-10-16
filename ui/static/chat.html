@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JARVIS · Chat</title>
+  <link rel="stylesheet" href="/static/chat.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="side">
+      <div class="brand"><canvas id="orb" aria-hidden="true"></canvas><div><b>JARVIS</b><span id="state">Connecting…</span></div></div>
+      <button data-action="new_chat" class="primary wide">New chat</button>
+      <div class="controls">
+        <button data-action="talk" title="Talk (Ctrl+Alt+Space)">Talk</button>
+        <button data-action="mute" id="mute" title="Mute the microphone (Ctrl+Alt+M)">Mute</button>
+        <button data-action="stop" title="Stop (Ctrl+Alt+S)">Stop</button>
+        <button data-action="sleep" title="Go to sleep">Sleep</button>
+      </div>
+      <p class="hint">Voice and typing share one conversation. Everything here also works by voice: "hey jarvis".</p>
+    </aside>
+
+    <main class="chat">
+      <div id="messages" class="messages" aria-live="polite"></div>
+      <form id="composer" class="composer" autocomplete="off">
+        <textarea id="input" rows="1" maxlength="2000" placeholder="Message JARVIS…" aria-label="Message to JARVIS"></textarea>
+        <label class="toggle" title="Also say the answer aloud"><input type="checkbox" id="speak"> Speak</label>
+        <button type="submit" class="primary">Send</button>
+      </form>
+    </main>
+
+    <aside class="panels">
+      <section class="panel">
+        <h2>Activity</h2>
+        <ol id="steps" class="steps"></ol>
+        <p id="steps-empty" class="dim">Tools JARVIS runs and the steps of a plan appear here.</p>
+      </section>
+      <section class="panel">
+        <h2>Vision</h2>
+        <p class="dim" id="vision">Off. JARVIS only looks at your screen when you ask it to. The pictures it took show up in the chat.</p>
+      </section>
+    </aside>
+  </div>
+  <footer class="footer"><span id="conn" class="conn off"></span><span id="status" class="dim"></span></footer>
+  <script src="/static/orb.js"></script>
+  <script src="/static/chat.js"></script>
+</body>
+</html>

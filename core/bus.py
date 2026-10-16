@@ -18,7 +18,8 @@ Kinds (data fields):
 - state: state ("starting", "asleep", "listening", "speaking", "working", "muted")
 - notice: text, the first line of a [system notice] sent to the model
 - status: text, problem, a line for the console such as "(awake)"
-- focus: (no data) a second launch asked for the window; the web UI brings itself to the front
+- focus: target (None = the orb, "chat" = the chat page), a window should come to the front
+- conversation: action ("new"), a new chat started; views clear their conversation
 - media: type ("image"), title, caption, data (a data: URL), a picture a tool showed; never kept in history
 
 `channel` says which conversation side an event belongs to: "voice", "chat", or None for the app itself.
