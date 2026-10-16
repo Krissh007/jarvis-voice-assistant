@@ -32,6 +32,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="put a JARVIS icon on the desktop that starts JARVIS, then exit")
     parser.add_argument("--mic", metavar="NAME",
                         help='use this microphone (part of its name, e.g. "Nord Buds") instead of audio.input_device')
+    parser.add_argument("--bench-apps", action="store_true",
+                        help="measure how fast JARVIS reads each open app (read-only, shows no app text), then exit")
     parser.add_argument("--browser-login", action="store_true",
                         help="open JARVIS's Chrome profile normally so you can sign in to YouTube once")
     return parser.parse_args(argv)
@@ -135,6 +137,10 @@ def main(argv: list[str] | None = None) -> int:
         from core.mictest import run_mic_test
 
         return run_mic_test(config)
+    if args.bench_apps:
+        from core.desktop_bench import run_benchmark
+
+        return run_benchmark(config)
     if args.browser_login:
         return browser_login()
     load_dotenv(ROOT / ".env")

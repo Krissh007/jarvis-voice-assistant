@@ -106,6 +106,15 @@ turns the microphone on. **Up** and **Down** bring back earlier messages, and **
 | "Close the music player" | Closes the YouTube Music app |
 | "Open naukri.com" | Opens it in JARVIS's browser (asks first for sites not on your trusted list) |
 | "What's on my screen?" | Looks once, with private windows blacked out |
+| "Think it through: should I buy an inverter AC?" / a maths or logic puzzle | Thinks carefully first (and searches the web when it needs current facts) |
+| "Read me Claude's reply" / "What does Notepad say?" | Reads the text in that app (never browsers or password fields) |
+| "What can I click here?" | Lists the buttons and fields in the app you're using |
+| "Type 'see you at six' in Notepad" | Types it where the cursor is (your clipboard is put back) |
+| "Ask Claude what a monad is" | Types the question into Claude, sends it, and can read you the answer |
+| "Click New chat" / "Press Ctrl+N" / "Scroll down" | Acts in the app you're using |
+| "Put Notepad on the left half" / "Minimise Spotify" | Moves the window |
+| "Ask Claude to explain monads and read me the answer" | Sends it, waits for Claude to finish, reads the reply |
+| "Open Notepad and write a shopping list: milk, eggs, bread" | Reads the plan, then does it after one "yes" |
 | "Translate what I copied into Telugu" | Reads it aloud in Telugu |
 | "Fix what I copied" | Rewrites it, reads a preview, replaces the clipboard after you confirm |
 | "Research X, open its official page and tell me the price" | Reads a plan and waits for one "yes" |
@@ -200,6 +209,27 @@ installed YouTube Music app. Without the app, it plays them in JARVIS's browser.
 them to you, and runs them only after you confirm. It never reads text inside apps, never touches
 password, account or settings controls, and never saves (Ctrl+S).
 
+**Reading apps.** JARVIS can read the text, buttons and fields of an open app through Windows UI
+Automation, without a screenshot. Name the app, or say "it" for the one you last asked about (or
+the one in front). It won't read password managers, web browsers, Windows Settings or Security,
+sign-in prompts, or windows whose title looks private, and it never reads password or payment
+fields. A minimised app has nothing on screen to read.
+
+**Typing in apps.** JARVIS types where the cursor is, or into a field you name. It asks first before
+pressing Enter (except in AI chat apps like Claude), before typing into a terminal, and after it has
+read text from an app or page in the same request. It never types into password or payment fields.
+
+**Clicking and keys.** Name a button ("click New chat") or use a number JARVIS read out. If it can't
+find the name, it asks "did you mean...?". Buttons such as Delete, Send, Save or Pay, and keys that save,
+close or print, ask first. Account and sign-out buttons are never clicked, and Windows-key shortcuts
+are never pressed. Windows can be minimised, maximised, restored, brought to the front, or snapped to
+the left or right half of the screen.
+
+**Several steps in apps.** For tasks such as opening an app, writing something and saving it, JARVIS
+reads a numbered plan with the exact words it will type, then runs it after one "yes". Saving,
+deleting and other risky steps still ask on their own. After sending a message to an AI chat app,
+it waits until the reply stops changing (up to a minute) and reads only the new text.
+
 **Screen and clipboard.** The screen is captured once per request, kept in memory only, with private
 windows blacked out. Copied text that looks like a secret is never sent anywhere.
 
@@ -223,15 +253,24 @@ The LinkedIn resume upload status still comes from `job_search.sync_dir`. JobPil
 (`E:\JobPilot\scripts\run_api.ps1`); if it isn't, JARVIS says so. It only reads: it never changes a
 status, approves or applies.
 
-**Agent Hub.** Off by default (`features.agent_hub: true`). The Hub is a separate program
-(`E:gent-hub`) that runs the job search and dashboard agents in the background. Say "any new
-jobs?" or "refresh my dashboard" and JARVIS answers at once ("On it") and speaks the result when it's
-ready, without interrupting a conversation. Ask "how's that going?" for progress. Anything that sends
+**Agent Hub.** On (`features.agent_hub: true`). Start the Hub before JARVIS, once per boot:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File E:\agent-hub\scripts\start_all.ps1
+```
+
+It starts the JobPilot API (port 8000), JobPilot's MCP server (8766) and the Hub (8765), skipping any
+that are already running; add `-Stop` to stop what it started. JARVIS's `AGENT_HUB_TOKEN` in `.env`
+must equal `HUB_TOKEN` in `E:\agent-hub\.env`. The Hub is a separate
+program (`E:\agent-hub`) that runs JobPilot's agents in the background. Ask "what's on my
+shortlist?", "what's waiting for my approval?", "run a new job search", "approve the Infosys
+application" or "skip the Wipro one", and JARVIS answers at once ("On it") and speaks the result
+when it's ready, without interrupting a conversation. Ask "how's that going?" for progress. Anything that sends
 or submits (for example applying to a job) makes JARVIS read out what it is about to do and wait for
 your yes, like any other confirmation; "no" or silence releases it. If you're asleep when a result
 arrives, you get a Windows notification and JARVIS says it when you next wake it. The Hub must be
-running and `AGENT_HUB_TOKEN` set in `.env`; if not, JARVIS says so. "How's my job search?" still
-reads JobPilot (above); the Hub is for doing things.
+running and `AGENT_HUB_TOKEN` set in `.env`; if not, JARVIS says so. "How's my job search going?"
+still gives the quick summary from JobPilot (above).
 
 **Morning briefing.** This is off by default; turn it on with `features.morning_briefing: true`. On
 your first launch each day you get a spoken summary of under 45 seconds: the date, the weather (set
@@ -298,6 +337,13 @@ The wake word runs offline, using openWakeWord's `hey_jarvis` model.
 
 **A song doesn't play in the YouTube Music app**
 - JARVIS finds the app from its Start-menu shortcut. If you reinstalled the app, restart JARVIS.
+
+**JARVIS can't find a button, or an app feels slow**
+- Run `.\run.bat --bench-apps` with the app open. It shows, for each open app, how many buttons and
+  fields JARVIS can see and how long a read takes. It never clicks or types, and shows no app text.
+- An app with very few controls doesn't support UI Automation well. Use "what's on my screen?" there.
+- Say "what can I click here?" to hear the names JARVIS sees, then use one of those names or numbers.
+- A minimised app has nothing on screen: say "restore Notepad" first.
 
 **Nothing appears after clicking the icon**
 - Wait about 10 seconds, then check `logs/console.txt` and `logs/app.log`. For a live view, start

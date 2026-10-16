@@ -129,7 +129,8 @@ The action modules (`actions/`), in load order:
 | `web` | search, read page, weather, save research |
 | `browser` | browser open, site search, read current page, close, play YouTube, browser task |
 | `media` | play music, media keys and close, music volume, now playing |
-| `app_ui` | UI Automation steps for apps without their own tool |
+| `app_ui` | Older planned UI Automation steps for allowlisted apps (off by default) |
+| `desktop` | read, type, click, press keys, scroll and move windows in any open app that isn't off-limits |
 | `screen`, `clipboard` | look at the screen, active window, clipboard summarise, translate, explain and fix |
 | `memory`, `reminders` | remember, recall, forget, and set, list and cancel reminders |
 | `agent_hub` | `agent_hub_request`, `agent_hub_status`: hand work to the Agent Hub over MCP, and announce its results |
@@ -145,6 +146,11 @@ a tool or waiting for a yes. Otherwise it is held (saved in `data/agent_hub_held
 shown once. A confirmation the Hub asks for travels as `NeedsConfirmation`, whose `on_cancel` hook
 tells the Hub when the user says no, doesn't answer, or asks for something else.
 
+Long results from tools that opt in (`Tool.condense`: `read_app` except its controls list,
+`wait_for_app`, `job_search_status`) are shortened by `core/condense.py` in `Dispatcher._run`,
+focused on the user's latest request, before being wrapped and returned to the model. Plan steps
+get the full text: the plan's answer step summarises them, and blanks are filled from it.
+
 ## Threads
 
 | Thread | Does |
@@ -154,6 +160,7 @@ tells the Hub when the user says no, doesn't answer, or asks for something else.
 | `denoise` | RNNoise, in order; if it falls behind, blocks pass through raw |
 | `ducking` | all Windows audio-session (COM) calls |
 | `face` | the Tk window; it only *reads* state, and clicks go back to the loop |
+| `uia` | all UI Automation (COM) calls for the desktop tools, so elements found by a read stay usable for focus and clicks |
 | `tray` | pystray's message loop |
 | pynput | global hotkeys |
 

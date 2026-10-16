@@ -87,6 +87,14 @@ Values that are left as comments or blank are ignored.
 | `files.extra_folders` | More folders to search, e.g. `["E:/Projects"]` |
 | `files.also_hide` | More name patterns never listed or opened, e.g. `["*bank*"]` (private-looking names are always hidden) |
 | `files.max_results` | Matches listed per search (default `5`) |
+| `condense.over_chars` | Results from `read_app`, `wait_for_app` and `job_search_status` longer than this (default `1500` characters) are shortened before the Live model sees them |
+| `condense.max_words` | Length of that summary (default `120` words) |
+| `condense.model` | Model tried first for it (default `gemini-3.5-flash-lite`, to spare the main Flash model's daily quota) |
+| `condense.timeout_s` | If summarising takes longer (default `5` s), the start and end of the text are used instead |
+| `reasoning.thinking` | Thinking level for `think_through` calls only (default `high`); the models are the Flash chain |
+| `reasoning.max_tokens` | Longest `think_through` answer before it's cut (default `2000`) |
+| `desktop.max_items` | Buttons, fields and lines `read_app` reads from one window (default `150`) |
+| `desktop.max_chars` | Text read from documents and text boxes, and again from long labels (default `4000`) |
 
 ### Limits
 
@@ -106,7 +114,7 @@ Values that are left as comments or blank are ignored.
 ### Features
 
 Each entry under `features:` switches a whole module on or off: `system`, `web`, `browser`,
-`media`, `app_ui`, `screen`, `clipboard`, `files`, `memory`, `reminders`, `job_search`, `agent_hub` (off by default), `agent_mode`, `morning_briefing`
+`reasoning`, `media`, `app_ui` (off by default), `screen`, `clipboard`, `files`, `desktop`, `memory`, `reminders`, `job_search`, `agent_hub` (needs the Hub running), `agent_mode`, `morning_briefing`
 (off by default), `tray`, `window` and `wake_word`. `test_tools` exposes two tools used only to
 test the safety layer; it's off, and the test suite turns it on itself.
 
@@ -120,6 +128,7 @@ test the safety layer; it's off, and the test suite turns it on itself.
 | `--mic-test` | Show mic level, wake-word scores at several gains, and background noise before and after cleaning |
 | `--mic NAME` | Use a different microphone for this run (part of its name) |
 | `--train-wake` | Record your voice and train the personal wake-word verifier |
+| `--bench-apps` | Measure how fast JARVIS reads each open app, and how many buttons and fields it finds (read-only; shows no app text) |
 | `--browser-login` | Open JARVIS's Chrome profile normally, to sign in to YouTube once |
 | `--install-shortcut` | Create the desktop icon, which starts JARVIS as an app (no terminal) |
 

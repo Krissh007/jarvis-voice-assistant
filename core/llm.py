@@ -79,15 +79,21 @@ class LLM:
         self._cooling: dict[str, float] = {}  # model -> skip until (monotonic time)
 
     async def generate(self, prompt: str, system: str = "", max_tokens: int = 800, json: bool = False,
-                       images: list[bytes] | None = None) -> str:
-        """Return text, trying each model with backoff before falling back. Raises LLMUnavailable."""
+                       images: list[bytes] | None = None, thinking: str | None = None,
+                       start_at: str | None = None) -> str:
+        """Return text, trying each model with backoff before falling back. Raises LLMUnavailable.
+        `thinking` overrides every model's thinking level for this call (e.g. "high" for reasoning);
+        `start_at` tries that model first (if it's in the chain), then the rest in order."""
         system = f"{system}\n\n{UNTRUSTED_RULE}".strip()
-        for i, model in enumerate(self.models):
+        models = self.models
+        if start_at in models:
+            models = [start_at, *(m for m in models if m != start_at)]
+        for i, model in enumerate(models):
             if self._cooling.get(model, 0) > self.clock():
                 continue  # quota used up; don't waste time on it
             try:
                 return await with_backoff(
-                    lambda m=model: self._gemini(m, prompt, system, max_tokens, json, images),
+                    lambda m=model: self._gemini(m, prompt, system, max_tokens, json, images, thinking),
                     is_retryable, retries=self.retries if i == 0 else self.fallback_retries, base_s=self.base_delay_s,
                 )
             except Exception as exc:
@@ -103,11 +109,11 @@ class LLM:
         raise LLMUnavailable(USAGE_LIMIT_MESSAGE)
 
     async def _gemini(self, model: str, prompt: str, system: str, max_tokens: int, json: bool = False,
-                      images: list[bytes] | None = None) -> str:
+                      images: list[bytes] | None = None, thinking: str | None = None) -> str:
         from google.genai import types
 
         await self.buckets[model].acquire()
-        level = self.thinking.get(model)
+        level = thinking.upper() if thinking else self.thinking.get(model)
         try:
             response = await self._call(model, prompt, system, max_tokens, level, json, images)
         except Exception as exc:

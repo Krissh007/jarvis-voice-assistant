@@ -9,6 +9,9 @@
    blanks in the approved plan. Filling a blank picks a value only, and that value still goes through
    the step tool's own tier (a site off the trusted list still asks).
 5. Per-step tiers and taint still apply; the first failure stops the plan and asks the user.
+   A step with no blanks runs with exactly the arguments the user approved, so self-gated tools (the
+   desktop tools) don't ask again just because an earlier step read untrusted text (APPROVED_STEP);
+   their own risky-step checks (Save, Delete, Enter outside chat apps...) still ask.
 """
 
 from __future__ import annotations
@@ -23,7 +26,7 @@ from typing import Any
 from actions.browser import parse_action
 from actions.system import normalize_url
 from core.llm import USAGE_LIMIT_MESSAGE, LLMUnavailable
-from core.registry import NeedsConfirmation, Registry, Tier, Tool, ToolError
+from core.registry import APPROVED_STEP, NeedsConfirmation, Registry, Tier, Tool, ToolError
 from core.untrusted import unwrap, wrap
 
 log = logging.getLogger(__name__)
@@ -31,7 +34,9 @@ log = logging.getLogger(__name__)
 BLANK = re.compile(r"\{\{\s*(.+?)\s*\}\}", re.DOTALL)  # a blank anywhere in a value
 NOT_PLANNABLE = {"run_plan", "go_to_sleep", "test_write_note", "test_fetch_untrusted"}
 FAILURE = re.compile(r"^(That didn't work|Couldn't|I couldn't|I won't|I can't|I stopped|That page is blocked|"
-                     r"Page limit|There's no|No results|I don't know|.*isn't on my list|"
+                     r"Page limit|There's no|No results|I don't know|.*isn't on my list|Several things match|"
+                     r"There are \d+ called|Number \d+ isn't|That's a password|That's too long|That text looks|"
+                     r"Which key|That's my own|.*is minimised|"
                      + re.escape(USAGE_LIMIT_MESSAGE) + ")", re.IGNORECASE)
 URL_KEYS = {"url", "start_url"}
 MAX_RESULT_CHARS = 1500
@@ -221,7 +226,11 @@ class AgentMode:
             '"{{the best headphone model name from step 2}} official site"), then open a result from that search. '
             "When an argument depends on an earlier step's result, write it as a blank like "
             '"{{the manufacturer product page URL from step 3}}". Prefer read-only tools. Don\'t shop, pay, '
-            "sign in, send messages or change settings. End with the answer step."
+            "sign in, send messages to people or change settings. End with the answer step.\n"
+            "Desktop apps: open_app first if the app may not be open. To ask an AI chat app (Claude, ChatGPT), "
+            "type_in_app with send=true, then wait_for_app, which returns the reply; then the answer step. To "
+            "write in an app (Notepad, Word), type_in_app with the full text. Use click_in_app or press_keys "
+            "for buttons and shortcuts; don't read_app first unless you need to find something."
         )
         problem = ""
         for _attempt in range(2):  # one retry, told what was wrong
@@ -260,7 +269,11 @@ class AgentMode:
                 if effective == Tier.CONFIRM:
                     return self._pause(plan, index, results, tool, args,
                                        f"Step {number} of the plan: {tool.summary(args)}")
-                outcome = await dispatcher.run_step(tool, args, "plan_approved")
+                approved = APPROVED_STEP.set(not has_blanks)
+                try:
+                    outcome = await dispatcher.run_step(tool, args, "plan_approved")
+                finally:
+                    APPROVED_STEP.reset(approved)
                 failed = isinstance(outcome, str) and FAILURE.match(unwrap(outcome))
                 if not (failed and has_blanks and attempt < BLANK_RETRIES):
                     break
@@ -275,7 +288,11 @@ class AgentMode:
 
     def _pause(self, plan: Plan, index: int, results: list[str], tool: Tool, args: dict, summary: str):
         async def resume():
-            outcome = await self.services.dispatcher.run_step(tool, args, "plan_step_confirmed")
+            approved = APPROVED_STEP.set(True)  # the user just confirmed these exact arguments
+            try:
+                outcome = await self.services.dispatcher.run_step(tool, args, "plan_step_confirmed")
+            finally:
+                APPROVED_STEP.reset(approved)
             done = await self._after(plan, index, results, outcome)
             return done if done is not None else await self._execute(plan, index + 1, results)
 
@@ -359,8 +376,9 @@ def register(registry: Registry, config: dict, services) -> None:
     registry.on_user_turn(agent.new_turn)
     registry.register(Tool(
         name="run_plan",
-        description=("For goals needing several different tools in a row (research, then open a page, then "
-                     "report). Drafts a numbered plan, reads it to the user for one approval, then runs it."),
+        description=("Only for goals that need three or more different tools in a row (research, then open a "
+                     "page, then report; or open an app, write in it and save). Drafts a numbered plan, reads it "
+                     "to the user for one approval, then runs it. Never for something one tool can do."),
         func=agent.run_plan,
         tier=Tier.SAFE,  # only drafts; running needs the user's approval of the code-written plan
         self_gated=True,

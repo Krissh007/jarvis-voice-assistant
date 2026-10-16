@@ -81,6 +81,40 @@ def secret_in_text(text: str) -> str | None:
     return None
 
 
+def hide_secrets(text: str) -> tuple[str, int]:
+    """Replace anything secret_in_text would flag with [hidden]; returns (text, how many were hidden)."""
+    hidden = 0
+
+    def sub(kind: str):
+        def replace(m: re.Match) -> str:
+            nonlocal hidden
+            if kind == "a card number" and not _luhn(re.sub(r"\D", "", m.group())):
+                return m.group()
+            hidden += 1
+            value = m.group()
+            return "[hidden]" + value[len(value.rstrip(" -")):]  # keep the space the number pattern swallowed
+        return replace
+
+    for kind, pattern in _SECRET_PATTERNS:
+        text = pattern.sub(sub(kind), text)
+
+    def token(m: re.Match) -> str:
+        nonlocal hidden
+        value = m.group()
+        classes = sum(bool(re.search(p, value)) for p in (r"[a-z]", r"[A-Z]", r"\d"))
+        if classes == 3 and not value.isalpha():
+            hidden += 1
+            return "[hidden]"
+        return value
+
+    return _TOKEN.sub(token, text), hidden
+
+
+def is_sensitive_name(label: str) -> bool:
+    """A field label that asks for a password, payment detail, PIN or one-time code."""
+    return bool(_SENSITIVE_WORDS.search(label))
+
+
 def _luhn(digits: str) -> bool:
     if not 13 <= len(digits) <= 19:
         return False

@@ -382,6 +382,15 @@ class JobSearchStatus:
             raise ToolError("I couldn't read the job search from JobPilot just now.") from None
 
 
+HUB_STATUS_DESCRIPTION = (
+    "A quick overall summary of the user's job search from JobPilot: when the last search ran, how many new "
+    "jobs, applications sent, interviews and offers, screening questions still blank (topic blanks), what "
+    "failed (topic problems), and the LinkedIn resume upload (topic resume). Read-only. For the shortlist, "
+    "applications waiting for approval, starting a search, or approving or skipping an application, use "
+    "agent_hub_request instead. topic: overview (default), applications, questions, blanks, problems or resume."
+)
+
+
 def register(registry: Registry, config: dict, services) -> None:
     settings = config.get("job_search") or {}
     api_url = str(settings.get("api_url") or DEFAULT_API_URL)
@@ -406,9 +415,10 @@ def register(registry: Registry, config: dict, services) -> None:
             "required": ["question", "answer"],
         },
     ))
+    hub = bool((config.get("features") or {}).get("agent_hub"))
     registry.register(Tool(
         name="job_search_status",
-        description=(
+        description=HUB_STATUS_DESCRIPTION if hub else (
             "Report on the user's job search from JobPilot: when the last search ran, new jobs, the "
             "shortlist and tailored documents, applications waiting for the user's approval, applications "
             "sent, interviews and offers, open screening questions, and the LinkedIn resume upload. "
@@ -422,6 +432,7 @@ def register(registry: Registry, config: dict, services) -> None:
         tier=Tier.SAFE,
         read_only=True,
         untrusted_output=True,  # job titles and company names come from job sites
+        condense=True,
         parameters={
             "type": "object",
             "properties": {"topic": {"type": "string", "enum": list(TOPICS)}},

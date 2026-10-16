@@ -6,12 +6,19 @@ model is allowed to see: BLOCKED tools are never sent to it.
 
 from __future__ import annotations
 
+import contextvars
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Any
 
 from google.genai import types
+
+
+# True while a step of a user-approved plan runs with exactly the arguments the user heard (no blanks
+# filled from results). Self-gated tools may then skip asking just because the turn is tainted; their
+# own risky-step checks still apply.
+APPROVED_STEP: contextvars.ContextVar[bool] = contextvars.ContextVar("approved_step", default=False)
 
 
 class ToolError(Exception):
@@ -67,6 +74,11 @@ class Tool:
     self_gated: bool = False
     summarize: Callable[[dict[str, Any]], str] | None = None
     rung: int = 2
+    # Long results are shortened (core.condense) before the model sees them: True, or per call from args.
+    condense: bool | Callable[[dict[str, Any]], bool] = False
+
+    def wants_condense(self, args: dict[str, Any]) -> bool:
+        return bool(self.condense(args) if callable(self.condense) else self.condense)
 
     def base_tier(self, args: dict[str, Any]) -> Tier:
         return self.tier(args) if callable(self.tier) else self.tier

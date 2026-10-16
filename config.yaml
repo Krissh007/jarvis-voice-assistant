@@ -16,6 +16,18 @@ models:
     gemini-3.5-flash-lite: minimal
   openrouter: null              # e.g. a free OpenRouter model id; used only if OPENROUTER_API_KEY is set
 
+reasoning:                      # think_through (features.reasoning): careful answers, web search optional
+  thinking: high                # thinking level for these calls only (the Flash chain above, then fallbacks)
+  max_tokens: 2000
+  # Free tier, checked on this account 2026-10-16: Gemini Pro models have a limit of 0 and Google Search
+  # grounding is refused, so think_through uses Flash + JARVIS's own search (Tavily, else DuckDuckGo).
+
+condense:                       # long tool results (read_app, wait_for_app, job_search_status) are shortened
+  over_chars: 1500              # before the Live model sees them; shorter results pass unchanged
+  max_words: 120
+  model: gemini-3.5-flash-lite  # tried first (spares the main Flash model's small daily quota)
+  timeout_s: 5                  # slower than this: use the start and end of the text instead
+
 listening:
   mode: wake_word               # always_on | push_to_talk | wake_word
   end_pause_ms: 1000            # quiet this long = you've finished; shorter replies faster, but splits sentences
@@ -120,6 +132,10 @@ files:                          # find_files / open_file (features.files): names
                                 # always hidden: passwords, keys, 2FA/recovery codes, ID cards, card details
   max_results: 5
 
+desktop:                        # read_app (features.desktop)
+  max_items: 150                # buttons, fields and lines read from one window
+  max_chars: 4000               # text read from documents and text boxes
+
 paths:
   research_dir: '%USERPROFILE%\Documents\jarvis'
 
@@ -153,17 +169,19 @@ features:
   test_tools: false             # Phase 2 safety-test tools (the test suite turns them on itself)
   system: true
   web: true
+  reasoning: true              # think_through: harder questions, maths, comparisons (Flash, thinking high)
   browser: true
   media: true
-  app_ui: true                  # app_ui_action: UI Automation for apps with no API (always confirmed)
+  app_ui: false                 # older app_ui_action (allowlisted apps, every step confirmed); replaced by desktop
   screen: true
   clipboard: true
   files: true                   # find and open your own files by name
+  desktop: true                 # read, type, click, keys, scroll, move windows in open apps (never browsers, passwords)
   memory: true
   reminders: true
   agent_mode: true
   job_search: true                # "how's my job search?" reads JobPilot (read only)
-  agent_hub: false              # hand job and dashboard tasks to the Agent Hub (needs it running + AGENT_HUB_TOKEN)
+  agent_hub: true               # shortlist, approvals, job search runs, approve/skip through the Agent Hub (needs it running + AGENT_HUB_TOKEN)
   morning_briefing: false
   tray: true                    # tray icon: click to talk, Stop, Mute, Quit
   window: true                  # animated JARVIS window with captions and Talk / Mute / Stop

@@ -89,10 +89,66 @@ How JARVIS was built: the phases in the build spec and the finishing touches (24
 ## Agent Hub bridge (13 October 2026)
 
 - **Agent Hub:** `agent_hub_request` and `agent_hub_status` hand job-search and dashboard tasks to the
-  separate Agent Hub (`E:gent-hub`) over MCP and speak the results when ready, without interrupting.
+  separate Agent Hub (`E:\agent-hub`) over MCP and speak the results when ready, without interrupting.
   Off by default (`features.agent_hub`); needs `AGENT_HUB_TOKEN` in `.env`.
 - **Confirmations:** `NeedsConfirmation` has an optional `on_cancel` hook, called when the user says
   no, doesn't answer in time, or supersedes the action.
 - **Background tasks:** `Services.background`, `notify`, `can_speak` and `taint` let a module run a loop
   and announce results safely.
 - New dependency: `mcp` 2.3.0.
+
+## Reading and controlling apps (15 October 2026)
+
+- `read_app` (`actions/desktop.py`, `core/uia.py`, `features.desktop`): reads the text, buttons and
+  fields of any open app through Windows UI Automation, with no screenshot. A SAFE, read-only tool
+  whose output is untrusted. It remembers the current app, so "read it again" needs no name.
+- Never read: password managers, web browsers, Windows Settings and Security, sign-in and admin
+  prompts, Registry Editor, Task Manager, JARVIS itself and windows with private-looking titles.
+  Password and payment fields are listed as private. Emails, numbers, keys and card numbers are
+  replaced (`privacy.hide_secrets`).
+- `type_in_app`: types into any open app that isn't off-limits, where the cursor is or into a named
+  or numbered field, optionally pressing Enter. Text is pasted through the clipboard
+  (`core/textinput.py`, kept out of clipboard history) and the clipboard is put back. It asks first in
+  terminals, for Enter outside AI chat apps, and after untrusted text. It never types secrets or into
+  password or payment fields. UI Automation now runs on one thread (`uia.call`).
+- `click_in_app`, `press_keys`, `scroll_app` and `window_action`: click by name or number (UI
+  Automation first, a real mouse click only on that app's window), "did you mean" and "which one",
+  a fixed key list with risky keys confirmed and Windows-level shortcuts refused, mouse-wheel
+  scrolling, and window minimise, maximise, restore, front and half-screen snapping.
+- The older `app_ui_action` (allowlisted apps, every step planned and confirmed) is off by default
+  (`features.app_ui: false`).
+- Multi-step app tasks through `run_plan`: `wait_for_app` waits until an app stops changing (or shows
+  some text) and returns only the new text since the message was sent. Plan lines show the exact
+  words to be typed. Fixed-argument steps of an approved plan don't ask again because of earlier
+  untrusted text (`registry.APPROVED_STEP`). Apps still opening are waited for (up to 10 seconds).
+  "Which one" and "did you mean" answers stop a plan.
+- `--bench-apps` (`core/desktop_bench.py`): for each open app, the number of controls and typeable
+  fields JARVIS finds and how long reads take. Read-only, and it prints no app text.
+
+## Reasoning (16 October 2026)
+
+- `think_through` (`actions/reasoning.py`, `features.reasoning`): careful answers for maths, logic,
+  comparisons and decisions, on the free Flash chain with thinking `high` (`reasoning.thinking`;
+  `LLM.generate(thinking=...)` overrides a model's level for one call). With `use_web` it searches
+  first (Tavily, else DuckDuckGo) and reasons over the results, which stay untrusted.
+- Free tier, checked on this account: Gemini Pro models have a limit of 0, and Google Search
+  grounding is refused on every Flash model, so neither is used.
+- Tool choice (no router: the Live model picks from the tool descriptions): `agent_hub_request` now
+  covers the shortlist, applications waiting for approval, job lists, job search runs, approving or
+  skipping an application and recent runs, and no longer claims dashboard work the Hub doesn't have.
+  With the Hub on, `job_search_status` is the quick overall summary. `search_web`, `run_plan` and
+  `look_at_screen` say when not to use them; the persona has a short tool-choice rule. On the real
+  Live model, 17 of 17 test requests picked the intended tool.
+- Agent Hub on (`features.agent_hub: true`), with `AGENT_HUB_TOKEN` set. Tested through the real Live
+  model and the running Hub: shortlist and approval questions answered by the Hub; "run discovery"
+  and "skip application 5" read the Hub's own question and were released on "no".
+
+## Shorter spoken results (16 October 2026)
+
+- `core/condense.py`: results over `condense.over_chars` from tools that opt in (`Tool.condense`:
+  `read_app` except `what=controls`, `wait_for_app`, `job_search_status`) are summarised for the
+  user's latest request before the Live model sees them, on `gemini-3.5-flash-lite` first
+  (`LLM.generate(start_at=...)`). Over `condense.timeout_s`, or with no model, the start and end
+  of the text are used. Plan steps get the full text. Live: the Claude window went from 4,310 to
+  337 characters; summarising took about 8 s while the models were busy.
+- `condense.timeout_s` lowered to 5 s, so a slow summary never holds up a spoken reply for long.

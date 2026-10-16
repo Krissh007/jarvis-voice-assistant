@@ -305,3 +305,16 @@ def test_save_tool_is_registered_as_confirm_tier():
     job_search.register(registry, {}, None)
     tool = registry.get("save_job_answer") if hasattr(registry, "get") else None
     assert tool is not None and tool.tier == Tier.CONFIRM and not tool.read_only
+
+
+def test_with_the_agent_hub_on_status_points_shortlist_and_approvals_to_the_hub() -> None:
+    from actions import Services, job_search
+    from core.registry import Registry
+
+    def description(hub: bool) -> str:
+        reg = Registry()
+        job_search.register(reg, {"features": {"agent_hub": hub}}, Services())
+        return reg.get("job_search_status").description
+
+    assert "agent_hub_request" in description(True) and "quick overall summary" in description(True)
+    assert "agent_hub_request" not in description(False) and "shortlist" in description(False)

@@ -14,12 +14,14 @@ from core.registry import Registry
 MODULES: dict[str, str | None] = {
     "actions.system": "system",
     "actions.web": "web",
+    "actions.reasoning": "reasoning",  # after web: it searches through it
     "actions.browser": "browser",
     "actions.media": "media",
     "actions.app_ui": "app_ui",
     "actions.screen": "screen",
     "actions.clipboard": "clipboard",
     "actions.files": "files",
+    "actions.desktop": "desktop",
     "actions.memory": "memory",
     "actions.reminders": "reminders",
     "actions.testing": "test_tools",
@@ -36,6 +38,7 @@ class Services:
     llm: Any = None  # core.llm.LLM
     data_dir: Path = Path(__file__).resolve().parent.parent / "data"
     browser: Any = None  # actions.browser.BrowserTools, shared with media
+    desktop: Any = None  # actions.desktop.Desktop: the current app, for reading and acting in apps
     dispatcher: Any = None  # core.dispatcher.Dispatcher, set by the runtime (agent mode runs steps through it)
     web: Any = None  # actions.web.Web, for the morning briefing
     memory: Any = None  # actions.memory.MemoryStore, for the system instruction

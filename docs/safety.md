@@ -130,6 +130,37 @@ Enforced in `core/privacy.py` and the modules that use it.
   files, keys, passwords, banking and password managers.
 - App control never reads text inside apps, never touches account, settings or destructive
   controls, and won't type into a document that looks like it holds secrets.
+- Reading apps (`read_app`) never reads password managers, web browsers (your Chrome holds your
+  accounts), Windows Settings and Security, sign-in and admin prompts, Registry Editor, Task Manager,
+  JARVIS's own window, or any window whose title looks like it holds secrets. When it refuses, it
+  names the app, never the window's title.
+- Password fields, and fields named like card, CVV, PIN or one-time-code fields, are listed as
+  private; their contents are never read.
+- Text read from an app has emails, phone numbers, keys, tokens and card numbers replaced before it
+  reaches a model. It's untrusted, so anything JARVIS does next in that turn asks first.
+- Long app and job-search results are shortened before the Live model sees them. The text being
+  shortened is wrapped as untrusted, and so is the summary; buttons-and-fields lists are never
+  shortened, so click numbers stay exact.
+- Typing into apps (`type_in_app`) has the same off-limits apps. It never types into password or
+  payment fields (checked again where the cursor actually lands), never types text that looks like a
+  key, token or card number, and types only while that app is in front.
+- It asks first in terminals (pasting there can run commands), before pressing Enter anywhere except
+  AI chat apps (Claude, ChatGPT, Copilot, Perplexity), and after untrusted text was read in that turn.
+- Text is pasted through the clipboard, marked so Windows clipboard history and cloud clipboard don't
+  keep it, and your clipboard is put back. If it holds a picture or files, JARVIS types key by key
+  instead, so they stay.
+- Clicking (`click_in_app`) never touches account, profile, sign-out, password or payment controls.
+  Buttons with risky words ask first: delete, remove, save, print, close, exit, send, submit, pay,
+  buy, order, install, sign in or out, and similar. Send in an AI chat app doesn't ask. A real mouse
+  click happens only when the spot is on that app's window, and the pointer goes back afterwards.
+- Keys (`press_keys`) come from a fixed list. Saving, closing, printing, reloading, Enter outside AI
+  chat apps, Delete in File Explorer and any key in a terminal ask first. Windows-key shortcuts,
+  Alt+Tab, Ctrl+Alt+Delete, Ctrl+Shift+Esc and Shift+Delete (permanent delete) are never pressed.
+- `window_action` can move any window, your browser included, because moving shows nothing inside.
+- In a plan, each app step is read to you with its exact words (type "milk eggs bread" into
+  notepad) before the one approval. A step whose words were fixed in that plan doesn't ask again
+  just because an earlier step read app text. A step whose value is filled in from results still
+  asks, and risky steps (Save, Delete, Enter outside chat apps...) always ask.
 
 **Your files**
 - Only file and folder *names* are read, never contents, and only in the folders under `files:`.
@@ -143,7 +174,7 @@ Enforced in `core/privacy.py` and the modules that use it.
 
 **Typed messages**
 - The window's typing box is your keyboard in JARVIS's own window, so a typed *yes* confirms, just as
-  in `--text` mode. JARVIS's app control only works in allowlisted apps, never in its own window.
+  in `--text` mode. JARVIS's app control never works in its own window.
 
 **Audio**
 - In wake-word mode, no audio leaves the PC until "hey jarvis" is detected offline.

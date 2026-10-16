@@ -111,6 +111,7 @@ class Dispatcher:
         self._pending_meta: dict[int, dict[str, Any]] = {}
         self._bg: set[asyncio.Task] = set()
         self._inflight: dict[str, asyncio.Future] = {}  # identical read-only calls share one run
+        self.condenser = None  # core.condense.Condenser, set by the runtime: long results are shortened
 
     # ------------------------------------------------------------------ model side
 
@@ -171,7 +172,7 @@ class Dispatcher:
             self._inflight[key] = asyncio.get_running_loop().create_future()
         result = None
         try:
-            result = await self._run(tool, args, call_id)
+            result = await self._run(tool, args, call_id, condense=True)
         finally:
             if key is not None:
                 shared = self._inflight.pop(key)
@@ -298,7 +299,7 @@ class Dispatcher:
         meta = self._pending_meta.pop(pending.id, {})
         self._confirmed_running = pending.tool
         try:
-            result = await self._run(tool, pending.args, pending.call_id, resume=meta.get("resume"))
+            result = await self._run(tool, pending.args, pending.call_id, resume=meta.get("resume"), condense=True)
         finally:
             self._confirmed_running = None
         if isinstance(result, NeedsConfirmation):
@@ -339,8 +340,10 @@ class Dispatcher:
             log.exception("cancel hook failed")
 
     async def _run(self, tool: Tool, args: dict[str, Any], call_id: str | None,
-                   resume=None) -> str | NeedsConfirmation:
-        """Execute a tool (or resume a paused step), returning a short speakable string."""
+                   resume=None, condense: bool = False) -> str | NeedsConfirmation:
+        """Execute a tool (or resume a paused step), returning a short speakable string.
+        With `condense`, a long result from a tool that opts in is shortened first (not for plan
+        steps: the plan's answer step summarises them, and blanks are filled from the full text)."""
         if self.dry_run and not tool.read_only:
             return f"[dry run] Would {tool.summary(args)}."
         if resume is not None:
@@ -370,6 +373,8 @@ class Dispatcher:
             result = f"That didn't work ({type(exc).__name__})."
         finally:
             self._running = None
+        if condense and self.condenser is not None and tool.wants_condense(args) and self.condenser.needed(result):
+            result = await self.condenser.condense(tool.name, result, self.registry.last_user_text)
         if tool.untrusted_output:
             self.tainted = True
             result = wrap(tool.name, result)
