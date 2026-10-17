@@ -394,3 +394,35 @@ async def test_bad_requests_are_not_retried_and_no_key_is_unavailable(monkeypatc
 def test_reset_headers() -> None:
     assert groq_mod._duration("2m59.56s") == pytest.approx(179.56)
     assert groq_mod._retry_after(httpx.Response(429, headers={"x-ratelimit-reset-requests": "7.66s"})) == 7.66
+
+
+# ---------------------------------------------------------------- fixes from the Phase 6 dry run
+
+async def test_a_repeated_read_is_not_run_again(setup) -> None:
+    h, services, fake, record = setup
+    script(fake, [("jarvis__get_weather", {"city": "Pune"})], [("jarvis__get_weather", {"city": "Pune"})], "Rainy.")
+    await h.model_calls("ask_brain", request="will it rain tomorrow in Pune")
+    assert record == [("get_weather", "Pune")]                      # once, not twice
+    assert "Already done above" in fake.sent[2]["messages"][-1]["content"]
+
+
+async def test_the_clear_skill_is_named_to_the_model(setup) -> None:
+    h, services, fake, record = setup
+    script(fake, "Fine.")
+    await h.model_calls("ask_brain", request="what's on my shortlist")
+    assert "best-matching tool is jobpilot__get_shortlist" in fake.sent[0]["messages"][1]["content"]
+
+
+async def test_cut_results_say_so(setup) -> None:
+    h, services, fake, record = setup
+    services.brain.result_chars = 10
+    script(fake, [("jarvis__get_weather", {"city": "Pune"})], "Rainy.")
+    await h.model_calls("ask_brain", request="will it rain tomorrow in Pune")
+    assert "the rest can't be shown" in fake.sent[1]["messages"][-1]["content"]
+
+
+async def test_classifier_tolerates_text_around_the_json(setup) -> None:
+    h, services, fake, record = setup
+    script(fake, 'Sure. {"areas": ["calendar"]} hope that helps', "no json here")
+    assert await services.brain.classify("am I busy", ["calendar"]) == ["calendar"]
+    assert await services.brain.classify("hmm", ["calendar"]) == []
