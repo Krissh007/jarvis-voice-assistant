@@ -58,7 +58,8 @@ def amplify(samples: np.ndarray, gain: float) -> np.ndarray:
 NEAR_MISS = 0.1  # a score this high means "heard something like the wake word"
 NEAR_MISS_QUIET_CHUNKS = 8  # ~0.6 s below NEAR_MISS ends one attempt
 VERIFIER_GATE = 0.05  # stock score above which your voice model's score counts as it is
-STRICT_MARGIN = 0.15  # below that, the stock model barely stirred: your voice model must be this much surer
+STRICT_MARGIN = 0.10  # below that, the stock model barely stirred: your voice model must be this much surer
+# (wake_word.strict_margin; 0.15 until 17 Oct 2026, when genuine tries scoring 0.61 and 0.64 missed)
 
 
 def verifier_path(data_dir: Path, model_name: str) -> Path:
@@ -77,8 +78,10 @@ class WakeWordDetector:
     Both scores are kept, so a miss says which model said no.
     """
 
+    strict_margin = STRICT_MARGIN
+
     def __init__(self, model_name: str = "hey_jarvis", threshold: float = 0.5, gain: float = 1.0,
-                 verifier: Path | None = None) -> None:
+                 verifier: Path | None = None, strict_margin: float = STRICT_MARGIN) -> None:
         import pickle
 
         import openwakeword
@@ -93,6 +96,7 @@ class WakeWordDetector:
         self._name = model_name
         self.threshold = threshold
         self.gain = gain
+        self.strict_margin = strict_margin
         self.personal = verifier is not None
         self.last_base = 0.0  # the stock model's score for the last chunk
         self.last_verifier: float | None = None  # the voice model's, when it was asked
@@ -106,7 +110,7 @@ class WakeWordDetector:
         personal = ww.get("personal_verifier", True) and path.exists()
         threshold = float(ww.get("verifier_threshold", 0.5)) if personal else float(ww["threshold"])
         return cls(ww["model"], threshold, float(ww.get("gain", 1.0) if gain is None else gain),
-                   path if personal else None)
+                   path if personal else None, float(ww.get("strict_margin", STRICT_MARGIN)))
 
     def score(self, samples: np.ndarray) -> float:
         """Wake score for one chunk. `gain` boosts a quiet voice (wake detection only, never sent anywhere)."""
@@ -118,7 +122,7 @@ class WakeWordDetector:
         self.last_verifier = float(self._verifier.predict_proba(features)[0][-1])
         if base >= VERIFIER_GATE:
             return self.last_verifier
-        return max(0.0, self.last_verifier - STRICT_MARGIN)
+        return max(0.0, self.last_verifier - self.strict_margin)
 
     def detect(self, pcm: bytes) -> bool:
         return self.update(self.score(np.frombuffer(pcm, dtype=np.int16)))
@@ -128,9 +132,9 @@ class WakeWordDetector:
 
     def needed(self, attempt: Attempt) -> float:
         """The voice-model score that attempt needed: higher when the stock model barely stirred
-        (STRICT_MARGIN), so a hint never says 0.61 failed against a bar of 0.50."""
+        (strict_margin), so a hint never says 0.61 failed against a bar of 0.50."""
         if self.personal and attempt.base < VERIFIER_GATE:
-            return self.threshold + STRICT_MARGIN
+            return self.threshold + self.strict_margin
         return self.threshold
 
     def update(self, score: float) -> bool:

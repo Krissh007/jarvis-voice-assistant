@@ -431,16 +431,19 @@ def test_the_voice_model_is_asked_even_when_the_stock_model_barely_reacts(monkey
     assert det.score(chunk) == pytest.approx(0.72 - wakeword.STRICT_MARGIN) and det.score(chunk) >= 0.5
     det._verifier.p = 0.55  # not sure enough without the stock model's support
     assert det.score(chunk) < 0.5
+    det.strict_margin = 0.0  # wake_word.strict_margin: 0 trusts the voice model alone
+    assert det.score(chunk) == 0.55
+    det.strict_margin = wakeword.STRICT_MARGIN
     det._model.base = 0.3  # with it, the usual threshold applies
     assert det.score(chunk) == 0.55
 
 
 def test_personal_verifier_is_used_only_when_trained(tmp_path, monkeypatch) -> None:
-    from core.wakeword import WakeWordDetector, verifier_path
+    from core.wakeword import STRICT_MARGIN, WakeWordDetector, verifier_path
 
     made = []
-    monkeypatch.setattr(WakeWordDetector, "__init__",
-                        lambda self, name, threshold, gain, verifier=None: made.append((threshold, gain, verifier)))
+    monkeypatch.setattr(WakeWordDetector, "__init__", lambda self, name, threshold, gain, verifier=None,
+                        strict_margin=None: made.append((threshold, gain, verifier, strict_margin)))
     ww = {"model": "hey_jarvis", "threshold": 0.25, "verifier_threshold": 0.6, "gain": 2.0}
     WakeWordDetector.from_config(ww, tmp_path)
     path = verifier_path(tmp_path, "hey_jarvis")
@@ -448,7 +451,9 @@ def test_personal_verifier_is_used_only_when_trained(tmp_path, monkeypatch) -> N
     path.write_bytes(b"x")
     WakeWordDetector.from_config(ww, tmp_path, gain=3.0)
     WakeWordDetector.from_config({**ww, "personal_verifier": False}, tmp_path)
-    assert made == [(0.25, 2.0, None), (0.6, 3.0, path), (0.25, 2.0, None)]
+    WakeWordDetector.from_config({**ww, "strict_margin": 0.05}, tmp_path)
+    m = STRICT_MARGIN
+    assert made == [(0.25, 2.0, None, m), (0.6, 3.0, path, m), (0.25, 2.0, None, m), (0.6, 2.0, path, 0.05)]
 
 
 def test_train_from_clips_saves_a_working_verifier(tmp_path) -> None:
@@ -531,5 +536,7 @@ def test_a_miss_shows_the_bar_it_really_had_to_reach() -> None:
     heard.add(0.40, VERIFIER_GATE, 0.40)  # the stock model stirred: the usual 0.50
     assert det.needed(quiet) == 0.5 + STRICT_MARGIN
     assert det.needed(heard) == 0.5
+    det.strict_margin = 0.15  # wake_word.strict_margin
+    assert det.needed(quiet) == 0.65
     det.personal = False
     assert det.needed(quiet) == 0.5

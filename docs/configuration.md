@@ -42,6 +42,7 @@ Values that are left as comments or blank are ignored.
 | `wake_word.threshold` | `0.25` | Stock-model score needed to wake (lower wakes more easily) |
 | `wake_word.personal_verifier` | `true` | Use `data/wake/…_verifier.pkl` from `--train-wake` when it exists |
 | `wake_word.verifier_threshold` | `0.5` | Score needed when the personal verifier is in use |
+| `wake_word.strict_margin` | `0.10` | Extra score the voice model needs when the stock model barely reacts (under 0.05): with `0.10` it needs 0.60. Lower wakes on more first tries but wakes more often on other speech; see the table below |
 | `wake_word.gain` | `1.0` | Boosts the mic for wake detection only (`--mic-test` suggests a value) |
 | `wake_word.active_window_s` | `15` | Seconds of quiet before JARVIS goes back to sleep |
 | `wake_word.chime_volume` | `0.06` | Wake beep loudness (`0` is silent) |
@@ -54,6 +55,24 @@ Values that are left as comments or blank are ignored.
 | `audio.transcription_languages` | `[en-IN]` | Language hints for transcribing your speech |
 | `audio.mute_mic_while_speaking` | `false` | Force the speaker-style echo gate |
 | `audio.echo_tail_ms` | `400` | Audio ignored after JARVIS stops speaking |
+
+**Choosing `wake_word.strict_margin`.** Measured on 17 October 2026 with the saved recordings in
+`data/wake/` (48 "hey jarvis", 132 s of other speech). "Unseen" uses voice models trained without
+the clip being tested (4-fold, as `--train-wake` reports); "current model" uses the trained
+verifier, which has heard every clip, so it flatters both columns. False wakes are counted in 132 s
+of nonstop talking, a harsher test than a normal room. With `verifier_threshold: 0.5`:
+
+| `strict_margin` | Needs (stock ~0) | Unseen: wakes | Unseen: false wakes | Current model: wakes | Current model: false wakes |
+|---|---|---|---|---|---|
+| `0.15` | 0.65 | 41 of 48 | 7 | 46 of 48 | 3 |
+| `0.10` | 0.60 | 42 of 48 | 11 | 46 of 48 | 4 |
+| `0.05` | 0.55 | 43 of 48 | 12 | 47 of 48 | 5 |
+| `0` | 0.50 | 43 of 48 | 12 | 47 of 48 | 8 |
+
+In live use on 17 October, genuine first tries that missed at `0.15` scored 0.53, 0.57, 0.61 and
+0.64: `0.10` would have woken on two of them, `0.05` on three. Raising `verifier_threshold` instead
+does no better at the same false-wake count. Recording more of your own speech with `--train-wake`
+is what lowers both columns.
 
 ### Window, tray and hotkeys
 

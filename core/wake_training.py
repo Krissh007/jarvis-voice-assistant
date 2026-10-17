@@ -26,7 +26,7 @@ from pathlib import Path
 import numpy as np
 
 from core.audio import INPUT_RATE, resolve_input_device
-from core.wakeword import verifier_path
+from core.wakeword import STRICT_MARGIN, verifier_path
 
 POSITIVE_CLIPS = 20
 CLIP_S = 2.0
@@ -254,13 +254,14 @@ def run_wake_training(config: dict, data_dir: Path) -> int:
 
     threshold = float(ww.get("verifier_threshold", 0.5))
     gain = float(ww.get("gain", 1.0))
+    margin = float(ww.get("strict_margin", STRICT_MARGIN))
     print(f"Checking on recordings each trial model didn't learn from ({len(all_pos)} \"hey jarvis\", "
           f"{len(all_neg) * NEGATIVE_CHUNK_S:.0f} s of speech)...")
     results = []
     for hard in (False, True):  # the standard method first: it wins a tie
         sets = clip_feature_sets(all_pos, all_neg, model_name, hard_clips=hard)
         score = cross_validate(all_pos, all_neg, model_name, folder / "_trial_verifier.pkl",
-                               lambda path: WakeWordDetector(model_name, threshold, gain, path), feature_sets=sets)
+                               lambda path: WakeWordDetector(model_name, threshold, gain, path, margin), feature_sets=sets)
         print(f"  {'learning from hard clips too' if hard else 'standard'}: woke for {score[0]} of {score[1]}, "
               f"{_wakes(score[2])}")
         results.append((score, hard, sets))

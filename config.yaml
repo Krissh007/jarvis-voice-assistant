@@ -65,6 +65,7 @@ wake_word:
   threshold: 0.25               # mic tests: your "hey jarvis" scores 0.2-0.5, silence stays under 0.05
   personal_verifier: true       # use data/wake/*_verifier.pkl from --train-wake when it exists
   verifier_threshold: 0.5       # wake threshold when the personal verifier is in use
+  strict_margin: 0.10           # extra the voice model needs when the stock model scores ~0 (0.15 = fewer false wakes)
   gain: 1.0                     # boosts your voice for wake detection only; --mic-test suggests a value
   active_window_s: 15
   chime_volume: 0.06            # wake beep loudness, 0 = silent, 0.25 = the old level

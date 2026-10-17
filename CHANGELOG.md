@@ -386,3 +386,11 @@ to its own chat page:
 - 8 labelled Calendar requests, written before measuring: 8/8 routes and tools on the first run.
   "Not connected yet" is still reported when the Hub doesn't offer Calendar tools.
 
+
+## Wake word: first tries count more often (17 October 2026)
+
+- `wake_word.strict_margin` (new, default 0.10, was a fixed 0.15): when the stock model barely
+  reacts, your voice model now needs 0.60 instead of 0.65. Live, genuine tries scoring 0.61 and 0.64
+  had missed. Measured on the saved recordings: 42 of 48 unseen "hey jarvis" wake instead of 41, with
+  11 false wakes in 132 s of nonstop talking instead of 7. The full trade-off is in
+  docs/configuration.md; set it back to 0.15 for fewer false wakes.
