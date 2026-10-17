@@ -64,7 +64,7 @@ samples:
 
   # areas with no tools yet (connectors come in Phase 5): reasoning, flagged as missing
   - {text: "check my email for anything from HR", route: reasoning, missing: mail}
-  - {text: "what's on my calendar tomorrow", route: reasoning, missing: calendar}
+  - {text: "what's on my calendar tomorrow", route: skill, ok: [tools], tool: gcal.calendar_events}
   - {text: "list my open pull requests on github", route: reasoning, missing: code}
 
   # moved here from the holdout after the first held-out run missed them (see CHANGELOG)
@@ -95,7 +95,7 @@ holdout:
   - {text: "convert 50 dollars to rupees", route: reasoning, ok: [tools, skill]}
   - {text: "who is the CEO of Infosys", route: reasoning, ok: [skill, tools]}
   - {text: "send an email to my manager saying I'm sick", route: reasoning, missing: mail}
-  - {text: "do I have any meetings today", route: reasoning, missing: calendar}
+  - {text: "do I have any meetings today", route: skill, ok: [tools], tool: gcal.calendar_events}
 
 # Google Drive connector (Phase 5), written before its first measured run. Tools are Hub tools (gdrive.*).
 drive:
@@ -107,4 +107,15 @@ drive:
   - {text: "is there a resume in my gdrive", route: skill, ok: [tools], tool: gdrive.drive_search}
   - {text: "find my resume", route: tools, ok: [skill], tool: jarvis.find_files}
   - {text: "check my email for anything from HR", route: reasoning, missing: mail}
+
+# Google Calendar connector (Phase 5), written before its first measured run.
+calendar:
+  - {text: "what's on my schedule this week", route: skill, ok: [tools], tool: gcal.calendar_events}
+  - {text: "when is my next meeting", route: skill, ok: [tools], tool: gcal.calendar_upcoming}
+  - {text: "am I free on Friday afternoon", route: tools, ok: [skill, reasoning], tool: gcal.calendar_events}
+  - {text: "what appointments do I have tomorrow", route: skill, ok: [tools], tool: gcal.calendar_events}
+  - {text: "what's coming up on my google calendar", route: skill, ok: [tools], tool: gcal.calendar_upcoming}
+  - {text: "do I have an interview scheduled this month", route: tools, ok: [skill], tool: gcal.calendar_events}
+  - {text: "remind me about the dentist tomorrow at 9", route: skill, ok: [tools], tool: jarvis.set_reminder}
+  - {text: "what reminders do I have", route: skill, ok: [tools], tool: jarvis.list_reminders}
 

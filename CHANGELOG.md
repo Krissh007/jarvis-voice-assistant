@@ -378,3 +378,11 @@ to its own chat page:
   requests: first run 8/8 routes and 6/7 tools (the miss was "gdrive"); after the fix, all pass, and
   the earlier 82 requests still all pass with the larger registry.
 
+## Word files from Drive, and Google Calendar, read-only (17 October 2026)
+
+- Drive now reads Word (.docx) files too (standard library only, hostile files refused).
+- Second connector: Google Calendar, read-only (events on a day or range, what's coming up). It needs
+  the Calendar API enabled and a sign-in with `--calendar` (Agent Hub README, "Google").
+- 8 labelled Calendar requests, written before measuring: 8/8 routes and tools on the first run.
+  "Not connected yet" is still reported when the Hub doesn't offer Calendar tools.
+

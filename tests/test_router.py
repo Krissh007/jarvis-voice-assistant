@@ -231,3 +231,19 @@ async def test_drive_not_set_up_is_reported_missing(registry) -> None:
     d = await Router(registry, hub=HubWithoutDrive(registry)).route("search my google drive for the interview notes")
     assert d.route == "reasoning" and "docs" in d.missing
     assert not any(t.id.startswith("gdrive.") for t in d.tools)
+
+
+async def test_google_calendar_requests(router) -> None:
+    result = await score(router, section("calendar"))
+    misses = [r for r in result["rows"] if not r["ok"]]
+    assert result["route_acc"] >= 0.85 and result["tool_recall"] >= 0.85, misses
+
+
+async def test_calendar_not_set_up_is_reported_missing(registry) -> None:
+    class HubWithoutCalendar(IndexHub):
+        async def find_tools(self, query, categories=None, access=None, limit=8):
+            rows = await super().find_tools(query, categories, access, limit + 3)
+            return [r for r in rows if not r["id"].startswith("gcal.")][:limit]
+
+    d = await Router(registry, hub=HubWithoutCalendar(registry)).route("what's on my calendar tomorrow")
+    assert d.route == "reasoning" and "calendar" in d.missing

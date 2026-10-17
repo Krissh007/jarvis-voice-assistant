@@ -1,5 +1,5 @@
 {
- "note": "The Agent Hub registry entries for JobPilot and Google Drive (hub/tools, agents.yaml), copied for routing tests.",
+ "note": "The Agent Hub registry entries for JobPilot, Google Drive and Google Calendar (hub/tools, agents.yaml), copied for routing tests.",
  "tools": [
   {
    "id": "jobpilot.get_jobs",
@@ -192,7 +192,7 @@
    "id": "gdrive.drive_read",
    "executor": "hub",
    "name": "drive_read",
-   "description": "Read one Google Drive file as text (Docs, Sheets, Slides, text files), by the id a search returned.",
+   "description": "Read one Google Drive file as text (Docs, Sheets, Slides, Word, text files), by the id a search returned.",
    "category": "docs",
    "keywords": [
     "read",
@@ -208,6 +208,57 @@
     "sheet",
     "spreadsheet",
     "slides"
+   ],
+   "access": "read"
+  },
+  {
+   "id": "gcal.calendar_events",
+   "executor": "hub",
+   "name": "calendar_events",
+   "description": "The user's calendar events on a day or a range of days (day as YYYY-MM-DD, default today), optionally matching words.",
+   "category": "calendar",
+   "keywords": [
+    "today",
+    "tomorrow",
+    "this week",
+    "on monday",
+    "what's on",
+    "meetings on",
+    "agenda",
+    "schedule for",
+    "calendar",
+    "google calendar",
+    "events",
+    "meetings",
+    "schedule",
+    "appointments",
+    "agenda",
+    "busy",
+    "free"
+   ],
+   "access": "read"
+  },
+  {
+   "id": "gcal.calendar_upcoming",
+   "executor": "hub",
+   "name": "calendar_upcoming",
+   "description": "The user's next calendar events from now.",
+   "category": "calendar",
+   "keywords": [
+    "next",
+    "upcoming",
+    "coming up",
+    "next meeting",
+    "soon",
+    "calendar",
+    "google calendar",
+    "events",
+    "meetings",
+    "schedule",
+    "appointments",
+    "agenda",
+    "busy",
+    "free"
    ],
    "access": "read"
   }
