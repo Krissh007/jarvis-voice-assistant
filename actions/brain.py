@@ -42,6 +42,7 @@ log = logging.getLogger(__name__)
 
 MAX_REQUEST_CHARS = 1000
 SIZE_ARGS = {"max_chars", "limit"}  # ignored when spotting a repeated read
+RECENT_S = 120.0  # an identical request within this long gets the same answer, at once
 MAX_SPOKEN_CHARS = 900
 SYSTEM = """You are the reasoning part of JARVIS, a voice assistant on the user's Windows PC.
 Work out the user's request. Use the tools given when they help: search the web for current facts,
@@ -128,6 +129,7 @@ class Brain:
         self._router_log = logs / "routing.jsonl"
         self._hub_params: dict[str, dict] = {}
         self._inflight: dict[str, asyncio.Future] = {}  # request text -> its run, while it runs
+        self._recent: dict[str, tuple[float, str]] = {}  # request text -> (when, answer), for RECENT_S
 
     @property
     def router(self) -> Router:
@@ -146,6 +148,12 @@ class Brain:
         if not text:
             raise ToolError("What should I think about?")
         key = text.lower()
+        # Seen live: the answer arrived, the user spoke 1 s later before it was read out, and the voice model
+        # asked again, starting a fresh 20 s run. A recent answer to the same request is returned at once.
+        recent = self._recent.get(key)
+        if recent and self.clock() - recent[0] < RECENT_S:
+            log.info("ask_brain: same request answered %.0f s ago; reusing that answer", self.clock() - recent[0])
+            return recent[1]
         if key in self._inflight:
             log.info("ask_brain: same request already in progress; sharing its answer")
             result = await asyncio.shield(self._inflight[key])
@@ -158,6 +166,9 @@ class Brain:
         try:
             result = await self._ask(text)
             future.set_result(result)
+            if isinstance(result, str):  # never a confirmation: each of those needs its own yes
+                self._recent = {k: v for k, v in self._recent.items() if self.clock() - v[0] < RECENT_S}
+                self._recent[key] = (self.clock(), result)
             return result
         except asyncio.CancelledError:
             future.cancel()
@@ -463,8 +474,9 @@ DESCRIPTION = (
     "planning, explaining why); current facts that need a web search and reasoning; and jobs that need a few "
     "tools in a row (job search agents, files, the web). Never tell the user you can't reach Drive or "
     "Calendar: call this, and it will say if they aren't connected. Pass the user's full request in their "
-    "own words. It can take up to 30 seconds: call it once and wait, even if the user says something "
-    "meanwhile. It may ask the user to confirm actions; its answer is ready to read out as it is. Not for "
+    "own words. It can take up to 30 seconds: first say a few words like 'let me look into that', then "
+    "call it once and wait, even if the user says something meanwhile; if you lose its answer, calling "
+    "again with the same request returns it at once. It may ask the user to confirm actions; its answer is ready to read out as it is. Not for "
     "chit-chat or for things one of your own tools does directly.")
 
 

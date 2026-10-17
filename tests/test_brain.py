@@ -449,10 +449,14 @@ async def test_identical_requests_in_flight_share_one_run(setup) -> None:
     answers = await asyncio.gather(first, *dupes)
     assert len(calls) == 1 and set(answers) == {"Learn Go first."}
     assert services.brain._inflight == {}
-    gate.clear()
     calls.clear()
-    gate.set()
-    await services.brain.ask("Should I learn Rust or Go?")          # a later, separate ask runs again
+    now = [services.brain.clock()]
+    services.brain.clock = lambda: now[0]
+    services.brain._recent = {k: (now[0], v[1]) for k, v in services.brain._recent.items()}
+    assert await services.brain.ask("Should I learn Rust or Go?") == "Learn Go first."
+    assert calls == []                                              # asked again soon after: same answer, no run
+    now[0] += brain_mod.RECENT_S + 1
+    await services.brain.ask("Should I learn Rust or Go?")          # much later: a fresh run
     assert len(calls) == 1
 
 
@@ -461,8 +465,11 @@ async def test_a_duplicate_of_a_paused_request_does_not_ask_twice(setup) -> None
     script(fake, [("jarvis__delete_file", {"path": "notes.txt"})])
     first = await services.brain.ask("delete the old notes file in downloads")
     assert isinstance(first, NeedsConfirmation)
-    # the paused run has finished its ask(); a new identical ask is a fresh request, not a share
-    assert services.brain._inflight == {}
+    # the paused run has finished its ask(); confirmations are never reused: asking again asks again
+    assert services.brain._inflight == {} and services.brain._recent == {}
+    script(fake, [("jarvis__delete_file", {"path": "notes.txt"})])
+    assert isinstance(await services.brain.ask("delete the old notes file in downloads"), NeedsConfirmation)
+    assert record == []
 
 
 def test_ask_brain_tells_the_voice_model_about_drive_and_calendar() -> None:
