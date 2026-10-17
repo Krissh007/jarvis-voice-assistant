@@ -132,6 +132,7 @@ def show_ask(config: dict, request: str) -> int:
     from google import genai
 
     from actions import Services, load_actions
+    from core import catalog
     from core.audio import PlaybackState
     from core.confirm import Confirmer, UtteranceTracker
     from core.dispatcher import AuditLog, Dispatcher
@@ -157,6 +158,11 @@ def show_ask(config: dict, request: str) -> int:
     print("Groq:", "ready" if services.brain.groq.key else "no GROQ_API_KEY (falls back to Gemini Flash)")
 
     async def run():
+        if services.hub is not None:  # the Hub ranks JARVIS's skills too, as the running JARVIS's poller arranges
+            try:
+                await services.hub.sync_tools(catalog.export(registry))
+            except Exception as exc:  # an older Hub or none running: routing falls back to JARVIS's own skills
+                print(f"(Agent Hub registry not updated: {type(exc).__name__})")
         start = time.monotonic()
         out = await services.brain.ask(request)
         if isinstance(out, NeedsConfirmation):
