@@ -16,6 +16,10 @@ Safety design (deliberately stricter than "expose the Hub's tools to the model")
 
 Results arrive through a poller that calls the Hub's get_updates. They are only spoken when JARVIS is
 awake and idle; while it is asleep or busy they are held (and saved to disk), with one toast.
+
+The poller also sends JARVIS's own skills (core/catalog.py) to the Hub's tool registry (sync_tools)
+once the Hub answers, and again whenever the Hub comes back after being unreachable. Only names,
+descriptions, categories and parameter schemas go: never memory, settings or keys.
 """
 
 from __future__ import annotations
@@ -31,6 +35,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from core import catalog
 from core.registry import NeedsConfirmation, Registry, Tier, Tool, ToolError
 from core.secrets import env_key
 from core.untrusted import wrap
@@ -141,6 +146,9 @@ class HubClient:
     async def updates(self) -> list[dict]:
         return list(await self._call("get_updates", {}))
 
+    async def sync_tools(self, tools: list[dict]) -> dict:
+        return await self._call("sync_tools", {"tools": tools})
+
 
 # ---------------------------------------------------------------- the bridge
 
@@ -150,8 +158,10 @@ def _clean(text: Any, limit: int = MAX_SAY_CHARS) -> str:
 
 class HubBridge:
     def __init__(self, client: Any, services: Any, poll_s: float = 5.0, held_path: Path | None = None,
-                 toast: Callable[[str, str], None] | None = None) -> None:
+                 toast: Callable[[str, str], None] | None = None, registry: Registry | None = None) -> None:
         self.client = client
+        self.registry = registry  # JARVIS's skills, sent to the Hub's tool registry
+        self.synced = False
         self.services = services
         self.poll_s = poll_s
         self.held_path = held_path
@@ -192,6 +202,25 @@ class HubBridge:
         say = _clean(reply.get("say"))
         notes = [n for n in (_clean(n, 120) for n in reply.get("progress") or []) if n and n not in say]
         return " ".join(part for part in (say, " ".join(notes)) if part) or "No news yet."
+
+    # -- the Hub's tool registry
+
+    async def sync_once(self) -> None:
+        """Send JARVIS's skills to the Hub's registry. One try per Hub contact: a Hub without the
+        registry (older version) or a rejected entry is logged, not retried every poll."""
+        if self.synced or self.registry is None:
+            return
+        self.synced = True
+        try:
+            reply = await self.client.sync_tools(catalog.export(self.registry))
+        except ToolError as exc:
+            log.warning("couldn't send JARVIS's skills to the Agent Hub registry: %s", exc)
+            return
+        rejected = reply.get("rejected") or []
+        log.info("Agent Hub registry: %s JARVIS skills stored%s", reply.get("stored", 0),
+                 f", {len(rejected)} rejected" if rejected else "")
+        for item in rejected[:10]:
+            log.warning("Agent Hub registry rejected %s: %s", item.get("name"), item.get("error"))
 
     # -- results
 
@@ -242,7 +271,9 @@ class HubBridge:
                 await self.deliver_once()
                 if failures:
                     log.info("Agent Hub is reachable again")
+                    self.synced = False  # it may have restarted: send the skills again
                 failures, delay = 0, self.poll_s
+                await self.sync_once()
             except asyncio.CancelledError:
                 raise
             except ToolError as exc:
@@ -302,7 +333,7 @@ def register(registry: Registry, config: dict, services) -> None:
     client = HubClient(str(settings.get("url") or DEFAULT_URL), env_key("AGENT_HUB_TOKEN"),
                        float(settings.get("request_timeout_s") or 8))
     bridge = HubBridge(client, services, float(settings.get("poll_s") or 5),
-                       services.data_dir / "agent_hub_held.json", toast=_toast)
+                       services.data_dir / "agent_hub_held.json", toast=_toast, registry=registry)
     services.background.append(bridge.poll_loop)
     services.on_start.append(_warm_up)
 

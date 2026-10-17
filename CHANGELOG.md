@@ -337,3 +337,11 @@ to its own chat page:
   - On the real desktop: a vivid orb, solid cards, clicks through empty space, double-tap open and
     close.
   - 825 tests pass in the worktree.
+
+## Skills in the Agent Hub's tool registry (17 October 2026)
+
+- The Agent Hub (`E:gent-hub`, branch `tool-registry`) now keeps a tool registry: every tool its
+  agents, connectors and JARVIS offer, with a category, keywords, read or write access, auth (env
+  var names only), parameters and a timeout. Lookups return at most 8 tools, ranked for the request.
+- JARVIS sends its 46 skills to it (`core/catalog.py`, `sync_tools` in the Agent Hub poller). This is
+  groundwork for the reasoning layer: nothing JARVIS says or does changes yet.

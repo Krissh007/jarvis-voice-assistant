@@ -41,6 +41,14 @@ class FakeHub:
         out, self.pending_updates = self.pending_updates, []
         return out
 
+    async def sync_tools(self, tools):
+        self.calls.append(("sync_tools", len(tools)))
+        if self.sync_refused:
+            raise ToolError(agent_hub.REJECTED_HINT)
+        return {"ok": True, "stored": len(tools), "rejected": []}
+
+    sync_refused = False
+
 
 def make_services(**kw) -> Services:
     s = Services()
@@ -311,3 +319,61 @@ async def test_status_does_not_repeat_a_progress_note_already_in_the_answer() ->
     bridge = HubBridge(hub, make_services())
     bridge.last_request_id = "r1"
     assert await bridge.status() == "starting search_jobs"
+
+
+# ---------------------------------------------------------------- the Hub's tool registry
+
+def _registry_with_tools(tmp_path) -> Registry:
+    from tests.test_catalog import all_tools_registry
+    return all_tools_registry(tmp_path)
+
+
+async def test_skills_are_sent_once_the_hub_answers_and_again_after_it_returns(tmp_path) -> None:
+    hub = FakeHub()
+    hub.down = True
+    bridge = HubBridge(hub, make_services(), poll_s=0.01, registry=_registry_with_tools(tmp_path))
+    task = asyncio.create_task(bridge.poll_loop())
+    await asyncio.sleep(0.1)
+    assert not [c for c in hub.calls if c[0] == "sync_tools"]     # nothing sent while the Hub is down
+    hub.down = False
+    for _ in range(100):
+        if hub.calls:
+            break
+        await asyncio.sleep(0.02)
+    await asyncio.sleep(0.1)
+    syncs = [c for c in hub.calls if c[0] == "sync_tools"]
+    assert len(syncs) == 1 and syncs[0][1] > 30                   # once, not every poll
+    hub.down = True
+    await asyncio.sleep(0.2)
+    hub.down = False
+    for _ in range(100):
+        if len([c for c in hub.calls if c[0] == "sync_tools"]) == 2:
+            break
+        await asyncio.sleep(0.02)
+    task.cancel()
+    assert len([c for c in hub.calls if c[0] == "sync_tools"]) == 2   # the Hub may have restarted
+
+
+async def test_a_hub_without_the_registry_is_asked_only_once(tmp_path, caplog) -> None:
+    hub = FakeHub()
+    hub.sync_refused = True
+    bridge = HubBridge(hub, make_services(), registry=_registry_with_tools(tmp_path))
+    await bridge.sync_once()
+    await bridge.sync_once()
+    assert [c[0] for c in hub.calls] == ["sync_tools"]
+    assert "registry" in caplog.text
+
+
+async def test_client_sends_skills_over_mcp(tmp_path) -> None:
+    server = fake_hub_server()
+    got = {}
+
+    @server.tool()
+    async def sync_tools(tools: list[dict]) -> dict:
+        got["tools"] = tools
+        return {"ok": True, "stored": len(tools), "rejected": []}
+
+    from core import catalog
+    tools = catalog.export(_registry_with_tools(tmp_path))
+    reply = await HubClient(server, None).sync_tools(tools)
+    assert reply["stored"] == len(tools) and got["tools"][0]["name"] == tools[0]["name"]

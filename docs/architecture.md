@@ -153,6 +153,18 @@ Long results from tools that opt in (`Tool.condense`: `read_app` except its cont
 focused on the user's latest request, before being wrapped and returned to the model. Plan steps
 get the full text: the plan's answer step summarises them, and blanks are filled from it.
 
+### JARVIS's skills in the Hub's tool registry
+
+The Hub keeps one catalogue of every tool: its agents' actions, connectors, and JARVIS's own skills.
+A request can then be matched to the few tools it needs instead of the whole list. `core/catalog.py`
+gives each skill a registry category and keywords; read-only tools are `access: read`, everything
+else is `write` (always confirmed on the reasoning path). Meta tools and gateways (`run_plan`,
+`think_through`, `agent_hub_request`, task mode...) are left out. A test fails if a new tool has
+neither a category nor an exclusion. The poller sends the list with the Hub's `sync_tools` once the
+Hub answers, and again whenever it comes back after being unreachable; a Hub without the registry
+is asked once and logged. Only names, descriptions, categories, keywords and parameter schemas are
+sent. JARVIS still runs its own skills; the Hub only lists them.
+
 ## Voice and chat: one conversation, one event bus
 
 Voice and chat share one brain: the same Live conversation, tools, dispatcher, memory and
