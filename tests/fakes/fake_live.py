@@ -53,6 +53,15 @@ def go_away() -> types.LiveServerMessage:
     return types.LiveServerMessage(go_away=types.LiveServerGoAway(time_left="5s"))
 
 
+class ServerDropped(ConnectionError):
+    """Stands in for the socket closing with an error code (Gemini's 1011 "internal error")."""
+
+
+def drop(code: int = 1011) -> ServerDropped:
+    """Put in a script: the server kills the connection at that point."""
+    return ServerDropped(f"received {code} (internal error)")
+
+
 # ---- fake SDK objects ----
 
 class FakeSession:
@@ -75,6 +84,8 @@ class FakeSession:
             await asyncio.Event().wait()  # idle connection
         while self._script:
             msg = self._script.pop(0)
+            if isinstance(msg, Exception):
+                raise msg
             yield msg
             if msg.server_content and msg.server_content.turn_complete:
                 return
@@ -86,11 +97,13 @@ class FakeClient:
     """Stands in for `genai.Client`; `client.aio.live.connect(...)` returns scripted sessions."""
 
     def __init__(
-        self, scripts: list[list[types.LiveServerMessage]], fail_first: int = 0, fail_after: int | None = None
+        self, scripts: list[list[types.LiveServerMessage]], fail_first: int = 0, fail_after: int | None = None,
+        fail_on: set[int] | frozenset[int] = frozenset(),
     ) -> None:
         self._scripts = list(scripts)
         self._fail_first = fail_first
         self._fail_after = fail_after  # connections after this many successful ones all fail
+        self._fail_on = set(fail_on)  # these connect attempts (0-based) fail, e.g. a resume that is refused
         self.connects: list[dict[str, Any]] = []
         self.sessions: list[FakeSession] = []
         self.aio = self
@@ -99,6 +112,8 @@ class FakeClient:
     @asynccontextmanager
     async def connect(self, *, model: str, config: types.LiveConnectConfig):
         self.connects.append({"model": model, "config": config})
+        if len(self.connects) - 1 in self._fail_on:
+            raise ConnectionError("fake connection failure")
         if self._fail_first > 0:
             self._fail_first -= 1
             raise ConnectionError("fake connection failure")

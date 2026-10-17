@@ -105,6 +105,13 @@ The pieces:
   session resumption, and the tool declarations (every tool is a blocking function call).
 - **Reconnects:** with backoff and resumption. A handle that fails twice in a row is dropped, and
   after 3 failures in 5 minutes JARVIS tells you and backs off.
+- **Context after a drop:** when Gemini kills a session (e.g. close code 1011) and resumption fails
+  or there's no handle yet, the new session would start blank. Instead it's seeded with a recap of
+  the last 8 finished lines (`Transcript.recent`, via `LiveSession(recap=...)` and `build_recap`):
+  text only, each line trimmed, wrapped as `<untrusted_content>` (spoken replies may echo web pages),
+  sent as context with `turn_complete=False` so the model waits for you. It never carries tool
+  results or confirmation state; pending confirmations stay in the app and only you can confirm. No
+  recap on the first connection, after a successful resume, or after a New chat (which clears it).
 - **System notices:** the app adds `[system notice]` messages to the conversation, in order.
   They carry confirmation outcomes, reminders, the briefing and "Yes?".
 - **System instruction:** rebuilt at each connect by `core/prompts.py`, from the persona, the
@@ -281,7 +288,7 @@ receives can confirm an action.
   - Middle: the conversation, typed and spoken, with confirmations and pictures inline.
   - Right: activity (tools and plan steps) and vision.
 - **New chat** (`Assistant.new_conversation`): the Live session reconnects without its resumption
-  handle, so the model starts fresh (`LiveSession.new_conversation`). The bus publishes `conversation`,
+  handle, so the model starts fresh (`LiveSession.new_conversation`), with no recap carried over. The bus publishes `conversation`,
   views clear, and a page that connects later only gets the history since then. Memory, reminders and
   settings are untouched.
 - **Server** (`ui/server.py`): FastAPI and uvicorn, run as a task inside JARVIS's own asyncio loop,

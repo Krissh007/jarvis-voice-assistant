@@ -29,7 +29,7 @@ from core.llm import LLM
 from core.secrets import env_key
 from core.prompts import build_system_instruction
 from core.registry import Registry, Tier, Tool
-from core.session import LiveSession, build_live_config
+from core.session import LiveSession, RECAP_LINES, build_live_config, build_recap
 from core.wakeword import WakeState
 
 log = logging.getLogger(__name__)
@@ -63,6 +63,9 @@ class Transcript:
         self._bus = bus or EventBus()
         self.last: tuple[str, str] = ("", "")  # (label, line) of the last finished line
         self.lines: deque[tuple[str, str]] = deque(maxlen=60)  # finished lines, for the window
+        # Finished lines since the last new chat, to seed a fresh Live session after a drop (the bus
+        # history also holds every partial fragment, so it may not reach back far enough).
+        self.recent: deque[tuple[str, str]] = deque(maxlen=RECAP_LINES)
         self.version = 0  # bumps on every change, so the window only redraws when needed
 
     def set_user_label(self, label: str) -> None:
@@ -79,6 +82,11 @@ class Transcript:
             if self._buf[w].strip():
                 return self._labels[w], self._buf[w]
         return self.last
+
+    def recap(self) -> str | None:
+        """Text-only recap of the latest finished user/assistant lines (a cut-off line counts too)."""
+        self.flush()
+        return build_recap(list(self.recent))
 
     def add(self, who: str, text: str, channel: str = "voice") -> None:
         if who == "jarvis":
@@ -104,6 +112,7 @@ class Transcript:
             if line:
                 self.last = (self._labels[w], line)
                 self.lines.append(self.last)
+                self.recent.append(self.last)
                 self.version += 1
                 log.info("%s: %s", w, line)
                 self._bus.publish("message", channel=self._channel[w], role=w, label=self._labels[w], text=line,
@@ -334,6 +343,7 @@ class Assistant:
                 end_pause_ms=config["listening"].get("end_pause_ms"),
             ),
             self,
+            recap=self.transcript.recap,  # seeds a fresh session after a drop
         )
         self.hotkeys = Hotkeys(
             {k: v for k, v in config["hotkeys"].items() if k in {"mute", "push_to_talk", "stop", "confirm", "cancel"}},
@@ -784,6 +794,7 @@ class Assistant:
         """A new chat: the model starts without the conversation so far, and every view clears its
         conversation. Memory, reminders and settings are untouched."""
         self.transcript.flush()
+        self.transcript.recent.clear()  # a new chat carries nothing over, even after a later drop
         self.session.new_conversation()
         self.bus.publish("conversation", action="new")
         self._status("(new conversation)")
