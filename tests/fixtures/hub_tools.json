@@ -1,5 +1,5 @@
 {
- "note": "The Agent Hub registry entries for JobPilot (hub/tools, agents.yaml), copied for routing tests.",
+ "note": "The Agent Hub registry entries for JobPilot and Google Drive (hub/tools, agents.yaml), copied for routing tests.",
  "tools": [
   {
    "id": "jobpilot.get_jobs",
@@ -142,6 +142,74 @@
     "naukri"
    ],
    "access": "write"
+  },
+  {
+   "id": "gdrive.drive_search",
+   "executor": "hub",
+   "name": "drive_search",
+   "description": "Search the user's Google Drive files by name and contents.",
+   "category": "docs",
+   "keywords": [
+    "find",
+    "search",
+    "look for",
+    "in drive",
+    "file",
+    "google drive",
+    "drive",
+    "gdrive",
+    "doc",
+    "docs",
+    "sheet",
+    "spreadsheet",
+    "slides"
+   ],
+   "access": "read"
+  },
+  {
+   "id": "gdrive.drive_recent",
+   "executor": "hub",
+   "name": "drive_recent",
+   "description": "The user's most recently changed Google Drive files.",
+   "category": "docs",
+   "keywords": [
+    "recent",
+    "latest",
+    "last edited",
+    "new files",
+    "google drive",
+    "drive",
+    "gdrive",
+    "doc",
+    "docs",
+    "sheet",
+    "spreadsheet",
+    "slides"
+   ],
+   "access": "read"
+  },
+  {
+   "id": "gdrive.drive_read",
+   "executor": "hub",
+   "name": "drive_read",
+   "description": "Read one Google Drive file as text (Docs, Sheets, Slides, text files), by the id a search returned.",
+   "category": "docs",
+   "keywords": [
+    "read",
+    "open",
+    "contents",
+    "what does it say",
+    "summarise",
+    "google drive",
+    "drive",
+    "gdrive",
+    "doc",
+    "docs",
+    "sheet",
+    "spreadsheet",
+    "slides"
+   ],
+   "access": "read"
   }
  ]
 }

@@ -96,3 +96,15 @@ holdout:
   - {text: "who is the CEO of Infosys", route: reasoning, ok: [skill, tools]}
   - {text: "send an email to my manager saying I'm sick", route: reasoning, missing: mail}
   - {text: "do I have any meetings today", route: reasoning, missing: calendar}
+
+# Google Drive connector (Phase 5), written before its first measured run. Tools are Hub tools (gdrive.*).
+drive:
+  - {text: "search my google drive for the interview notes", route: skill, ok: [tools], tool: gdrive.drive_search}
+  - {text: "find the budget spreadsheet in drive", route: skill, ok: [tools], tool: gdrive.drive_search}
+  - {text: "what did I change recently in google drive", route: skill, ok: [tools], tool: gdrive.drive_recent}
+  - {text: "read me the project plan doc from my drive", route: tools, ok: [skill], tool: gdrive.drive_read}
+  - {text: "summarise my meeting notes doc in google docs", route: tools, ok: [skill, reasoning], tool: gdrive.drive_read}
+  - {text: "is there a resume in my gdrive", route: skill, ok: [tools], tool: gdrive.drive_search}
+  - {text: "find my resume", route: tools, ok: [skill], tool: jarvis.find_files}
+  - {text: "check my email for anything from HR", route: reasoning, missing: mail}
+

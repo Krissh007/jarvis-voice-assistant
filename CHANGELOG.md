@@ -369,3 +369,12 @@ to its own chat page:
 - `logs/brain.jsonl` records route, steps, tokens and time per request (no text).
   `python main.py --ask "..."` tries one request without voice.
 
+## Google Drive, read-only (17 October 2026)
+
+- The Agent Hub has its first connector: Google Drive, read-only (search, recent files, read a Doc,
+  Sheet, Slides or text file). It needs a one-time setup and sign-in (Agent Hub README, "Google");
+  until then its tools are hidden and Drive requests are answered as "not connected yet".
+- The router recognises "drive", "gdrive" and "my drive" as Drive requests. 8 new labelled Drive
+  requests: first run 8/8 routes and 6/7 tools (the miss was "gdrive"); after the fix, all pass, and
+  the earlier 82 requests still all pass with the larger registry.
+

@@ -64,7 +64,7 @@ CATEGORY_CUES: dict[str, list[str]] = {
               r"\.(?:txt|html|css|js|py|md|docx)\b"],
     "mail": [r"\be-?mails?\b", r"\binbox\b", r"\bgmail\b", r"\bmail\b"],
     "calendar": [r"\bcalendar\b", r"\bmeetings?\b", r"\bschedule\b", r"\bappointments?\b", r"\bevents?\b"],
-    "docs": [r"\bgoogle drive\b", r"\bdrive\b", r"\bnotion\b", r"\bgoogle docs?\b", r"\bspreadsheet\b"],
+    "docs": [r"\bgoogle drive\b", r"\bg?drive\b", r"\bmy drive\b", r"\bnotion\b", r"\bgoogle docs?\b", r"\bspreadsheet\b"],
     "code": [r"\bgithub\b", r"\brepo(?:sitor(?:y|ies))?\b", r"\bpull requests?\b", r"\bissues?\b", r"\bcommits?\b"],
     "browser": [r"\bwebsite\b", r"\bbrowser\b", r"\bchrome\b", r"\bon (?:amazon|flipkart|youtube)\b",
                 r"\bthis page\b", r"\.(?:com|in|org)\b"],
