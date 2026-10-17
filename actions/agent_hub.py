@@ -149,6 +149,12 @@ class HubClient:
     async def sync_tools(self, tools: list[dict]) -> dict:
         return await self._call("sync_tools", {"tools": tools})
 
+    async def find_tools(self, query: str, categories: list[str] | None = None, access: str | None = None,
+                         limit: int = 8) -> list[dict]:
+        """The registry's best tools for a request (core/router.py); short entries, no schemas."""
+        return list(await self._call("find_tools", {"query": query, "categories": categories,
+                                                    "access": access, "limit": limit}))
+
 
 # ---------------------------------------------------------------- the bridge
 
@@ -334,6 +340,7 @@ def register(registry: Registry, config: dict, services) -> None:
                        float(settings.get("request_timeout_s") or 8))
     bridge = HubBridge(client, services, float(settings.get("poll_s") or 5),
                        services.data_dir / "agent_hub_held.json", toast=_toast, registry=registry)
+    services.hub = client  # the tool registry's lookups, for core/router.py
     services.background.append(bridge.poll_loop)
     services.on_start.append(_warm_up)
 

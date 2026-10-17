@@ -65,3 +65,7 @@ def test_long_descriptions_end_on_a_sentence() -> None:
                       read_only=True))
     (entry,) = catalog.export(reg)
     assert len(entry["description"]) <= catalog.MAX_DESCRIPTION and entry["description"].endswith(".")
+
+
+def test_categories_match_the_hub() -> None:
+    assert set(catalog.CATEGORIES) == HUB_CATEGORIES

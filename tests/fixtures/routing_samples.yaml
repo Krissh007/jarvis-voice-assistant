@@ -1,0 +1,98 @@
+# Labelled requests for core/router.py. `route` is the expected route; `ok` lists other routes that are
+# also fine (one clear tool vs several candidates is a judgement call); `tool` must be among the
+# attached tools. Used by tests/test_router.py (accuracy floors).
+samples:
+  # one clear skill
+  - {text: "what's the weather in Hyderabad", route: skill, tool: jarvis.get_weather}
+  - {text: "will it rain tomorrow in Pune", route: skill, tool: jarvis.get_weather}
+  - {text: "play believer by imagine dragons", route: skill, tool: jarvis.play_music}
+  - {text: "pause the music", route: skill, ok: [tools], tool: jarvis.media_key}
+  - {text: "what's my battery level", route: skill, tool: jarvis.get_system_status}
+  - {text: "what time is it", route: skill, ok: [tools], tool: jarvis.get_datetime}
+  - {text: "remind me to drink water in 20 minutes", route: skill, tool: jarvis.set_reminder}
+  - {text: "what reminders do I have", route: skill, ok: [tools], tool: jarvis.list_reminders}
+  - {text: "what's on my shortlist", route: skill, tool: jobpilot.get_shortlist}
+  - {text: "approve application 12", route: skill, ok: [tools], tool: jobpilot.approve_application}
+  - {text: "skip application 4", route: skill, ok: [tools], tool: jobpilot.skip_application}
+  - {text: "which applications are waiting for my approval", route: skill, ok: [tools], tool: jobpilot.get_review_queue}
+  - {text: "run the job discovery now", route: skill, ok: [tools], tool: jobpilot.run_agent}
+  - {text: "how's my job search going", route: skill, ok: [tools], tool: jarvis.job_search_status}
+  - {text: "what's on my screen", route: skill, ok: [tools], tool: jarvis.look_at_screen}
+  - {text: "translate what I copied into Hindi", route: skill, ok: [tools], tool: jarvis.clipboard_action}
+  - {text: "find my resume", route: tools, ok: [skill], tool: jarvis.find_files}
+  - {text: "open my resume", route: skill, ok: [tools], tool: jarvis.open_file}
+  - {text: "delete the old notes file in downloads", route: skill, ok: [tools], tool: jarvis.delete_file}
+  - {text: "minimise this window", route: skill, ok: [tools], tool: jarvis.window_action}
+  - {text: "type hello world in notepad", route: skill, ok: [tools], tool: jarvis.type_in_app}
+  - {text: "search amazon for wireless headphones", route: skill, ok: [tools], tool: jarvis.site_search}
+  - {text: "what did I tell you to remember about my car", route: skill, ok: [tools], tool: jarvis.recall}
+  - {text: "remember that my passport expires in March", route: skill, ok: [tools], tool: jarvis.remember}
+  - {text: "turn the music down a bit", route: skill, ok: [tools], tool: jarvis.set_music_volume}
+  - {text: "which song is this", route: skill, ok: [tools], tool: jarvis.now_playing}
+  - {text: "open chrome", route: skill, ok: [tools], tool: jarvis.open_app}
+  - {text: "cancel my reminder about the gym", route: skill, ok: [tools], tool: jarvis.cancel_reminder}
+  - {text: "read me the latest reply in Claude", route: skill, ok: [tools], tool: jarvis.read_app}
+  - {text: "save my answer for notice period as 30 days", route: skill, ok: [tools], tool: jarvis.save_job_answer}
+
+  # several tools could fit
+  - {text: "find the portfolio html file and change the title", route: tools, ok: [skill], tool: jarvis.edit_file}
+  - {text: "create a new file called todo.txt in documents", route: tools, ok: [skill], tool: jarvis.write_file}
+  - {text: "play a lofi video on youtube", route: tools, ok: [skill], tool: jarvis.play_youtube}
+  - {text: "show me the latest jobs with a score above 80", route: tools, ok: [skill], tool: jobpilot.get_jobs}
+  - {text: "what did the last scoring run do", route: tools, ok: [skill], tool: jobpilot.get_run_logs}
+  - {text: "open naukri.com in the browser", route: tools, ok: [skill], tool: jarvis.browser_open}
+  - {text: "summarise the page that's open in the browser", route: tools, ok: [skill], tool: jarvis.read_current_page}
+  - {text: "click the send button", route: tools, ok: [skill], tool: jarvis.click_in_app}
+  - {text: "press ctrl s", route: tools, ok: [skill], tool: jarvis.press_keys}
+  - {text: "fix the grammar in the text I copied", route: tools, ok: [skill], tool: jarvis.clipboard_fix}
+
+  # thinking, maybe with the web
+  - {text: "why is the sky blue", route: reasoning}
+  - {text: "should I take the offer from Infor or stay at my current job", route: reasoning}
+  - {text: "compare the iPhone 17 and the Pixel 11", route: reasoning}
+  - {text: "what's 15% of 2400", route: reasoning}
+  - {text: "explain recursion like I'm five", route: reasoning}
+  - {text: "plan a three day trip to Goa", route: reasoning}
+  - {text: "who won the IPL final this year", route: reasoning, ok: [skill, tools], tool: jarvis.search_web}
+  - {text: "what's the latest news on the RBI repo rate", route: reasoning, ok: [skill, tools], tool: jarvis.search_web}
+  - {text: "how much does a Tesla Model 3 cost in India", route: reasoning, ok: [skill, tools], tool: jarvis.search_web}
+  - {text: "give me ideas for a birthday gift for my sister", route: reasoning}
+  - {text: "what is the difference between a stock and a bond", route: reasoning}
+  - {text: "tell me a fun fact about octopuses", route: reasoning}
+  - {text: "write a haiku about rain in Mumbai", route: reasoning}
+  - {text: "is it worth learning Rust in 2026", route: reasoning}
+
+  # areas with no tools yet (connectors come in Phase 5): reasoning, flagged as missing
+  - {text: "check my email for anything from HR", route: reasoning, missing: mail}
+  - {text: "what's on my calendar tomorrow", route: reasoning, missing: calendar}
+  - {text: "list my open pull requests on github", route: reasoning, missing: code}
+
+  # moved here from the holdout after the first held-out run missed them (see CHANGELOG)
+  - {text: "how hot will it be in Chennai this weekend", route: skill, ok: [tools, reasoning], tool: jarvis.get_weather}
+  - {text: "put on some AR Rahman", route: skill, ok: [tools], tool: jarvis.play_music}
+  - {text: "write me a short poem about coffee", route: reasoning}
+
+# Held out: written after the thresholds and rules were set, never tuned on. Reported separately.
+holdout:
+  - {text: "skip to the next song", route: skill, ok: [tools], tool: jarvis.media_key}
+  - {text: "set a timer for ten minutes", route: skill, ok: [tools], tool: jarvis.set_reminder}
+  - {text: "is my laptop charging", route: skill, ok: [tools], tool: jarvis.get_system_status}
+  - {text: "where did I save the offer letter pdf", route: tools, ok: [skill], tool: jarvis.find_files}
+  - {text: "read the readme file in my project folder", route: tools, ok: [skill], tool: jarvis.read_file}
+  - {text: "any new jobs today", route: tools, ok: [skill], tool: jobpilot.get_jobs}
+  - {text: "start the scoring agent", route: skill, ok: [tools], tool: jobpilot.run_agent}
+  - {text: "what's in my review queue", route: skill, ok: [tools], tool: jobpilot.get_review_queue}
+  - {text: "maximise the excel window", route: skill, ok: [tools], tool: jarvis.window_action}
+  - {text: "scroll down in this app", route: skill, ok: [tools], tool: jarvis.scroll_app}
+  - {text: "what am I looking at", route: skill, ok: [tools], tool: jarvis.look_at_screen}
+  - {text: "forget what I said about my car", route: skill, ok: [tools], tool: jarvis.forget}
+  - {text: "search youtube for python tutorials", route: skill, ok: [tools], tool: jarvis.site_search}
+  - {text: "what's the capital of Australia", route: reasoning}
+  - {text: "how many days until Diwali", route: reasoning, ok: [tools, skill]}
+  - {text: "why does my code throw a null pointer exception", route: reasoning}
+  - {text: "recommend a good book on habits", route: reasoning}
+  - {text: "what's the price of gold today", route: reasoning, ok: [skill, tools], tool: jarvis.search_web}
+  - {text: "convert 50 dollars to rupees", route: reasoning, ok: [tools, skill]}
+  - {text: "who is the CEO of Infosys", route: reasoning, ok: [skill, tools]}
+  - {text: "send an email to my manager saying I'm sick", route: reasoning, missing: mail}
+  - {text: "do I have any meetings today", route: reasoning, missing: calendar}

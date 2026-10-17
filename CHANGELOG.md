@@ -345,3 +345,15 @@ to its own chat page:
   var names only), parameters and a timeout. Lookups return at most 8 tools, ranked for the request.
 - JARVIS sends its 46 skills to it (`core/catalog.py`, `sync_tools` in the Agent Hub poller). This is
   groundwork for the reasoning layer: nothing JARVIS says or does changes yet.
+
+## Routing requests to a few tools (17 October 2026)
+
+- `core/router.py` decides, for each request, between one clear skill, several candidate tools, or
+  reasoning, and attaches 1 to 8 tools from the Agent Hub's registry (or JARVIS's own skills when the
+  Hub doesn't answer). Questions get read-only tools; areas with no tools yet are reported as missing.
+- 60 labelled requests (`tests/fixtures/routing_samples.yaml`) route 100% correctly with the right tool
+  attached. A held-out set written after tuning first scored 24/25 routes and 22/25 tools; the three
+  misses ("how hot will it be", "put on some AR Rahman", "write me a short poem") were fixed with
+  general rules and moved into the tuned set, and the remaining 22 held-out requests all pass.
+- Every routing decision is logged to `logs/routing.jsonl` without the request text.
+  `python main.py --route "..."` shows a decision. Nothing JARVIS says or does changes yet.

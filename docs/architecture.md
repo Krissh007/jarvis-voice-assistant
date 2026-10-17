@@ -165,6 +165,27 @@ Hub answers, and again whenever it comes back after being unreachable; a Hub wit
 is asked once and logged. Only names, descriptions, categories, keywords and parameter schemas are
 sent. JARVIS still runs its own skills; the Hub only lists them.
 
+### Routing a request to a few tools (core/router.py)
+
+The reasoning layer (in progress) never gets the whole tool list. `Router.route(text)` sorts a request
+into one of three routes and attaches between one and eight tools:
+
+| Route | When | Tools attached |
+|---|---|---|
+| `skill` | one tool clearly fits (high score, clear lead over the next) | that tool and up to two from its category |
+| `tools` | tools fit, but not one clearly | the best matches from the matching categories, at least 3 when there are that many |
+| `reasoning` | thinking or writing ("should I", "explain", "write a poem"), working out, general facts, or no tool fits | `search_web`, `read_page` (and `get_weather` when asked), plus up to two strongly matching read-only tools |
+
+Candidates come from the Hub's registry (`find_tools`) when it answers within 2.5 s; otherwise (and for
+a minute after a failure) from JARVIS's own skills, ranked locally the same way (BM25 with the Hub's
+tokens, weights and category words: identical scores on all 82 labelled requests). Cue words per
+category boost matching tools; a request with no action verb gets only read-only tools when any fit.
+A cue for an area that has no tools yet (mail, calendar, code before their connectors) sends the
+request to reasoning and lists the area in `missing`. An optional classifier (a small LLM, for
+Phase 4) is asked only when the top score is in a grey zone. Each decision goes to
+`logs/routing.jsonl` with a hash of the request, never its text. Try it with
+`python main.py --route "what's on my shortlist"`.
+
 ## Voice and chat: one conversation, one event bus
 
 Voice and chat share one brain: the same Live conversation, tools, dispatcher, memory and

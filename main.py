@@ -36,6 +36,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="measure how fast JARVIS reads each open app (read-only, shows no app text), then exit")
     parser.add_argument("--browser-login", action="store_true",
                         help="open JARVIS's Chrome profile normally so you can sign in to YouTube once")
+    parser.add_argument("--route", metavar="REQUEST",
+                        help="show which route and tools the reasoning layer would pick for a request, then exit")
     return parser.parse_args(argv)
 
 
@@ -101,6 +103,24 @@ def browser_login() -> int:
     return 0
 
 
+def show_route(config: dict, request: str) -> int:
+    """--route: run the intent router once (Agent Hub registry if it answers, else JARVIS's own skills)."""
+    import asyncio
+    import json
+
+    from actions import Services, load_actions
+    from core.registry import Registry
+    from core.router import Router, as_dict
+
+    load_dotenv(ROOT / ".env")
+    services = Services()
+    registry = load_actions(Registry(), config, services)
+    router = Router(registry, hub=services.hub, log_path=ROOT / "logs" / "routing.jsonl")
+    decision = asyncio.run(router.route(request, source="cli"))
+    print(json.dumps(as_dict(decision), indent=2))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     from core.app_mode import (
         claim_single_instance,
@@ -143,6 +163,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_benchmark(config)
     if args.browser_login:
         return browser_login()
+    if args.route:
+        return show_route(config, args.route)
     load_dotenv(ROOT / ".env")
     from core.secrets import env_key
 

@@ -1,0 +1,147 @@
+{
+ "note": "The Agent Hub registry entries for JobPilot (hub/tools, agents.yaml), copied for routing tests.",
+ "tools": [
+  {
+   "id": "jobpilot.get_jobs",
+   "executor": "hub",
+   "name": "get_jobs",
+   "description": "List jobs, optionally filtered by status or minimum score.",
+   "category": "jobs",
+   "keywords": [
+    "list jobs",
+    "new jobs",
+    "openings",
+    "roles",
+    "score",
+    "job",
+    "jobs",
+    "career",
+    "application",
+    "linkedin",
+    "naukri"
+   ],
+   "access": "read"
+  },
+  {
+   "id": "jobpilot.get_shortlist",
+   "executor": "hub",
+   "name": "get_shortlist",
+   "description": "Jobs that are shortlisted or have their documents ready.",
+   "category": "jobs",
+   "keywords": [
+    "shortlist",
+    "shortlisted",
+    "best jobs",
+    "documents ready",
+    "job",
+    "jobs",
+    "career",
+    "application",
+    "linkedin",
+    "naukri"
+   ],
+   "access": "read"
+  },
+  {
+   "id": "jobpilot.get_review_queue",
+   "executor": "hub",
+   "name": "get_review_queue",
+   "description": "Applications filled in and waiting for approval.",
+   "category": "jobs",
+   "keywords": [
+    "approval",
+    "approve",
+    "waiting",
+    "pending",
+    "review queue",
+    "job",
+    "jobs",
+    "career",
+    "application",
+    "linkedin",
+    "naukri"
+   ],
+   "access": "read"
+  },
+  {
+   "id": "jobpilot.get_run_logs",
+   "executor": "hub",
+   "name": "get_run_logs",
+   "description": "Recent agent runs, or the log of one run.",
+   "category": "jobs",
+   "keywords": [
+    "run log",
+    "last run",
+    "agent run",
+    "history",
+    "job",
+    "jobs",
+    "career",
+    "application",
+    "linkedin",
+    "naukri"
+   ],
+   "access": "read"
+  },
+  {
+   "id": "jobpilot.run_agent",
+   "executor": "hub",
+   "name": "run_agent",
+   "description": "Start discovery, scoring, documents, apply or the full pipeline.",
+   "category": "jobs",
+   "keywords": [
+    "run",
+    "start",
+    "discovery",
+    "scoring",
+    "documents",
+    "pipeline",
+    "job",
+    "jobs",
+    "career",
+    "application",
+    "linkedin",
+    "naukri"
+   ],
+   "access": "write"
+  },
+  {
+   "id": "jobpilot.approve_application",
+   "executor": "hub",
+   "name": "approve_application",
+   "description": "Approve a waiting application so it is submitted.",
+   "category": "jobs",
+   "keywords": [
+    "approve",
+    "submit",
+    "application",
+    "job",
+    "jobs",
+    "career",
+    "application",
+    "linkedin",
+    "naukri"
+   ],
+   "access": "write"
+  },
+  {
+   "id": "jobpilot.skip_application",
+   "executor": "hub",
+   "name": "skip_application",
+   "description": "Skip a waiting application without submitting it.",
+   "category": "jobs",
+   "keywords": [
+    "skip",
+    "reject",
+    "application",
+    "job",
+    "jobs",
+    "career",
+    "application",
+    "linkedin",
+    "naukri"
+   ],
+   "access": "write"
+  }
+ ]
+}

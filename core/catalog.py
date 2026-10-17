@@ -18,6 +18,27 @@ from core.registry import Registry, Tool
 log = logging.getLogger(__name__)
 
 MAX_DESCRIPTION = 800  # the Hub's limit
+JARVIS_SOURCE = "jarvis"  # the Hub files these skills as jarvis.<name>
+
+# The Hub's categories (hub/tools/schema.py CATEGORIES, kept in step by hand): the router ranks with
+# the same words as the Hub, so its local scores match the Hub's.
+CATEGORIES: dict[str, str] = {
+    "search": "Web search, reading web pages, weather and current facts.",
+    "reasoning": "Careful thinking, maths, comparisons and multi-step plans.",
+    "files": "Finding, opening, reading and editing the user's own files.",
+    "mail": "Email: reading, searching, drafting and sending.",
+    "calendar": "Calendar events and schedules.",
+    "docs": "Documents, notes and knowledge bases (Drive, Notion...).",
+    "code": "Code hosting: repositories, issues and pull requests.",
+    "browser": "Driving a web browser: opening sites, searching sites, filling pages.",
+    "desktop": "Reading and operating desktop apps and windows.",
+    "screen": "Looking at the screen and the clipboard.",
+    "media": "Music, video and volume.",
+    "system": "Apps, the time, system status and settings JARVIS may change.",
+    "memory": "Facts the user asked JARVIS to remember.",
+    "reminders": "Reminders and timers.",
+    "jobs": "The job search: jobs, the shortlist, applications and job agent runs.",
+}
 
 # Meta tools and gateways: not skills to pick for a request. The Hub lists its own agents' actions
 # directly (jobpilot.*), so the two Agent Hub gateway tools would only duplicate them.
@@ -30,22 +51,22 @@ EXCLUDED = {
 CATALOG: dict[str, tuple[str, list[str]]] = {
     "get_datetime": ("system", ["time", "date", "day", "today", "clock"]),
     "get_system_status": ("system", ["battery", "cpu", "memory", "ram", "charging"]),
-    "open_app": ("system", ["open", "launch", "start", "app", "program"]),
+    "open_app": ("system", ["open", "launch", "start", "app", "program", "chrome", "excel", "spotify"]),
     "close_app": ("system", ["close", "quit", "exit", "app"]),
     "focus_app": ("system", ["switch", "bring to front", "focus", "window"]),
     "open_website": ("browser", ["open", "website", "site", "url", "link"]),
     "set_volume": ("system", ["volume", "louder", "quieter", "mute", "sound"]),
     "search_web": ("search", ["search", "google", "look up", "news", "facts", "price", "latest", "won", "score", "result"]),
     "read_page": ("search", ["read", "page", "article", "summarise", "website", "link"]),
-    "get_weather": ("search", ["weather", "forecast", "rain", "temperature", "sunny"]),
+    "get_weather": ("search", ["weather", "forecast", "rain", "temperature", "sunny", "hot", "cold"]),
     "save_research": ("files", ["save", "research", "notes", "markdown"]),
     "play_youtube": ("media", ["youtube", "video", "watch", "play"]),
-    "browser_open": ("browser", ["open", "website", "browser", "chrome", "site"]),
+    "browser_open": ("browser", ["open", "website", "browser", "site", "jarvis browser"]),
     "site_search": ("browser", ["search", "youtube", "amazon", "flipkart", "site", "results"]),
     "browser_close": ("browser", ["close", "browser"]),
     "read_current_page": ("browser", ["read", "page", "this page", "summarise"]),
     "browser_task": ("browser", ["fill", "form", "click", "steps", "website", "task"]),
-    "play_music": ("media", ["music", "song", "play", "artist", "playlist", "album"]),
+    "play_music": ("media", ["music", "song", "play", "put on", "artist", "playlist", "album"]),
     "media_key": ("media", ["pause", "resume", "next", "previous", "skip", "stop"]),
     "set_music_volume": ("media", ["music volume", "louder", "quieter", "turn up", "turn down"]),
     "now_playing": ("media", ["playing", "song", "track", "what's this"]),
