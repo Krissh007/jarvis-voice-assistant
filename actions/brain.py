@@ -242,9 +242,11 @@ class Brain:
                 run.calls.append({"tool": target.id, "status": "bad_args"})
                 continue
             if unknown := set(args) - set(target.params.get("properties", {})):
-                self._reply(run, call, f"{target.fn} doesn't take {', '.join(sorted(unknown))[:100]}.")
-                run.calls.append({"tool": target.id, "status": "bad_args"})
-                continue
+                # Dropped, not bounced back: models often add a stray argument to tools that take none
+                # (seen live with get_system_status), and a round trip costs a step. Only declared
+                # arguments ever reach a tool.
+                log.info("ask_brain: dropped unknown arguments for %s: %s", target.id, ", ".join(sorted(unknown)))
+                args = {k: v for k, v in args.items() if k not in unknown}
             if target.kind == "hub":
                 paused = await self._hub_call(run, call, target, args)
             else:

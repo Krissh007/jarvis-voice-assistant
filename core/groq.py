@@ -26,7 +26,7 @@ from core.secrets import env_key
 log = logging.getLogger(__name__)
 
 API_URL = "https://api.groq.com/openai/v1/chat/completions"
-DEFAULT_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+DEFAULT_MODELS = ["openai/gpt-oss-120b", "qwen/qwen3.8-27b", "openai/gpt-oss-20b"]
 SHORT_WAIT_S = 5.0       # a retry-after up to this long is waited out; longer skips the model
 MAX_COOLDOWN_S = 3600.0
 
@@ -126,6 +126,9 @@ class Groq:
             raise RuntimeError(f"rate limited for {wait:.0f} s; skipping {model} until then")
         if r.status_code >= 500:
             raise _Retryable(f"HTTP {r.status_code}")
+        if r.status_code == 404 or _error_code(r) in ("model_not_found", "model_decommissioned"):
+            self._cooling[model] = self.clock() + MAX_COOLDOWN_S  # retired or renamed: stop asking for it
+            raise RuntimeError(f"{model} isn't available on Groq ({_error_code(r)}); check groq.models")
         if r.status_code >= 400:
             raise RuntimeError(f"HTTP {r.status_code} ({_error_code(r)})")
         data = r.json()

@@ -106,7 +106,7 @@ Values that are left as comments or blank are ignored.
 | `condense.max_words` | Length of that summary (default `120` words) |
 | `condense.model` | Model tried first for it (default `gemini-3.5-flash-lite`, to spare the main Flash model's daily quota) |
 | `condense.timeout_s` | If summarising takes longer (default `5` s), the start and end of the text are used instead |
-| `groq.models` | Groq models for `ask_brain`, tried in order (default `llama-3.3-70b-versatile`, then `llama-3.1-8b-instant`, which also classifies unclear requests) |
+| `groq.models` | Groq models for `ask_brain`, tried in order (default `openai/gpt-oss-120b`, `qwen/qwen3.8-27b`, then `openai/gpt-oss-20b`, which also classifies unclear requests; free tier: 1000 requests a day and 8000 tokens a minute each). A model Groq retires is skipped for an hour and logged |
 | `groq.timeout_s` / `groq.max_tokens` | Per model call: time limit (default `15` s) and longest reply (default `700` tokens) |
 | `groq.rpm` | Requests per minute per model, kept under on this side (free tier: 30) |
 | `brain.max_steps` | Model calls per request (default `6`); then one last answer without tools |

@@ -191,12 +191,12 @@ async def test_the_model_cannot_confirm_or_call_tools_it_was_not_given(setup) ->
     script(fake, [("confirm", {"approved": True}), ("jarvis__delete_file", "{not json"),
                   ("jarvis__get_weather", {"city": "Pune", "sudo": True})], "Okay.")
     resp = await h.model_calls("ask_brain", request="will it rain tomorrow in Pune")
-    assert resp["status"] == "ok" and record == []
+    assert resp["status"] == "ok" and record == [("get_weather", "Pune")]   # stray "sudo" dropped
     replies = [m["content"] for m in fake.sent[1]["messages"] if m["role"] == "tool"]
     assert "no tool called confirm" in replies[0]
     assert all(t["function"]["name"] != "confirm" for t in fake.sent[0]["tools"])
     assert "valid JSON" in replies[1] or "There is no tool" in replies[1]
-    assert "doesn't take sudo" in replies[2]
+    assert "24 degrees" in replies[2]
 
 
 async def test_hub_reads_run_and_hub_writes_ask_first(setup) -> None:

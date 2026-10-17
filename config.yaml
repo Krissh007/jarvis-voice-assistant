@@ -17,10 +17,13 @@ models:
   openrouter: null              # e.g. a free OpenRouter model id; used only if OPENROUTER_API_KEY is set
 
 groq:                           # the reasoning layer's model (features.brain); key: GROQ_API_KEY in .env
-  models: [llama-3.3-70b-versatile, llama-3.1-8b-instant]   # tried in order; the last one also classifies
+  # Tried in order; the last one also classifies unclear requests. Checked on this account 2026-10-17
+  # (GET /openai/v1/models): the Llama models are gone; these three do tool calls. Free tier, from the
+  # response headers: 1000 requests a day and 8000 tokens a minute each.
+  models: [openai/gpt-oss-120b, qwen/qwen3.8-27b, openai/gpt-oss-20b]
   timeout_s: 15                 # per model call
   max_tokens: 700
-  rpm: {llama-3.3-70b-versatile: 30, llama-3.1-8b-instant: 30}   # free tier per minute (console.groq.com)
+  rpm: {openai/gpt-oss-120b: 30, qwen/qwen3.8-27b: 30, openai/gpt-oss-20b: 30}
 
 brain:                          # ask_brain (features.brain): route, then reason with a few tools
   max_steps: 6                  # model calls per request
