@@ -12,7 +12,7 @@ from actions import Services, brain as brain_mod
 from actions.brain import speakable
 from core import catalog, groq as groq_mod
 from core.groq import ChatResult, Groq, GroqUnavailable, ToolCall
-from core.registry import Tier, Tool
+from core.registry import NeedsConfirmation, Tier, Tool
 from core.router import LocalIndex, Router
 from core.untrusted import unwrap
 from tests.fakes import fake_live as fl
@@ -426,3 +426,47 @@ async def test_classifier_tolerates_text_around_the_json(setup) -> None:
     script(fake, 'Sure. {"areas": ["calendar"]} hope that helps', "no json here")
     assert await services.brain.classify("am I busy", ["calendar"]) == ["calendar"]
     assert await services.brain.classify("hmm", ["calendar"]) == []
+
+
+# ---------------------------------------------------------------- fixes from the Phase 6 voice test
+
+async def test_identical_requests_in_flight_share_one_run(setup) -> None:
+    h, services, fake, record = setup
+    gate = asyncio.Event()
+    calls = []
+
+    async def slow_chat(messages, tools=None, **kw):
+        calls.append(1)
+        await gate.wait()
+        return ChatResult("Learn Go first.", [], "big", {"total_tokens": 50})
+
+    fake.chat = slow_chat
+    first = asyncio.create_task(services.brain.ask("Should I learn Rust or Go?"))
+    await asyncio.sleep(0.05)
+    dupes = [asyncio.create_task(services.brain.ask("should I learn  rust or go?")) for _ in range(3)]
+    await asyncio.sleep(0.05)
+    gate.set()
+    answers = await asyncio.gather(first, *dupes)
+    assert len(calls) == 1 and set(answers) == {"Learn Go first."}
+    assert services.brain._inflight == {}
+    gate.clear()
+    calls.clear()
+    gate.set()
+    await services.brain.ask("Should I learn Rust or Go?")          # a later, separate ask runs again
+    assert len(calls) == 1
+
+
+async def test_a_duplicate_of_a_paused_request_does_not_ask_twice(setup) -> None:
+    h, services, fake, record = setup
+    script(fake, [("jarvis__delete_file", {"path": "notes.txt"})])
+    first = await services.brain.ask("delete the old notes file in downloads")
+    assert isinstance(first, NeedsConfirmation)
+    # the paused run has finished its ask(); a new identical ask is a fresh request, not a share
+    assert services.brain._inflight == {}
+
+
+def test_ask_brain_tells_the_voice_model_about_drive_and_calendar() -> None:
+    assert "Google Drive" in brain_mod.DESCRIPTION and "Google Calendar" in brain_mod.DESCRIPTION
+    assert "call it once and wait" in brain_mod.DESCRIPTION
+    from core.prompts import PERSONA
+    assert "Google Drive and Google Calendar" in PERSONA

@@ -127,6 +127,7 @@ class Brain:
         self.log_path: Path | None = Path(opts["log_path"]) if opts.get("log_path") else logs / "brain.jsonl"
         self._router_log = logs / "routing.jsonl"
         self._hub_params: dict[str, dict] = {}
+        self._inflight: dict[str, asyncio.Future] = {}  # request text -> its run, while it runs
 
     @property
     def router(self) -> Router:
@@ -138,9 +139,37 @@ class Brain:
     # ---------------------------------------------------------------- the tool
 
     async def ask(self, request: str) -> str | NeedsConfirmation:
+        """One run per request. Seen live: while a slow run was thinking, background speech made the voice
+        model call ask_brain again with the same request four times, and five parallel runs used up the
+        Groq rate limit. An identical request already in progress now shares that run's answer."""
         text = " ".join(str(request or "").split())[:MAX_REQUEST_CHARS]
         if not text:
             raise ToolError("What should I think about?")
+        key = text.lower()
+        if key in self._inflight:
+            log.info("ask_brain: same request already in progress; sharing its answer")
+            result = await asyncio.shield(self._inflight[key])
+            if isinstance(result, NeedsConfirmation):
+                return ("That request is already waiting for the user's yes or no from the first call. "
+                        "Don't call it again; wait for their answer.")
+            return result
+        future = asyncio.get_running_loop().create_future()
+        self._inflight[key] = future
+        try:
+            result = await self._ask(text)
+            future.set_result(result)
+            return result
+        except asyncio.CancelledError:
+            future.cancel()
+            raise
+        except Exception as exc:
+            future.set_exception(exc)
+            future.exception()  # mark it retrieved, so asyncio doesn't warn when nobody else was waiting
+            raise
+        finally:
+            self._inflight.pop(key, None)
+
+    async def _ask(self, text: str) -> str | NeedsConfirmation:
         started = self.clock()
         decision = await self.router.route(text, source="ask_brain")
         if not self.groq.available:
@@ -428,11 +457,14 @@ class Brain:
 
 
 DESCRIPTION = (
-    "Hand over a request that needs real thinking, several steps, or a tool you don't have: hard "
-    "questions (maths, comparisons, advice, 'should I...', planning, explaining why), current facts that "
-    "need a web search and reasoning, and jobs that need a few tools in a row (including the job search "
-    "agents, files and the web). Pass the user's full request in their own words, with any details they "
-    "gave. It may ask the user to confirm actions; its answer is ready to read out as it is. Not for "
+    "Hand over a request that needs real thinking, several steps, or a tool you don't have. This includes "
+    "the user's Google Drive (find, list, read their files) and Google Calendar (events, schedule, next "
+    "meeting, whether they're free), read-only; hard questions (maths, comparisons, advice, 'should I...', "
+    "planning, explaining why); current facts that need a web search and reasoning; and jobs that need a few "
+    "tools in a row (job search agents, files, the web). Never tell the user you can't reach Drive or "
+    "Calendar: call this, and it will say if they aren't connected. Pass the user's full request in their "
+    "own words. It can take up to 30 seconds: call it once and wait, even if the user says something "
+    "meanwhile. It may ask the user to confirm actions; its answer is ready to read out as it is. Not for "
     "chit-chat or for things one of your own tools does directly.")
 
 
