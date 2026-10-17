@@ -256,9 +256,10 @@ windows blacked out. Copied text that looks like a secret is never sent anywhere
 **Plans.** A planner drafts steps using only real tools. You approve the plan once, and then it's
 frozen: web pages can't change it, and each step still follows its own safety rules.
 
-**Memory** (`data/memory.json`). JARVIS keeps up to 100 facts, only ones you explicitly asked it to
+**Memory** (`data/memory.sqlite`). JARVIS keeps up to 100 facts, only ones you explicitly asked it to
 remember. It never stores passwords, PINs or card numbers. A fact such as "call me Krishna" sets the
-name it uses.
+name it uses; "don't call me sir or by my name" makes it use none. Facts about how it should talk
+(friendlier, more humour) are followed too, and when two disagree the newer one wins.
 
 **Reminders** (`data/reminders.sqlite`). You can set them up to 30 days ahead, and they survive
 restarts. One that falls due while JARVIS is closed is delivered at the next start, marked as late.

@@ -3,15 +3,15 @@
 Only what the user explicitly asks is stored. `remember` is SAFE when the user's own last
 utterance asked for it and nothing untrusted was read this turn; otherwise the dispatcher
 makes it CONFIRM (taint), and so does this module (no explicit ask). Secrets are refused.
-Facts live in data/memory.json and a short list is added to the system instruction at
+Facts live in data/memory.sqlite (core.memory_db) and a short list is added to the system instruction at
 session start. The Flash planner and browser actor are never given memory.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import re
+import sqlite3
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -48,30 +48,28 @@ def explicit_ask(utterance: str) -> bool:
 
 
 class MemoryStore:
-    """A small JSON list of facts. Thread-safe, written atomically."""
+    """Remembered facts in data/memory.sqlite (core.memory_db), oldest first. Thread-safe."""
 
-    def __init__(self, path: Path, max_facts: int = MAX_FACTS) -> None:
-        self.path = Path(path)
+    def __init__(self, path: Path, max_facts: int = MAX_FACTS, legacy_json: Path | None = None) -> None:
+        from core.memory_db import MemoryDB
+
+        self.db = MemoryDB(path)
+        self.path = self.db.path
         self.max_facts = max_facts
         self._lock = threading.Lock()
+        if legacy_json is not None:
+            self.db.import_legacy_facts(legacy_json)
 
     def facts(self) -> list[dict[str, str]]:
         try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
-            return [f for f in data.get("facts", []) if isinstance(f, dict) and f.get("text")]
-        except FileNotFoundError:
+            with self.db.connect() as db:
+                rows = db.execute("SELECT id, text, added FROM facts ORDER BY id").fetchall()
+        except sqlite3.Error:
+            log.exception("memory database unreadable; starting empty")
             return []
-        except (OSError, ValueError):
-            log.exception("memory file unreadable; starting empty")
-            return []
+        return [{"id": r["id"], "text": r["text"], "added": r["added"]} for r in rows]
 
-    def _save(self, facts: list[dict[str, str]]) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"facts": facts}, indent=2, ensure_ascii=False), encoding="utf-8")
-        tmp.replace(self.path)
-
-    def add(self, text: str) -> str:
+    def add(self, text: str, source: str = "") -> str:
         """'added', 'updated' (replaced a near-duplicate) or 'duplicate'."""
         with self._lock:
             facts = self.facts()
@@ -81,13 +79,14 @@ class MemoryStore:
                 if old == new:
                     return "duplicate"
                 if f" {old} " in f" {new} ":  # whole words only; "my name is Krishna" -> "my name is Krishna Maheswaram"
-                    f.update(text=text, added=_now())
-                    self._save(facts)
+                    with self.db.connect() as db:
+                        db.execute("UPDATE facts SET text = ?, added = ?, embedding = NULL WHERE id = ?",
+                                   (text, _now(), f["id"]))
                     return "updated"
             if len(facts) >= self.max_facts:
                 raise ToolError(f"My memory is full ({self.max_facts} facts). Ask me to forget something first.")
-            facts.append({"text": text, "added": _now()})
-            self._save(facts)
+            with self.db.connect() as db:
+                db.execute("INSERT INTO facts(text, added, source) VALUES (?, ?, ?)", (text, _now(), source))
             return "added"
 
     def search(self, topic: str) -> list[dict[str, str]]:
@@ -104,19 +103,14 @@ class MemoryStore:
         return hits[0] if hits and words(text) else None
 
     def remove(self, fact: dict[str, str]) -> bool:
-        with self._lock:
-            facts = self.facts()
-            kept = [f for f in facts if f["text"] != fact["text"]]
-            if len(kept) == len(facts):
-                return False
-            self._save(kept)
-            return True
+        with self._lock, self.db.connect() as db:
+            if "id" in fact:
+                return db.execute("DELETE FROM facts WHERE id = ?", (fact["id"],)).rowcount > 0
+            return db.execute("DELETE FROM facts WHERE text = ?", (fact["text"],)).rowcount > 0
 
     def clear(self) -> int:
-        with self._lock:
-            n = len(self.facts())
-            self._save([])
-            return n
+        with self._lock, self.db.connect() as db:
+            return db.execute("DELETE FROM facts").rowcount
 
 
 def _now() -> str:
@@ -130,8 +124,9 @@ def prompt_section(store: MemoryStore, limit: int = 40) -> str:
         return ""
     lines = "\n".join(f"- {f['text']}" for f in facts)
     return (
-        "Things the user asked you to remember (their own words, saved earlier). Use them when relevant. "
-        "If one says what to call the user, use that name instead of the default:\n" + lines + "\n"
+        "Things the user asked you to remember (their own words, saved earlier), oldest first. Use them when "
+        "relevant. Some say how you should talk (tone, humour, what to call the user): follow those over the "
+        "voice and tone rules above, and when two disagree the later one wins:\n" + lines + "\n"
     )
 
 
@@ -185,8 +180,9 @@ class Memory:
 
 
 def register(registry: Registry, config: dict, services) -> None:
-    store = MemoryStore(Path(services.data_dir) / "memory.json",
-                        int((config.get("memory") or {}).get("max_facts", MAX_FACTS)))
+    data = Path(services.data_dir)
+    store = MemoryStore(data / "memory.sqlite", int((config.get("memory") or {}).get("max_facts", MAX_FACTS)),
+                        legacy_json=data / "memory.json")
     services.memory = store
     memory = Memory(store, registry)
     registry.register(Tool(
@@ -220,6 +216,28 @@ def register(registry: Registry, config: dict, services) -> None:
 
 
 _NAME = re.compile(r"\b(?:call(?:ed)? me|my name is|address me as)\s+([A-Za-z][\w'-]{1,30})", re.IGNORECASE)
+
+
+# A remembered wish not to be addressed by name or as "sir": "don't call me sir", "I will not use the
+# names Krishna or sir when addressing you", "avoid using the name Krishna".
+_NO_NAME = re.compile(
+    r"\b(?:not|never|don'?t|stop|avoid|without)\b[^.]{0,30}?\b(?:call(?:ing)?|us(?:e|ing)|say(?:ing)?|"
+    r"address(?:ing)?)\b[^.]{0,40}?\b(?:sir|names?)\b", re.IGNORECASE)
+_TITLES = {"sir", "madam", "boss"}
+
+
+def address_as(store: MemoryStore, default: str | None) -> str:
+    """What to call the user out loud: the newest remembered fact about it wins. '' = no name at all
+    (they asked not to be called by name or "sir"); no such fact = `default` (config user.name)."""
+    for fact in reversed(store.facts()):
+        names = _NAME.findall(fact["text"])
+        if real := [n for n in names if n.lower() not in _TITLES]:  # "don't call me sir, call me Krish"
+            return real[-1][0].upper() + real[-1][1:]
+        if _NO_NAME.search(fact["text"]):  # "don't call me sir" is not a wish to be called "Sir"
+            return ""
+        if names:
+            return names[-1][0].upper() + names[-1][1:]
+    return default or ""
 
 
 def preferred_name(store: MemoryStore) -> str | None:

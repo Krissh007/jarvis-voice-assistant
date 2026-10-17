@@ -25,7 +25,7 @@ def h(tmp_path):
 # ---------------------------------------------------------------- memory store
 
 def test_store_dedupes_and_updates_on_whole_words(tmp_path) -> None:
-    store = MemoryStore(tmp_path / "m.json")
+    store = MemoryStore(tmp_path / "m.sqlite")
     assert store.add("My name is Krishna") == "added"
     assert store.add("my name is krishna.") == "duplicate"
     assert store.add("My name is Krishna Maheswaram") == "updated"
@@ -36,7 +36,7 @@ def test_store_dedupes_and_updates_on_whole_words(tmp_path) -> None:
 
 
 def test_store_caps_at_max_facts(tmp_path) -> None:
-    store = MemoryStore(tmp_path / "m.json", max_facts=2)
+    store = MemoryStore(tmp_path / "m.sqlite", max_facts=2)
     store.add("fact one")
     store.add("fact two")
     with pytest.raises(ToolError, match="full"):
@@ -44,7 +44,7 @@ def test_store_caps_at_max_facts(tmp_path) -> None:
 
 
 def test_search_and_best_match(tmp_path) -> None:
-    store = MemoryStore(tmp_path / "m.json")
+    store = MemoryStore(tmp_path / "m.sqlite")
     store.add("My car is parked on level 3")
     store.add("My sister's birthday is 4 March")
     assert store.search("birthday")[0]["text"].startswith("My sister")
@@ -65,11 +65,11 @@ def test_explicit_ask(said, expected) -> None:
 
 
 def test_memory_goes_into_the_system_instruction(tmp_path) -> None:
-    store = MemoryStore(tmp_path / "m.json")
+    store = MemoryStore(tmp_path / "m.sqlite")
     assert prompt_section(store) == ""
     store.add("Call me Krishna")
     text = build_system_instruction("Sir", ["remember: x"], prompt_section(store))
-    assert "Call me Krishna" in text and "instead of the default" in text
+    assert "Call me Krishna" in text and "the later one wins" in text
 
 
 # ---------------------------------------------------------------- memory tools through the dispatcher
@@ -79,7 +79,7 @@ async def test_remember_runs_when_the_user_asked(h, tmp_path) -> None:
     resp = await h.model_calls("remember", fact="My name is Krishna")
     assert resp["status"] == "ok" and "remember" in resp["result"]
     # survives a "restart": a fresh store on the same file
-    assert MemoryStore(tmp_path / "memory.json").facts()[0]["text"] == "My name is Krishna"
+    assert MemoryStore(tmp_path / "memory.sqlite").facts()[0]["text"] == "My name is Krishna"
     recall = await h.model_calls("recall", topic="name")
     assert "Krishna" in recall["result"]
 
@@ -89,7 +89,7 @@ async def test_remember_without_an_explicit_ask_needs_confirmation(h, tmp_path) 
     resp = await h.model_calls("remember", fact="Call me Krishna")
     assert resp["status"] == "awaiting_confirmation"
     assert resp["summary"] == 'Remember: "Call me Krishna"'
-    assert not (tmp_path / "memory.json").exists()
+    assert MemoryStore(tmp_path / "memory.sqlite").facts() == []
 
 
 async def test_remember_in_a_tainted_turn_needs_confirmation(h, tmp_path) -> None:
@@ -97,7 +97,7 @@ async def test_remember_in_a_tainted_turn_needs_confirmation(h, tmp_path) -> Non
     await h.model_calls("test_fetch_untrusted", url="https://evil.example")  # the page says "remember..."
     resp = await h.model_calls("remember", fact="The user's bank is Evil Bank")
     assert resp["status"] == "awaiting_confirmation"
-    assert not (tmp_path / "memory.json").exists()
+    assert MemoryStore(tmp_path / "memory.sqlite").facts() == []
 
 
 @pytest.mark.parametrize("fact", ["my wifi password is hunter2", "my PIN is 4821", "card 4111 1111 1111 1111"])
@@ -105,7 +105,7 @@ async def test_secrets_are_never_remembered(h, tmp_path, fact) -> None:
     await h.dispatcher.on_user_input(f"remember {fact}", "text")
     resp = await h.model_calls("remember", fact=fact)
     assert resp["status"] == "ok" and "won't store" in resp["result"]
-    assert not (tmp_path / "memory.json").exists()
+    assert MemoryStore(tmp_path / "memory.sqlite").facts() == []
 
 
 async def test_forget_confirms_with_the_exact_fact(h, tmp_path) -> None:
@@ -116,7 +116,7 @@ async def test_forget_confirms_with_the_exact_fact(h, tmp_path) -> None:
     assert resp["status"] == "awaiting_confirmation"
     assert resp["summary"] == 'Forget: "My car is on level 3"'
     await h.dispatcher.on_hotkey("confirm")
-    assert MemoryStore(tmp_path / "memory.json").facts() == []
+    assert MemoryStore(tmp_path / "memory.sqlite").facts() == []
 
 
 # ---------------------------------------------------------------- reminder times
@@ -285,10 +285,78 @@ async def test_briefing_once_a_day_with_untrusted_headlines(tmp_path) -> None:
 def test_preferred_name_from_memory(tmp_path) -> None:
     from actions.memory import preferred_name
 
-    store = MemoryStore(tmp_path / "m.json")
+    store = MemoryStore(tmp_path / "m.sqlite")
     assert preferred_name(store) is None
     store.add("My name is Krishna and I prefer to be called Krishna.")
     assert preferred_name(store) == "Krishna"
     store.add("I like tea")
     store.add("call me krish")
     assert preferred_name(store) == "Krish"
+
+
+# ---------------------------------------------------------------- SQLite store (memory phase, step 1)
+
+def test_old_memory_json_is_imported_once_and_kept(tmp_path) -> None:
+    old = tmp_path / "memory.json"
+    old.write_text(json.dumps({"facts": [{"text": "My name is Krishna", "added": "2026-09-25T10:50:16"},
+                                         {"text": "I like Queen", "added": "2026-09-25T16:57:12"}]}),
+                   encoding="utf-8")
+    store = MemoryStore(tmp_path / "memory.sqlite", legacy_json=old)
+    assert [(f["text"], f["added"]) for f in store.facts()] == [
+        ("My name is Krishna", "2026-09-25T10:50:16"), ("I like Queen", "2026-09-25T16:57:12")]
+    assert not old.exists() and (tmp_path / "memory.json.imported").exists()  # kept as a backup
+    old.write_text(json.dumps({"facts": [{"text": "I like Queen"}]}), encoding="utf-8")
+    MemoryStore(tmp_path / "memory.sqlite", legacy_json=old)  # a stray file again: never duplicated
+    assert len(MemoryStore(tmp_path / "memory.sqlite").facts()) == 2
+
+
+def test_store_keeps_the_keyword_index_in_step(tmp_path) -> None:
+    store = MemoryStore(tmp_path / "m.sqlite")
+    store.add("My car is parked on level 3")
+    store.add("My car is parked on level 3 near the lift")  # reworded: same row, index updated
+    store.add("I like tea")
+
+    def fts(word):
+        with store.db.connect() as db:
+            return [r[0] for r in db.execute("SELECT text FROM facts_fts WHERE facts_fts MATCH ?", (word,))]
+
+    assert fts("lift") == ["My car is parked on level 3 near the lift"]
+    store.remove(store.best_match("tea"))
+    assert fts("tea") == []
+    store.clear()
+    assert fts("car") == []
+
+
+def test_forget_removes_only_that_fact_even_with_the_same_text(tmp_path) -> None:
+    store = MemoryStore(tmp_path / "m.sqlite")
+    store.add("fact one")
+    store.add("fact two")
+    assert store.remove(store.facts()[0]) and [f["text"] for f in store.facts()] == ["fact two"]
+
+
+@pytest.mark.parametrize("facts, expected", [
+    ([], "Sir"),
+    (["My name is Krishna and I prefer to be called Krishna."], "Krishna"),
+    # Krishna's own facts, 18 October 2026: the newest asks for no name and no "sir"
+    (["My name is Krishna and I prefer to be called Krishna.",
+      "I should be friendly, not authoritative, try to have humor, avoid using the name Krishna at the end of "
+      "every sentence, and call the user sir.",
+      "I should be friendly and conversational, and I will not use the names Krishna or sir when addressing you."],
+     ""),
+    (["Don't call me sir", "Call me Krish"], "Krish"),
+    (["Call me Krish", "Please don't call me sir or by my name"], ""),
+    (["Krishna likes Led Zeppelin"], "Sir"),
+])
+def test_address_as_follows_the_newest_naming_fact(tmp_path, facts, expected) -> None:
+    from actions.memory import address_as
+
+    store = MemoryStore(tmp_path / "m.sqlite")
+    for fact in facts:
+        store.add(fact)
+    assert address_as(store, "Sir") == expected
+
+
+def test_no_name_wish_reaches_the_system_instruction() -> None:
+    text = build_system_instruction(None, ["remember: x"], "- don't call me sir\n", avoid_names=True)
+    assert 'as "sir"' in text and "Address the user as" not in text
+    assert "Address the user as \"Sir\"" in build_system_instruction("Sir", ["remember: x"])

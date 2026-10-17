@@ -76,6 +76,8 @@ batched at the end (as agreed for this plan).
 
 1. **SQLite store.** `core/memory_db.py`; move `MemoryStore` onto it with the same interface;
    one-time import of `memory.json` (kept as a backup); facts only. Back up `data/` first.
+   *Done 18 October 2026.* Also: remembered wishes about how to talk now win over the persona
+   ("don't call me sir or Krishna" means no name at all; the newer of two conflicting facts wins).
 2. **Embeddings.** `core/embed.py` (ONNX MiniLM, loaded lazily in a background thread),
    `main.py --setup-memory`, keyword-only fallback. Measure load time and per-sentence latency.
 3. **Meaning-based recall for facts.** Hybrid search; system instruction gets the top facts only.

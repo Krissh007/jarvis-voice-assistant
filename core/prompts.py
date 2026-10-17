@@ -100,8 +100,9 @@ def capabilities_section(tool_summaries: list[str]) -> str:
 
 
 def build_system_instruction(user_name: str | None, tool_summaries: list[str] | None = None,
-                             memory: str = "") -> str:
-    """Assemble the system instruction for the Live session. `memory` is the remembered-facts section."""
+                             memory: str = "", avoid_names: bool = False) -> str:
+    """Assemble the system instruction for the Live session. `memory` is the remembered-facts section;
+    `avoid_names`: a remembered fact asks not to be addressed by name or as "sir"."""
     parts = [PERSONA, capabilities_section(tool_summaries or [])]
     if tool_summaries:
         parts.append(CONFIRMATION_RULES)
@@ -111,5 +112,7 @@ def build_system_instruction(user_name: str | None, tool_summaries: list[str] | 
         override = (" If a remembered fact above says what to call the user, use that name instead and never "
                     f'"{user_name}".') if memory else ""
         parts.append(f'Address the user as "{user_name}" now and then, not in every sentence.{override}\n')
+    elif avoid_names:
+        parts.append('Don\'t address the user by name, as "sir" or with any title: they asked you not to.\n')
     parts.append(UNTRUSTED_RULE)
     return "\n".join(parts)

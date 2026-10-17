@@ -394,3 +394,12 @@ to its own chat page:
   had missed. Measured on the saved recordings: 42 of 48 unseen "hey jarvis" wake instead of 41, with
   11 false wakes in 132 s of nonstop talking instead of 7. The full trade-off is in
   docs/configuration.md; set it back to 0.15 for fewer false wakes.
+
+## Memory, step 1: one local database (18 October 2026)
+
+- Remembered facts moved from `data/memory.json` to `data/memory.sqlite`, which will also hold past
+  conversations (docs/memory-plan.md). Your facts are imported on the next start; the old file is
+  kept as `memory.json.imported`.
+- What you asked about how JARVIS talks now beats its built-in persona: "don't call me sir or
+  Krishna" means it uses no name at all (it used to keep saying "Krishna"), and when two remembered
+  wishes disagree, the newer one wins.

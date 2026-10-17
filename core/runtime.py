@@ -320,12 +320,13 @@ class Assistant:
 
         def instruction() -> str:
             """Rebuilt at each (re)connect so newly remembered facts are included."""
-            from actions.memory import preferred_name, prompt_section
+            from actions.memory import address_as, prompt_section
 
             store = self.services.memory
             memory = prompt_section(store) if store is not None else ""
-            name = (preferred_name(store) if store is not None else None) or config["user"].get("name")
-            return build_system_instruction(name, self.registry.summaries(), memory)
+            default = config["user"].get("name")
+            name = address_as(store, default) if store is not None else default
+            return build_system_instruction(name or None, self.registry.summaries(), memory, avoid_names=not name)
 
         declarations = self.registry.declarations()
         self.session = LiveSession(

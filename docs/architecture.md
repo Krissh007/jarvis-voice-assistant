@@ -372,7 +372,7 @@ Handled in `core/app_mode.py` and `core/taskbar.py`.
 |---|---|---|
 | `.env` | API keys | never |
 | `config.yaml` | settings | yes |
-| `data/memory.json` | remembered facts | no |
+| `data/memory.sqlite` | long-term memory: remembered facts (and, later, past conversations); an old `memory.json` is imported once and kept as `memory.json.imported` | no |
 | `data/reminders.sqlite` | pending reminders (APScheduler job store) | no |
 | `data/browser_profile/` | JARVIS's Chrome profile | no |
 | `data/wake/` | your wake-word clips and personal verifier | no |
