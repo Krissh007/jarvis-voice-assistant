@@ -332,7 +332,7 @@ def register(registry: Registry, config: dict, services) -> None:
         description=(
             "Look things up on the web: facts you don't know, current events, prices, opening times, or when "
             "the user says 'search' or 'look up'. Not for well-known facts you can just answer, and for a "
-            "judgement that needs current facts (compare, decide, calculate) use think_through with use_web. "
+            "judgement that needs current facts (compare, decide, calculate) use ask_brain (or think_through with use_web). "
             "For research questions: search, then read_page on the 2 or 3 most relevant "
             f"results (max {cap}), answer in 2 or 3 spoken sentences, then offer to save longer notes. "
             "Use mode 'news' for current events."

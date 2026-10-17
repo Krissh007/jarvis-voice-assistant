@@ -186,6 +186,36 @@ Phase 4) is asked only when the top score is in a grey zone. Each decision goes 
 `logs/routing.jsonl` with a hash of the request, never its text. Try it with
 `python main.py --route "what's on my shortlist"`.
 
+### The reasoning layer (actions/brain.py)
+
+`ask_brain` is the voice model's tool for anything that needs thinking, several steps, or a tool it
+doesn't have. It routes the request (above), then a Groq model (`core/groq.py`, free tier) works it
+with only the attached tools:
+
+- **Limits:** at most `brain.max_steps` model calls (then one last call without tools to answer from
+  what was found), 4 tool calls per step, 15 s per model call, 45 s per request, each tool's own
+  timeout (`core/catalog.py` TIMEOUTS), results cut to 3000 characters.
+- **Rate limits:** a 429 with a short retry-after is waited out once; a longer one skips that model
+  until it has passed, so the next model in `groq.models` answers. 5xx errors and timeouts are retried
+  once with backoff. A client-side token bucket keeps each model under its free-tier rate.
+- **Confirmation gate:** a JARVIS skill that isn't read-only, or whose tier is CONFIRM right now
+  (including taint), pauses the loop with `NeedsConfirmation`: JARVIS's normal confirmation (summary
+  written by code from the tool's own `summarize`, the user's own yes, timeout, audit). An Agent Hub
+  tool runs through the Hub's `call_tool`, which refuses denied actions and, for a write, returns
+  the Hub's own question instead of running; JARVIS asks it, and only the user's yes sends
+  `confirmed=true`. The model has no confirm tool and can't call tools it wasn't given.
+- **Execution:** JARVIS skills run through `Dispatcher.run_step` (audit, untrusted wrapping, taint),
+  with `APPROVED_STEP` set only after a yes; Hub results are wrapped as untrusted and taint the turn.
+- **Answer:** plain spoken sentences (`speakable`: no markdown, lists, links or code), wrapped as
+  data for the voice model like every web-based result.
+- **Fallback:** without Groq (no key, rate-limited, down) a reasoning request goes to the Gemini Flash
+  chain with JARVIS's web search (what `think_through` did), and tool work is handed back to the voice
+  model with the names of its own tools that fit.
+- **Log:** `logs/brain.jsonl`, one line per request: a hash, the route, outcome, models, steps, tool
+  names and statuses, tokens and time. No request text, arguments or results.
+
+`python main.py --ask "..."` runs one request this way in the terminal and never says yes.
+
 ## Voice and chat: one conversation, one event bus
 
 Voice and chat share one brain: the same Live conversation, tools, dispatcher, memory and

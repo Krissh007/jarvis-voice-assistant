@@ -155,6 +155,13 @@ class HubClient:
         return list(await self._call("find_tools", {"query": query, "categories": categories,
                                                     "access": access, "limit": limit}))
 
+    async def describe_tool(self, tool_id: str) -> dict:
+        return await self._call("describe_tool", {"tool_id": tool_id})
+
+    async def call_tool(self, tool_id: str, args: dict, confirmed: bool = False) -> dict:
+        """Run one Hub tool (actions/brain.py). confirmed=True only after the user's own yes."""
+        return await self._call("call_tool", {"tool_id": tool_id, "args": args, "confirmed": confirmed})
+
 
 # ---------------------------------------------------------------- the bridge
 

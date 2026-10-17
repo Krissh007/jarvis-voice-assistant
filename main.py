@@ -38,6 +38,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="open JARVIS's Chrome profile normally so you can sign in to YouTube once")
     parser.add_argument("--route", metavar="REQUEST",
                         help="show which route and tools the reasoning layer would pick for a request, then exit")
+    parser.add_argument("--ask", metavar="REQUEST",
+                        help="run one request through the reasoning layer (ask_brain) in this terminal; it never "
+                             "says yes to a confirmation, it only shows what it would ask")
     return parser.parse_args(argv)
 
 
@@ -121,6 +124,53 @@ def show_route(config: dict, request: str) -> int:
     return 0
 
 
+def show_ask(config: dict, request: str) -> int:
+    """--ask: one ask_brain run with the real tools and models, no voice. Confirmations are shown, never given."""
+    import asyncio
+    import time
+
+    from google import genai
+
+    from actions import Services, load_actions
+    from core.audio import PlaybackState
+    from core.confirm import Confirmer, UtteranceTracker
+    from core.dispatcher import AuditLog, Dispatcher
+    from core.llm import LLM
+    from core.registry import NeedsConfirmation, Registry
+    from core.secrets import env_key
+    from core.untrusted import unwrap
+
+    load_dotenv(ROOT / ".env")
+    if not config["features"].get("brain"):
+        print("features.brain is off in config.yaml.")
+        return 1
+    models = config["models"]
+    key = env_key("GOOGLE_API_KEY")
+    llm = LLM(genai.Client(api_key=key), [models.get("flash"), *(models.get("flash_fallbacks") or [])],
+              thinking=models.get("thinking")) if key else None
+    services = Services(llm=llm)
+    registry = load_actions(Registry(), config, services)
+    playback = PlaybackState(tail_s=0.4)
+    services.dispatcher = Dispatcher(registry, Confirmer(playback, timeout_s=30), UtteranceTracker(playback),
+                                     AuditLog(ROOT / "logs" / "actions.jsonl"), notify=lambda text: None,
+                                     accept_phrases=[])
+    print("Groq:", "ready" if services.brain.groq.key else "no GROQ_API_KEY (falls back to Gemini Flash)")
+
+    async def run():
+        start = time.monotonic()
+        out = await services.brain.ask(request)
+        if isinstance(out, NeedsConfirmation):
+            print(f"\nIt would ask you: {out.summary}\n(Not confirmed: --ask never says yes.)")
+            if out.on_cancel:
+                await out.on_cancel()
+        else:
+            print(f"\n{unwrap(out)}")
+        print(f"\n({time.monotonic() - start:.1f} s; details in logs/brain.jsonl and logs/routing.jsonl)")
+
+    asyncio.run(run())
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     from core.app_mode import (
         claim_single_instance,
@@ -165,6 +215,8 @@ def main(argv: list[str] | None = None) -> int:
         return browser_login()
     if args.route:
         return show_route(config, args.route)
+    if args.ask:
+        return show_ask(config, args.ask)
     load_dotenv(ROOT / ".env")
     from core.secrets import env_key
 

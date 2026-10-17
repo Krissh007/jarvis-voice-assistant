@@ -43,7 +43,7 @@ CATEGORIES: dict[str, str] = {
 # Meta tools and gateways: not skills to pick for a request. The Hub lists its own agents' actions
 # directly (jobpilot.*), so the two Agent Hub gateway tools would only duplicate them.
 EXCLUDED = {
-    "run_plan", "think_through", "go_to_sleep", "start_task", "finish_task", "stop_task", "task_status",
+    "run_plan", "think_through", "ask_brain", "go_to_sleep", "start_task", "finish_task", "stop_task", "task_status",
     "agent_hub_request", "agent_hub_status", "test_write_note", "test_fetch_untrusted",
 }
 

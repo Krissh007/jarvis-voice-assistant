@@ -10,6 +10,7 @@ never committed. Restart JARVIS after changing either file.
 | `GOOGLE_API_KEY` | yes | Gemini Live and Gemini Flash |
 | `TAVILY_API_KEY` | no | Tavily web search (falls back to DuckDuckGo) |
 | `OPENROUTER_API_KEY` | no | Fallback text model; set `models.openrouter` too |
+| `GROQ_API_KEY` | no | The reasoning layer's model (`ask_brain`), free at console.groq.com; without it `ask_brain` uses Gemini Flash |
 
 Values that are left as comments or blank are ignored.
 
@@ -105,6 +106,13 @@ Values that are left as comments or blank are ignored.
 | `condense.max_words` | Length of that summary (default `120` words) |
 | `condense.model` | Model tried first for it (default `gemini-3.5-flash-lite`, to spare the main Flash model's daily quota) |
 | `condense.timeout_s` | If summarising takes longer (default `5` s), the start and end of the text are used instead |
+| `groq.models` | Groq models for `ask_brain`, tried in order (default `llama-3.3-70b-versatile`, then `llama-3.1-8b-instant`, which also classifies unclear requests) |
+| `groq.timeout_s` / `groq.max_tokens` | Per model call: time limit (default `15` s) and longest reply (default `700` tokens) |
+| `groq.rpm` | Requests per minute per model, kept under on this side (free tier: 30) |
+| `brain.max_steps` | Model calls per request (default `6`); then one last answer without tools |
+| `brain.budget_s` | Time for a whole request (default `45` s), not counting time waiting for your yes |
+| `brain.max_tool_calls_per_step` | Tool calls the model may make at once (default `4`) |
+| `brain.result_chars` | Longest tool result the model sees (default `3000` characters) |
 | `reasoning.thinking` | Thinking level for `think_through` calls only (default `high`); the models are the Flash chain |
 | `reasoning.max_tokens` | Longest `think_through` answer before it's cut (default `2000`) |
 | `desktop.max_items` | Buttons, fields and lines `read_app` reads from one window (default `150`) |
@@ -131,7 +139,7 @@ Values that are left as comments or blank are ignored.
 ### Features
 
 Each entry under `features:` switches a whole module on or off: `system`, `web`, `browser`,
-`reasoning`, `media`, `app_ui` (off by default), `screen`, `clipboard`, `files`, `desktop`, `memory`, `reminders`, `job_search`, `agent_hub` (needs the Hub running), `agent_mode`, `morning_briefing`
+`reasoning` (`think_through`; off, `brain` replaces it), `brain` (`ask_brain`, the reasoning layer), `media`, `app_ui` (off by default), `screen`, `clipboard`, `files`, `desktop`, `memory`, `reminders`, `job_search`, `agent_hub` (needs the Hub running), `agent_mode`, `morning_briefing`
 (off by default), `tray`, `web_ui` (the orb control centre and the chat page), `window` (the
 older Tk window, off; used only when `web_ui` is off) and `wake_word`. `test_tools` exposes two tools used only to
 test the safety layer; it's off, and the test suite turns it on itself.
@@ -148,6 +156,8 @@ test the safety layer; it's off, and the test suite turns it on itself.
 | `--train-wake` | Record your voice and train the personal wake-word verifier |
 | `--bench-apps` | Measure how fast JARVIS reads each open app, and how many buttons and fields it finds (read-only; shows no app text) |
 | `--browser-login` | Open JARVIS's Chrome profile normally, to sign in to YouTube once |
+| `--route "REQUEST"` | Show which route and tools the reasoning layer would pick (no model is called) |
+| `--ask "REQUEST"` | Run one request through `ask_brain` in the terminal; confirmations are shown, never given |
 | `--install-shortcut` | Create the desktop icon, which starts JARVIS as an app (no terminal) |
 
 `run.bat` passes any of these through, for example `.\run.bat --mic-test`.

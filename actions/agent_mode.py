@@ -32,7 +32,7 @@ from core.untrusted import unwrap, wrap
 log = logging.getLogger(__name__)
 
 BLANK = re.compile(r"\{\{\s*(.+?)\s*\}\}", re.DOTALL)  # a blank anywhere in a value
-NOT_PLANNABLE = {"run_plan", "go_to_sleep", "test_write_note", "test_fetch_untrusted",
+NOT_PLANNABLE = {"run_plan", "ask_brain", "go_to_sleep", "test_write_note", "test_fetch_untrusted",
                  "start_task", "finish_task", "stop_task", "task_status"}
 FAILURE = re.compile(r"^(That didn't work|Couldn't|I couldn't|I won't|I can't|I stopped|That page is blocked|"
                      r"Page limit|There's no|No results|I don't know|.*isn't on my list|Several things match|"

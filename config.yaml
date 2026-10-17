@@ -16,6 +16,18 @@ models:
     gemini-3.5-flash-lite: minimal
   openrouter: null              # e.g. a free OpenRouter model id; used only if OPENROUTER_API_KEY is set
 
+groq:                           # the reasoning layer's model (features.brain); key: GROQ_API_KEY in .env
+  models: [llama-3.3-70b-versatile, llama-3.1-8b-instant]   # tried in order; the last one also classifies
+  timeout_s: 15                 # per model call
+  max_tokens: 700
+  rpm: {llama-3.3-70b-versatile: 30, llama-3.1-8b-instant: 30}   # free tier per minute (console.groq.com)
+
+brain:                          # ask_brain (features.brain): route, then reason with a few tools
+  max_steps: 6                  # model calls per request
+  budget_s: 45                  # whole request, not counting time waiting for the user's yes
+  max_tool_calls_per_step: 4
+  result_chars: 3000            # each tool result the model sees
+
 reasoning:                      # think_through (features.reasoning): careful answers, web search optional
   thinking: high                # thinking level for these calls only (the Flash chain above, then fallbacks)
   max_tokens: 2000
@@ -212,7 +224,7 @@ features:
   test_tools: false             # Phase 2 safety-test tools (the test suite turns them on itself)
   system: true
   web: true
-  reasoning: true              # think_through: harder questions, maths, comparisons (Flash, thinking high)
+  reasoning: false              # think_through (Flash, thinking high); replaced by brain, which falls back to it
   browser: true
   media: true
   app_ui: false                 # older app_ui_action (allowlisted apps, every step confirmed); replaced by desktop
@@ -225,6 +237,7 @@ features:
   reminders: true
   agent_mode: true
   job_search: true                # "how's my job search?" reads JobPilot (read only)
+  brain: true                  # ask_brain: Groq reasoning with a few tools (falls back to Flash)
   agent_hub: true               # shortlist, approvals, job search runs, approve/skip through the Agent Hub (needs it running + AGENT_HUB_TOKEN)
   morning_briefing: false
   tray: true                    # tray icon: click to talk, Stop, Mute, Quit

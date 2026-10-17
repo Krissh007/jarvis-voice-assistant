@@ -357,3 +357,15 @@ to its own chat page:
   general rules and moved into the tuned set, and the remaining 22 held-out requests all pass.
 - Every routing decision is logged to `logs/routing.jsonl` without the request text.
   `python main.py --route "..."` shows a decision. Nothing JARVIS says or does changes yet.
+
+## The reasoning layer: ask_brain (17 October 2026)
+
+- New tool `ask_brain` (`actions/brain.py`, `features.brain`, replaces `think_through`): routes the
+  request, then a Groq model (`core/groq.py`, free tier, `GROQ_API_KEY`) reasons and calls only the
+  1 to 8 attached tools, at most 6 model calls and 45 s per request, and answers in spoken sentences.
+- Anything that changes something asks first through JARVIS's normal confirmation; Agent Hub tools
+  run through the Hub's new `call_tool`, which applies the Hub's deny and confirm policies.
+- Without Groq it falls back to Gemini Flash with web search, or hands tool work back to the voice model.
+- `logs/brain.jsonl` records route, steps, tokens and time per request (no text).
+  `python main.py --ask "..."` tries one request without voice.
+
