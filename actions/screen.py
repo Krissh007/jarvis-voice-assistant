@@ -175,7 +175,8 @@ def register(registry: Registry, config: dict, services) -> None:
     registry.register(Tool(
         name="look_at_screen",
         description=("Look at the user's screen once and answer a question about what's on it: pictures, charts, "
-                     "layouts, or apps read_app can't read. For text in an app, use read_app."),
+                     "layouts, or apps read_app can't read. Use it when the user asks whether you can see their "
+                     "screen or what's on it. For text in an app, use read_app."),
         func=screen.look_at_screen,
         tier=Tier.SAFE,
         read_only=True,
@@ -185,7 +186,8 @@ def register(registry: Registry, config: dict, services) -> None:
     ))
     registry.register(Tool(
         name="active_window",
-        description="Say which window or app is in front right now.",
+        description=("Say which window or app is in front right now (its title only). To see what's on the "
+                     "screen, use look_at_screen."),
         func=screen.active_window,
         tier=Tier.SAFE,
         read_only=True,

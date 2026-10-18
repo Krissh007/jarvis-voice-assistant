@@ -69,6 +69,7 @@ wake_word:
   gain: 1.0                     # boosts your voice for wake detection only; --mic-test suggests a value
   active_window_s: 15
   chime_volume: 0.06            # wake beep loudness, 0 = silent, 0.25 = the old level
+  skip_after_wake_ms: 500       # mic audio not sent to Gemini right after waking: the end of "hey jarvis"
 
 ducking:                        # lower other apps (music) while JARVIS is awake; restored when it sleeps
   enabled: true

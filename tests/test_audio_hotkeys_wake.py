@@ -540,3 +540,26 @@ def test_a_miss_shows_the_bar_it_really_had_to_reach() -> None:
     assert det.needed(quiet) == 0.65
     det.personal = False
     assert det.needed(quiet) == 0.5
+
+
+def test_the_end_of_the_wake_phrase_is_not_sent_to_gemini(monkeypatch) -> None:
+    """Sent on its own, the tail of "hey Jarvis" came back as foreign words ("las llaves")."""
+    from core.wakeword import WakeState
+
+    a = make_assistant(monkeypatch, "always_on", "Headphones (Buds)")
+    sent = []
+    monkeypatch.setattr(a.session, "send_audio", lambda pcm: sent.append(pcm))
+
+    class Detector:
+        missed = None
+
+        def detect(self, pcm: bytes) -> bool:
+            return True
+
+    a.wake, a.detector, a.wake_tail_s, a.wake_chime = WakeState(active_window_s=15), Detector(), 0.5, b""
+    a._on_mic_chunk(b"\x01\x00")   # "hey Jarvis": wakes
+    a._on_mic_chunk(b"\x02\x00")   # the rest of it, a moment later: skipped
+    assert a.wake.awake and sent == []
+    a._wake_tail_until = 0.0         # half a second on
+    a._on_mic_chunk(b"\x03\x00")
+    assert sent == [b"\x03\x00"]

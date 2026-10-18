@@ -46,6 +46,7 @@ Values that are left as comments or blank are ignored.
 | `wake_word.gain` | `1.0` | Boosts the mic for wake detection only (`--mic-test` suggests a value) |
 | `wake_word.active_window_s` | `15` | Seconds of quiet before JARVIS goes back to sleep |
 | `wake_word.chime_volume` | `0.06` | Wake beep loudness (`0` is silent) |
+| `wake_word.skip_after_wake_ms` | `500` | Mic audio not sent to Gemini right after waking. It's the end of "hey jarvis", which on its own was transcribed as foreign words |
 | `noise_suppression.enabled` | `true` | Clean background noise from what Gemini hears |
 | `noise_suppression.strength` | `1.0` | 0 to 1; lower keeps more of the original sound |
 | `ducking.enabled` | `true` | Lower other apps while JARVIS is awake |

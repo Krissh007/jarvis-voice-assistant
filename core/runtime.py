@@ -308,6 +308,10 @@ class Assistant:
             self.wake = WakeState(active_window_s=ww["active_window_s"])
             self.detector = WakeWordDetector.from_config(ww, Services().data_dir)
             self.wake_chime = chime(volume=float(ww.get("chime_volume", 0.06))) if ww.get("chime_volume", 0.06) else b""
+            # The end of "hey Jarvis" is still in the next mic chunks. Sent to Gemini on its own, it came back
+            # as foreign words ("las llaves", "el yazısı") and confused the first reply, so skip it.
+            self.wake_tail_s = max(0.0, float(ww.get("skip_after_wake_ms", 500)) / 1000)
+        self._wake_tail_until = 0.0
 
         models = config["models"]
         llm = None
@@ -593,10 +597,13 @@ class Assistant:
                 self.detector.missed = None
             if woke:
                 self.wake.wake()
+                self._wake_tail_until = time.monotonic() + self.wake_tail_s
                 if self.wake_chime:
                     self.player.enqueue(self.wake_chime)
                 self._status("(awake)")
             return
+        if time.monotonic() < self._wake_tail_until:
+            return  # the end of the wake phrase: not for Gemini
         if self.gate.allows():
             if self._denoise_worker is not None:
                 self._denoise_worker.submit(pcm)  # comes back through _send_mic_audio
