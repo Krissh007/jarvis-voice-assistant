@@ -403,3 +403,11 @@ to its own chat page:
 - What you asked about how JARVIS talks now beats its built-in persona: "don't call me sir or
   Krishna" means it uses no name at all (it used to keep saying "Krishna"), and when two remembered
   wishes disagree, the newer one wins.
+
+## Memory, step 2: an on-device model for meaning (18 October 2026)
+
+- `main.py --setup-memory` downloads all-MiniLM-L6-v2 (~90 MB, pinned revision, hash-checked) into
+  `data/models/`; it runs on this PC with onnxruntime, so nothing you said is sent anywhere to be
+  searched. Loads in 0.4 s in the background at start; 5 ms per sentence.
+- Remembered facts now get a meaning vector (new ones straight away, older ones in the background).
+  Search by meaning arrives in step 3; without the model, memory keeps using keywords.

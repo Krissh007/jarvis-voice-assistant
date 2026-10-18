@@ -28,6 +28,7 @@ dependencies = [
     "sounddevice>=0.5.6",
     "soxr>=1.1.0",
     "sqlalchemy>=2.1.0",
+    "tokenizers>=0.22",
     "trafilatura>=2.2.0",
     "winotify>=1.1.0",
     "winrt-runtime>=3.2.1",

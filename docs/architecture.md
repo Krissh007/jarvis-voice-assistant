@@ -372,6 +372,7 @@ Handled in `core/app_mode.py` and `core/taskbar.py`.
 |---|---|---|
 | `.env` | API keys | never |
 | `config.yaml` | settings | yes |
+| `data/models/` | the on-device embedding model from `--setup-memory` (`core/embed.py`) | no |
 | `data/memory.sqlite` | long-term memory: remembered facts (and, later, past conversations); an old `memory.json` is imported once and kept as `memory.json.imported` | no |
 | `data/reminders.sqlite` | pending reminders (APScheduler job store) | no |
 | `data/browser_profile/` | JARVIS's Chrome profile | no |

@@ -38,6 +38,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="open JARVIS's Chrome profile normally so you can sign in to YouTube once")
     parser.add_argument("--route", metavar="REQUEST",
                         help="show which route and tools the reasoning layer would pick for a request, then exit")
+    parser.add_argument("--setup-memory", action="store_true",
+                        help="download the small on-device model that lets memory search by meaning (~90 MB), "
+                             "then exit")
     parser.add_argument("--ask", metavar="REQUEST",
                         help="run one request through the reasoning layer (ask_brain) in this terminal; it never "
                              "says yes to a confirmation, it only shows what it would ask")
@@ -121,6 +124,32 @@ def show_route(config: dict, request: str) -> int:
     router = Router(registry, hub=services.hub, log_path=ROOT / "logs" / "routing.jsonl")
     decision = asyncio.run(router.route(request, source="cli"))
     print(json.dumps(as_dict(decision), indent=2))
+    return 0
+
+
+def setup_memory(config: dict) -> int:
+    """--setup-memory: fetch the pinned embedding model into data/models, check it, embed saved facts."""
+    import time
+
+    from actions import Services
+    from actions.memory import MemoryStore
+    from core.embed import Embedder, download, model_dir
+
+    data = Services().data_dir
+    folder = model_dir(data)
+    print(f"Memory model (all-MiniLM-L6-v2, runs on this PC) -> {folder}")
+    try:
+        download(folder)
+    except Exception as exc:
+        print(f"Couldn't get the model: {exc}")
+        return 1
+    embedder = Embedder(folder)
+    started = time.monotonic()
+    a, b, c = embedder.encode(["When is my wife's birthday?", "Priya was born on 3 March.", "I parked on level 3."])
+    print(f"Loaded and checked in {time.monotonic() - started:.1f}s "
+          f"(similar meanings score {float(a @ b):.2f}, unrelated {float(a @ c):.2f}).")
+    store = MemoryStore(data / "memory.sqlite", legacy_json=data / "memory.json", embedder=embedder)
+    print(f"Embedded {store.backfill()} saved facts. Memory now searches by meaning.")
     return 0
 
 
@@ -223,6 +252,8 @@ def main(argv: list[str] | None = None) -> int:
         return show_route(config, args.route)
     if args.ask:
         return show_ask(config, args.ask)
+    if args.setup_memory:
+        return setup_memory(config)
     load_dotenv(ROOT / ".env")
     from core.secrets import env_key
 

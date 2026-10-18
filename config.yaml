@@ -211,6 +211,7 @@ limits:
 
 memory:
   max_facts: 100                # remember() refuses when full; facts are listed in the system prompt
+  embeddings: true              # search memory by meaning (model from main.py --setup-memory); false = keywords only
 
 job_search:                     # used when features.job_search is true
   api_url: http://127.0.0.1:8000/api           # JobPilot's local API (GET only; must be this computer)

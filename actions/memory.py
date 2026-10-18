@@ -50,15 +50,48 @@ def explicit_ask(utterance: str) -> bool:
 class MemoryStore:
     """Remembered facts in data/memory.sqlite (core.memory_db), oldest first. Thread-safe."""
 
-    def __init__(self, path: Path, max_facts: int = MAX_FACTS, legacy_json: Path | None = None) -> None:
+    def __init__(self, path: Path, max_facts: int = MAX_FACTS, legacy_json: Path | None = None,
+                 embedder=None) -> None:
         from core.memory_db import MemoryDB
 
         self.db = MemoryDB(path)
         self.path = self.db.path
         self.max_facts = max_facts
+        self.embedder = embedder  # core.embed.Embedder, or None: keyword search only
         self._lock = threading.Lock()
         if legacy_json is not None:
             self.db.import_legacy_facts(legacy_json)
+
+    def _vector(self, text: str) -> bytes | None:
+        """The fact's embedding, only when the model is already loaded (never blocks a tool call on the
+        first load); `backfill` fills the rest."""
+        if self.embedder is None or not self.embedder.ready:
+            return None
+        from core.embed import to_blob
+
+        try:
+            return to_blob(self.embedder.encode([text])[0])
+        except Exception:
+            log.exception("embedding a fact failed; it gets one later")
+            return None
+
+    def backfill(self, batch: int = 32) -> int:
+        """Compute embeddings for facts that have none. Returns how many were filled."""
+        if self.embedder is None or not self.embedder.available():
+            return 0
+        from core.embed import to_blob
+
+        with self.db.connect() as db:
+            rows = db.execute("SELECT id, text FROM facts WHERE embedding IS NULL ORDER BY id").fetchall()
+        for i in range(0, len(rows), batch):
+            part = rows[i:i + batch]
+            vectors = self.embedder.encode([r["text"] for r in part])
+            with self.db.connect() as db:
+                db.executemany("UPDATE facts SET embedding = ? WHERE id = ? AND embedding IS NULL",
+                               [(to_blob(v), r["id"]) for v, r in zip(vectors, part)])
+        if rows:
+            log.info("memory: embedded %d facts", len(rows))
+        return len(rows)
 
     def facts(self) -> list[dict[str, str]]:
         try:
@@ -80,13 +113,14 @@ class MemoryStore:
                     return "duplicate"
                 if f" {old} " in f" {new} ":  # whole words only; "my name is Krishna" -> "my name is Krishna Maheswaram"
                     with self.db.connect() as db:
-                        db.execute("UPDATE facts SET text = ?, added = ?, embedding = NULL WHERE id = ?",
-                                   (text, _now(), f["id"]))
+                        db.execute("UPDATE facts SET text = ?, added = ?, embedding = ? WHERE id = ?",
+                                   (text, _now(), self._vector(text), f["id"]))
                     return "updated"
             if len(facts) >= self.max_facts:
                 raise ToolError(f"My memory is full ({self.max_facts} facts). Ask me to forget something first.")
             with self.db.connect() as db:
-                db.execute("INSERT INTO facts(text, added, source) VALUES (?, ?, ?)", (text, _now(), source))
+                db.execute("INSERT INTO facts(text, added, source, embedding) VALUES (?, ?, ?, ?)",
+                           (text, _now(), source, self._vector(text)))
             return "added"
 
     def search(self, topic: str) -> list[dict[str, str]]:
@@ -181,8 +215,19 @@ class Memory:
 
 def register(registry: Registry, config: dict, services) -> None:
     data = Path(services.data_dir)
-    store = MemoryStore(data / "memory.sqlite", int((config.get("memory") or {}).get("max_facts", MAX_FACTS)),
-                        legacy_json=data / "memory.json")
+    cfg = config.get("memory") or {}
+    embedder = None
+    if cfg.get("embeddings", True):
+        from core.embed import Embedder, model_dir
+
+        embedder = Embedder(model_dir(data))
+        if not embedder.available():
+            log.info("memory: no embedding model (main.py --setup-memory); keyword search only")
+            embedder = None
+    store = MemoryStore(data / "memory.sqlite", int(cfg.get("max_facts", MAX_FACTS)),
+                        legacy_json=data / "memory.json", embedder=embedder)
+    if embedder is not None:
+        embedder.warm(then=store.backfill)  # loads in the background; startup isn't slowed
     services.memory = store
     memory = Memory(store, registry)
     registry.register(Tool(

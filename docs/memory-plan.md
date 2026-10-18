@@ -80,6 +80,9 @@ batched at the end (as agreed for this plan).
    ("don't call me sir or Krishna" means no name at all; the newer of two conflicting facts wins).
 2. **Embeddings.** `core/embed.py` (ONNX MiniLM, loaded lazily in a background thread),
    `main.py --setup-memory`, keyword-only fallback. Measure load time and per-sentence latency.
+   *Done 18 October 2026.* Measured on this PC: load 0.4 s, one sentence 5 ms (median, max 8 ms),
+   32 sentences 98 ms, about 130 MB of RAM. Reference pair "A man is eating food." / "...a piece of
+   bread." scores 0.76, as sentence-transformers does. Added `tokenizers` (pulls `huggingface-hub`).
 3. **Meaning-based recall for facts.** Hybrid search; system instruction gets the top facts only.
    A labelled set of ~30 recall questions in `tests/fixtures/` (written before measuring), as was
    done for routing.

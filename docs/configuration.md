@@ -150,6 +150,7 @@ is what lowers both columns.
 | `limits.browser_task_steps_max` | `10` | Steps per browser task |
 | `limits.page_cache_ttl_h` | `24` | How long page summaries are cached |
 | `memory.max_facts` | `100` | Memory size |
+| `memory.embeddings` | `true` | Search memory by meaning with the on-device model from `--setup-memory`; `false` (or no model) = keyword search only |
 | `briefing.news_query` | `top news today` | Headline search for the morning briefing |
 | `agent_hub.url` | `http://127.0.0.1:8765/mcp` | The Agent Hub's MCP address (this computer only). The bearer token is `AGENT_HUB_TOKEN` in `.env` and must equal the Hub's `HUB_TOKEN` |
 | `agent_hub.poll_s` | `5` | How often JARVIS looks for finished results |
@@ -176,6 +177,7 @@ test the safety layer; it's off, and the test suite turns it on itself.
 | `--bench-apps` | Measure how fast JARVIS reads each open app, and how many buttons and fields it finds (read-only; shows no app text) |
 | `--browser-login` | Open JARVIS's Chrome profile normally, to sign in to YouTube once |
 | `--route "REQUEST"` | Show which route and tools the reasoning layer would pick (no model is called) |
+| `--setup-memory` | Download the on-device memory model (all-MiniLM-L6-v2, ~90 MB, pinned and hash-checked) into `data/models/` and embed your saved facts |
 | `--ask "REQUEST"` | Run one request through `ask_brain` in the terminal; confirmations are shown, never given |
 | `--install-shortcut` | Create the desktop icon, which starts JARVIS as an app (no terminal) |
 
