@@ -1,9 +1,15 @@
-"""Playwright: open, site search, read page, browser_task.
+"""Playwright: open, site search, read page, scroll / click / show, browser_task.
 
 Drives the installed Google Chrome with JARVIS's own profile (data/browser_profile), never the
 user's everyday profile. Privacy rules from core.privacy are enforced here in code:
 blocked account pages are aborted inside the browser, sensitive fields are never touched,
 and page text is redacted before any model sees it.
+
+One browser job at a time, each with a time limit. Seen live: a scroll on a heavy page never returned,
+and every request after it waited behind it for 90 seconds until JARVIS was closed. Now a stuck step
+gives up after `browser.step_timeout_s`, a whole job after `browser.task_timeout_s`, and a request that
+arrives while a job is running gets "still busy" at once instead of queueing (closing the browser is
+always allowed: it's the way out of a stuck page).
 """
 
 from __future__ import annotations
@@ -42,6 +48,16 @@ MEDIA_LABEL = re.compile(r"^(play|pause|resume|shuffle|next|previous|skip|mute|u
 MEDIA_SITES = ["youtube.com", "music.youtube.com"]
 
 SNAPSHOT_JS = """(max) => {
+  // the site's own furniture: headers, menus, footers and anything pinned while you scroll
+  const chrome = (el) => {
+    for (let e = el, i = 0; e && i < 10; e = e.parentElement, i++) {
+      const tag = e.tagName.toLowerCase(), role = e.getAttribute('role') || '';
+      if (['header', 'nav', 'footer'].includes(tag) || ['navigation', 'banner', 'contentinfo'].includes(role)) return true;
+      const pos = getComputedStyle(e).position;
+      if (pos === 'fixed' || pos === 'sticky') return true;
+    }
+    return false;
+  };
   const sel = 'a[href], button, input, textarea, select, [role=button], [role=link], [role=tab], ' +
               '[role=menuitem], [role=option], [role=checkbox], [contenteditable="true"]';
   document.querySelectorAll('[data-jarvis-id]').forEach(e => e.removeAttribute('data-jarvis-id'));
@@ -71,10 +87,49 @@ SNAPSHOT_JS = """(max) => {
       placeholder: el.getAttribute('placeholder') || '',
       href: tag === 'a' ? el.href : '',
       editable: el.isContentEditable,
+      inview: r.top >= 0 && r.top < innerHeight,
+      chrome: chrome(el),
     });
   }
   return out;
 }"""
+
+# What's on screen now, in reading order: headings, links and buttons with words, and how far down the page is.
+VISIBLE_JS = """(max) => {
+  // the site's own furniture: headers, menus, footers and anything pinned while you scroll
+  const chrome = (el) => {
+    for (let e = el, i = 0; e && i < 10; e = e.parentElement, i++) {
+      const tag = e.tagName.toLowerCase(), role = e.getAttribute('role') || '';
+      if (['header', 'nav', 'footer'].includes(tag) || ['navigation', 'banner', 'contentinfo'].includes(role)) return true;
+      const pos = getComputedStyle(e).position;
+      if (pos === 'fixed' || pos === 'sticky') return true;
+    }
+    return false;
+  };
+  const out = [], seen = new Set();
+  for (const el of document.querySelectorAll('h1, h2, h3, a[href], button, [role=button]')) {
+    if (out.length >= max) break;
+    if (chrome(el)) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2 || r.bottom < 0 || r.top > innerHeight) continue;
+    const st = getComputedStyle(el);
+    if (st.visibility === 'hidden' || st.display === 'none') continue;
+    const t = (el.innerText || el.getAttribute('aria-label') || '').trim().replace(/\\s+/g, ' ').slice(0, 80);
+    if (t.length < 3 || seen.has(t)) continue;
+    seen.add(t);
+    out.push((/^H[1-3]$/.test(el.tagName) ? 'heading: ' : el.tagName === 'A' ? 'link: ' : 'button: ') + t);
+  }
+  const height = Math.max(document.documentElement.scrollHeight, 1);
+  return {items: out, percent: Math.min(100, Math.round(100 * (scrollY + innerHeight) / height))};
+}"""
+
+SCROLL_JS = """(where) => {
+  if (where === 'top') window.scrollTo(0, 0);
+  else if (where === 'bottom') window.scrollTo(0, document.documentElement.scrollHeight);
+  else window.scrollBy(0, innerHeight * where);
+}"""
+SCROLL_AMOUNTS = {"screen": 0.85, "page": 0.85, "half": 0.45, "a little": 0.25, "little": 0.25}
+ORDINALS = {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "last": -1}
 
 MEDIA_STATE_JS = """() => {
   const v = document.querySelector('video');
@@ -92,6 +147,10 @@ PLANNER_SYSTEM = (
 
 class BrowserUnavailable(ToolError):
     pass
+
+
+BUSY = "I'm still busy in the browser ({what}). Wait a moment for it to finish, or close the browser to stop it."
+STUCK = "The page stopped responding, so I gave up after {s:.0f} seconds ({what}). Try again, or close the browser."
 
 
 def element_label(el: dict[str, Any]) -> str:
@@ -230,15 +289,70 @@ class BrowserTools:
         self.action_allowlist: list[str] = sites.get("action_allowlist") or []
         bcfg = config.get("browser") or {}
         self.max_steps = int((config.get("limits") or {}).get("browser_task_steps_max", 10))
+        self.step_timeout_s = float(bcfg.get("step_timeout_s", 20))
+        self.task_timeout_s = float(bcfg.get("task_timeout_s", 120))
+        self._job = asyncio.Lock()   # one browser job at a time
+        self._job_name = ""
         self.llm = services.llm
         self.session = session or BrowserSession(
             Path(services.data_dir) / "browser_profile", channel=bcfg.get("channel", "chrome"),
             headless=bool(bcfg.get("headless", False)),
         )
 
-    # ---------------------------------------------------------------- simple tools
+    # ---------------------------------------------------------------- one job at a time, with a time limit
+
+    async def _guarded(self, what: str, run, timeout: float | None = None):
+        """Run one browser job. If another is running, say so at once; if this one hangs, give up."""
+        if self._job.locked():
+            log.info("browser busy (%s); refused: %s", self._job_name, what)
+            return BUSY.format(what=self._job_name or "another step")
+        limit = timeout or self.step_timeout_s * 2
+        async with self._job:
+            self._job_name = what
+            try:
+                return await asyncio.wait_for(run(), limit)
+            except asyncio.TimeoutError:
+                log.warning("browser job timed out after %.0f s: %s", limit, what)
+                return STUCK.format(s=limit, what=what)
+            finally:
+                self._job_name = ""
+
+    async def _step(self, awaitable, what: str = "a step"):
+        """One Playwright call with the step time limit (a page can stop responding to anything)."""
+        try:
+            return await asyncio.wait_for(awaitable, self.step_timeout_s)
+        except asyncio.TimeoutError:
+            raise ToolError(STUCK.format(s=self.step_timeout_s, what=what)) from None
 
     async def browser_open(self, url: str) -> str:
+        return await self._guarded(f"opening {urlsplit(normalize_url(url) or url).hostname or 'a page'}",
+                                   lambda: self._browser_open(url), self.step_timeout_s * 2)
+
+    async def site_search(self, site: str, query: str) -> str:
+        return await self._guarded(f"searching {site}", lambda: self._site_search(site, query))
+
+    async def read_current_page(self, question: str = "") -> str:
+        return await self._guarded("reading the page", lambda: self._read_current_page(question), 60)
+
+    async def play_youtube(self, query: str, result: int = 1) -> str:
+        return await self._guarded("starting a YouTube video", lambda: self._play_youtube(query, result), 60)
+
+    async def browser_task(self, goal: str, start_url: str = "") -> str | NeedsConfirmation:
+        return await self._guarded(f"working on: {goal[:60]}", lambda: self._browser_task(goal, start_url),
+                                   self.task_timeout_s)
+
+    async def browser_scroll(self, direction: str = "down", amount: str = "page") -> str:
+        return await self._guarded("scrolling", lambda: self._browser_scroll(direction, amount))
+
+    async def browser_show(self) -> str:
+        return await self._guarded("showing the page", self._browser_show)
+
+    async def browser_click(self, target: str = "", number: int = 1) -> str | NeedsConfirmation:
+        return await self._guarded(f"clicking {target or 'a link'}", lambda: self._browser_click(target, number))
+
+    # ---------------------------------------------------------------- simple tools
+
+    async def _browser_open(self, url: str) -> str:
         """Open a page in JARVIS's Chrome. Rung 3. SAFE on the allowlist, else CONFIRM; account pages BLOCKED."""
         normalized = normalize_url(url)
         if normalized is None or url_tier(normalized, self.read_allowlist) == Tier.BLOCKED:
@@ -246,7 +360,7 @@ class BrowserTools:
         page = await self._page()
         return await self._goto(page, normalized)
 
-    async def site_search(self, site: str, query: str) -> str:
+    async def _site_search(self, site: str, query: str) -> str:
         """Search a known site (YouTube, YouTube Music, Google, Wikipedia). Rung 3. Output untrusted."""
         name = resolve_site(site)
         if name is None:
@@ -262,14 +376,14 @@ class BrowserTools:
         lines = "\n".join(f"{i}. {redact(r)}" for i, r in enumerate(results, 1))
         return f"Results on {name} for {query!r}:\n{lines}"
 
-    async def read_current_page(self, question: str = "") -> str:
+    async def _read_current_page(self, question: str = "") -> str:
         """Read and summarise the page open in JARVIS's Chrome. Rung 3. Output untrusted; text redacted."""
         import trafilatura
 
         page = await self._page()
         if page.url in ("", "about:blank"):
             return "Nothing is open in the browser."
-        html = await page.content()
+        html = await self._step(page.content(), "reading the page")
         text = redact(trafilatura.extract(html, url=page.url, include_comments=False) or "")[:20_000]
         if not text.strip():
             return f"{await page.title()}: no readable text on this page."
@@ -287,7 +401,7 @@ class BrowserTools:
         await self.session.close()
         return "Closed the JARVIS browser window."
 
-    async def play_youtube(self, query: str, result: int = 1) -> str:
+    async def _play_youtube(self, query: str, result: int = 1) -> str:
         """Search YouTube and play the Nth video result (ads and Shorts skipped). Rung 3, no model calls.
         Tier SAFE: clicking search/play on youtube.com counts as media playback."""
         result = max(1, min(10, int(result)))
@@ -315,6 +429,76 @@ class BrowserTools:
             return f"Opened {title!r}; an ad is playing first."
         return f"Playing {title!r}." if state.get("playing") else f"Opened {title!r}; it hasn't started playing."
 
+    async def _visible(self, page) -> str:
+        """What's on screen in the JARVIS browser now, as short lines (redacted)."""
+        seen = await self._step(page.evaluate(VISIBLE_JS, 10), "reading what's on screen")
+        items = "; ".join(redact(i) for i in seen.get("items") or []) or "nothing with words on it"
+        return f"{seen.get('percent', 0)}% of the way down the page. On screen now: {items}"
+
+    async def _front(self, page) -> None:
+        try:
+            await asyncio.wait_for(page.bring_to_front(), 5)
+        except Exception:
+            pass   # showing the window is a nicety; scrolling still worked
+
+    async def _browser_scroll(self, direction: str = "down", amount: str = "page") -> str:
+        """Scroll JARVIS's own browser page at once (no planner). Rung 3, Tier SAFE, read-only."""
+        if self.session.context is None:
+            return "The JARVIS browser isn't open."
+        page = await self._page()
+        direction = (direction or "down").lower().strip()
+        amount = (amount or "page").lower().strip()
+        if direction in {"top", "bottom"} or amount in {"top", "bottom"}:
+            where = "top" if "top" in {direction, amount} else "bottom"
+        else:
+            where = SCROLL_AMOUNTS.get(amount, 0.85) * (-1 if direction.startswith("up") else 1)
+        await self._step(page.evaluate(SCROLL_JS, where), "scrolling")
+        await asyncio.sleep(0.4)   # lazy pictures and lists load as they come into view
+        await self._front(page)
+        label = f"to the {where}" if isinstance(where, str) else direction
+        return f"Scrolled {label}. " + await self._visible(page)
+
+    async def _browser_show(self) -> str:
+        """Bring JARVIS's browser to the front and say what's on screen. Rung 3, Tier SAFE, read-only."""
+        if self.session.context is None:
+            return "The JARVIS browser isn't open."
+        page = await self._page()
+        if page.url in ("", "about:blank"):
+            return "Nothing is open in the browser."
+        await self._front(page)
+        title = redact(await self._step(page.title(), "reading the title"))
+        return f"Showing {title} ({urlsplit(page.url).hostname}). " + await self._visible(page)
+
+    async def _browser_click(self, target: str = "", number: int = 1) -> str | NeedsConfirmation:
+        """Click a link or button in JARVIS's browser by its words (or the Nth link on screen). Rung 3.
+        The same rules as browser_task, decided in code: links on the same site are SAFE, leaving the
+        site and other buttons ask first, account controls and sensitive fields are BLOCKED."""
+        if self.session.context is None:
+            return "The JARVIS browser isn't open."
+        page = await self._page()
+        elements = await self._step(page.evaluate(SNAPSHOT_JS, 120), "looking at the page")
+        el = pick_element(elements, target, number)
+        if el is None:
+            what = f"anything called {target!r}" if target else f"link number {number}"
+            return f"I can't find {what} on the screen. " + await self._visible(page)
+        here = urlsplit(page.url).hostname
+        state = TaskState(goal=f"click {target or number}", allowed=[h for h in [here] if h] + self.read_allowlist)
+        action = {"action": "click", "id": el["id"]}
+        tier, summary, why = self.classify(action, elements, page.url, state)
+        if tier == Tier.BLOCKED:
+            return f"I won't do that: {summary.lower()} is blocked ({why})."
+
+        async def click() -> str:
+            p = await self._page()
+            await self._step(self._execute(p, action, elements), "clicking")
+            await self._front(p)
+            return f"{summary}. Now on {redact(await self._step(p.title(), 'reading the title'))}. " + await self._visible(p)
+
+        if tier == Tier.CONFIRM:
+            return NeedsConfirmation(summary=summary, step={"click": summary},
+                                     resume=lambda: self._guarded("clicking", click))
+        return await click()
+
     async def _wait_for_playback(self, page, seconds: float = 8.0) -> dict | None:
         state = None
         for _ in range(int(seconds / 0.5)):
@@ -329,7 +513,7 @@ class BrowserTools:
 
     # ---------------------------------------------------------------- browser_task
 
-    async def browser_task(self, goal: str, start_url: str = "") -> str | NeedsConfirmation:
+    async def _browser_task(self, goal: str, start_url: str = "") -> str | NeedsConfirmation:
         """Multi-step browsing towards a goal, max 10 steps. Rung 3. Per step: navigate/scroll/read and
         links/media play = SAFE; typing and other clicks = CONFIRM; passwords, payments, accounts = BLOCKED."""
         page = await self._page()
@@ -372,10 +556,13 @@ class BrowserTools:
         return f"I stopped after {self.max_steps} steps without finishing. The page is: {redact(await (await self._page()).title())}"
 
     def _needs(self, state: TaskState, action: dict, summary: str, elements: list | None = None) -> NeedsConfirmation:
-        async def resume():
+        async def run():
             page = await self._page()
             state.history.append(await self._try_execute(page, action, elements or [], summary))
             return await self._loop(state)
+
+        async def resume():   # after the user's yes: still one job at a time, still time-limited
+            return await self._guarded(f"working on: {state.goal[:60]}", run, self.task_timeout_s)
 
         return NeedsConfirmation(summary=summary, resume=resume, step={"goal": state.goal, "step": summary},
                                  progress="; ".join(state.history[-3:]))
@@ -486,7 +673,7 @@ class BrowserTools:
 
     async def _snapshot(self, page) -> list[dict]:
         try:
-            return await page.evaluate(SNAPSHOT_JS, 80)
+            return await asyncio.wait_for(page.evaluate(SNAPSHOT_JS, 80), self.step_timeout_s)
         except Exception:
             log.exception("snapshot failed")
             return []
@@ -517,8 +704,11 @@ class BrowserTools:
     async def _try_execute(self, page, action: dict, elements: list[dict], summary: str) -> str:
         """Run one step; a failure is recorded for the planner instead of ending the task."""
         try:
-            await self._execute(page, action, elements)
+            await asyncio.wait_for(self._execute(page, action, elements), self.step_timeout_s)
             return summary
+        except asyncio.TimeoutError:
+            log.info("browser step timed out: %s", summary)
+            return f"{summary} -> failed (the page didn't respond)"
         except PermissionError as exc:
             return f"{summary} -> BLOCKED ({exc})"
         except Exception as exc:
@@ -528,7 +718,8 @@ class BrowserTools:
     async def _execute(self, page, action: dict, elements: list[dict]) -> None:
         kind = action.get("action")
         if kind == "scroll":
-            await page.mouse.wheel(0, 800)
+            # Not page.mouse.wheel: on a busy page it waited for the page forever (seen live).
+            await page.evaluate(SCROLL_JS, 0.85)
         elif kind == "navigate":
             await self._goto(page, normalize_url(str(action["url"])))
         else:
@@ -569,6 +760,30 @@ def signin_note(page) -> str:
         return ""
     return ("\nNote: the page is showing a Google sign-in prompt ('Continue as ...'). JARVIS never signs in "
             "to accounts or shares the user's Google account with sites; the user can click it themselves.")
+
+
+def pick_element(elements: list[dict], target: str, number: int = 1) -> dict | None:
+    """The element the user means: by its words (exact, then starting with, then containing; the Nth
+    match when there are several), or with no words the Nth link on screen ("the second one")."""
+    target = " ".join(str(target or "").lower().split())
+    words = target.split()
+    if words and words[0] in ORDINALS:          # "second portfolio": the ordinal is the number
+        number, target = ORDINALS[words[0]], " ".join(words[1:])
+    if target in {"", "link", "one", "result", "item"}:
+        pool = [e for e in elements if e.get("href") and e.get("inview") and not e.get("chrome")
+                and len(element_label(e)) > 3]
+    else:
+        def label(e):
+            return " ".join(element_label(e).lower().split())
+        pool = ([e for e in elements if label(e) == target] or [e for e in elements if label(e).startswith(target)]
+                or [e for e in elements if target in label(e)])
+        pool.sort(key=lambda e: (not e.get("inview"), bool(e.get("chrome"))))   # the page's content on screen first
+    if not pool:
+        return None
+    n = int(number or 1)
+    if n == -1:
+        return pool[-1]
+    return pool[n - 1] if 1 <= n <= len(pool) else None
 
 
 def parse_action(raw: str) -> dict:
@@ -657,11 +872,51 @@ def register(registry: Registry, config: dict, services) -> None:
         summarize=lambda a: "Read the page that's open" + (f" to find: {a['question']}" if a.get('question') else ''),
     ))
     registry.register(Tool(
+        name="browser_scroll",
+        description=("Scroll the page in JARVIS's own browser right away: direction up or down, amount page, "
+                     "half, a little, top or bottom. Says what's visible after. For 'scroll down', 'show me "
+                     "more', 'go to the top'. Not for the user's own Chrome."),
+        func=tools.browser_scroll,
+        tier=Tier.SAFE,
+        read_only=True,
+        untrusted_output=True,
+        rung=3,
+        parameters={"type": "object", "properties": {
+            "direction": {"type": "string", "enum": ["down", "up", "top", "bottom"]},
+            "amount": {"type": "string", "enum": ["page", "half", "a little", "top", "bottom"]}}},
+        summarize=lambda a: f"Scroll {a.get('direction', 'down')} in the JARVIS browser",
+    ))
+    registry.register(Tool(
+        name="browser_click",
+        description=("Click a link or button in JARVIS's browser right away, by its words ('Sarah Lee portfolio') "
+                     "or, with no words, the Nth visible link (number 2 = 'open the second one'). Links on "
+                     "the same site open at once; leaving the site or other buttons ask the user first."),
+        func=tools.browser_click,
+        tier=Tier.SAFE,
+        self_gated=True,   # decides SAFE / CONFIRM / BLOCKED itself, in code, from the real element
+        untrusted_output=True,
+        rung=3,
+        parameters={"type": "object", "properties": {
+            "target": {"type": "string"}, "number": {"type": "integer", "minimum": 1, "maximum": 20}}},
+        summarize=lambda a: f"Click {a.get('target') or 'link ' + str(a.get('number', 1))} in the JARVIS browser",
+    ))
+    registry.register(Tool(
+        name="browser_show",
+        description="Bring JARVIS's browser window to the front and say what's visible in it.",
+        func=tools.browser_show,
+        tier=Tier.SAFE,
+        read_only=True,
+        untrusted_output=True,
+        rung=3,
+        summarize=lambda a: "Show the JARVIS browser",
+    ))
+    registry.register(Tool(
         name="browser_task",
         description=(
-            "Do a short task in JARVIS's browser, step by step (max 10 steps), e.g. 'search for X in the "
-            "site's search box' or 'open the second article'. For YouTube videos use play_youtube instead. "
-            "Typing and most clicks ask the user first."
+            "Do a task in JARVIS's browser that needs several steps (max 10), e.g. 'search for X in the "
+            "site's search box and open the first result'. For one scroll, one click or showing the page "
+            "use browser_scroll, browser_click or browser_show: they're instant. For YouTube videos use "
+            "play_youtube. Typing and most clicks ask the user first."
         ),
         func=tools.browser_task,
         tier=Tier.SAFE,

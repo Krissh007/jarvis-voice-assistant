@@ -157,6 +157,7 @@ apps:
     microsoft excel: excel
     ms excel: excel
     claude app: claude
+    claude code: claude
     claude desktop: claude
     anthropic claude: claude
     cloud: claude                # how "Claude" is often mis-heard
@@ -172,6 +173,8 @@ weather:
 browser:
   channel: chrome               # your installed Google Chrome, with JARVIS's own profile in data/browser_profile
   headless: false               # show the window (needed to hear and see what it plays)
+  step_timeout_s: 20            # one browser step (scroll, click, read) gives up after this
+  task_timeout_s: 120           # a whole multi-step browser_task gives up after this
 
 music:
   source: youtube_music_app      # your installed YouTube Music app; falls back to JARVIS's browser

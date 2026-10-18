@@ -406,7 +406,7 @@ class Assistant:
                 resume_handle=handle,
                 tools=declarations,
                 languages=audio_cfg.get("transcription_languages"),
-                vocabulary=["Jarvis", "hey Jarvis", *confirm_cfg["accept_phrases"],
+                vocabulary=["Jarvis", "hey Jarvis", "Claude", "Claude Code", *confirm_cfg["accept_phrases"],
                             *(config.get("apps", {}).get("allowlist") or {})],  # app names, e.g. "Claude"
                 end_pause_ms=config["listening"].get("end_pause_ms"),
             ),

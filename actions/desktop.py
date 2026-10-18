@@ -247,7 +247,7 @@ def blocked_reason(win: uia.Window) -> str | None:
     if win.exe in PRIVATE_PROCESSES:
         return "it's a password manager"
     if win.exe in BROWSERS:
-        return "I don't read your web browser, since it holds your accounts; I can use my own browser instead"
+        return "I don't read your web browser, since it holds your accounts; I can use my own browser instead (browser_scroll, browser_click)"
     if win.exe in SYSTEM_APPS or (win.exe == "applicationframehost.exe" and FRAME_BLOCKED.search(title)):
         return "it's a Windows settings, security or sign-in window"
     if looks_secret(title):

@@ -370,3 +370,118 @@ def test_websites_open_in_the_jarvis_browser_when_it_is_enabled() -> None:
     without = load_actions(Registry(), {**base, "features": {"system": True}}, Services())
     assert with_browser.get("open_website") is None and with_browser.get("browser_open") is not None
     assert without.get("open_website") is not None
+
+
+# ---------------------------------------------------------------- scroll / click / show, one job at a time
+
+GALLERY = """<html><head><title>Portfolio gallery</title></head><body>
+<h1>Portfolio gallery</h1>
+<a href="https://gallery.example/sarah">Sarah Lee portfolio</a><br>
+<a href="https://gallery.example/omar">Omar Khan portfolio</a><br>
+<a href="https://elsewhere.example/raj">Raj Patel portfolio</a><br>
+<button>Sign out</button>
+<div style="height:4000px"></div>
+<h2 id="far">Far down the page</h2>
+</body></html>"""
+
+
+@pytest.fixture
+async def gallery(browser):
+    session, page = browser
+
+    async def serve(route, request):
+        body = GALLERY if request.url.rstrip("/") == "https://gallery.example" else \
+            f"<html><title>{request.url.rsplit('/', 1)[-1].title()}</title><body>hi</body></html>"
+        await route.fulfill(status=200, content_type="text/html", body=body)
+
+    await session.context.route("https://gallery.example/**", serve)
+    await session.context.route("https://elsewhere.example/**", serve)
+    await page.goto("https://gallery.example/")
+    return session, page
+
+
+async def test_scroll_moves_the_page_and_says_what_is_on_screen(gallery) -> None:
+    session, page = gallery
+    tools = tools_for(session, None)
+    out = await tools.browser_scroll("down")
+    assert out.startswith("Scrolled down.") and await page.evaluate("scrollY") > 100
+    out = await tools.browser_scroll("bottom")
+    assert "Far down the page" in out and "100% of the way down" in out
+    await tools.browser_scroll("top")
+    assert await page.evaluate("scrollY") == 0
+
+
+async def test_click_by_words_or_by_number_on_the_same_site(gallery) -> None:
+    session, page = gallery
+    tools = tools_for(session, None)
+    out = await tools.browser_click("omar khan")
+    assert out.startswith("Click the link 'Omar Khan portfolio'") and page.url == "https://gallery.example/omar"
+    await page.goto("https://gallery.example/")
+    await tools.browser_click("", 1)                      # "open the first one"
+    assert page.url == "https://gallery.example/sarah"
+    await page.goto("https://gallery.example/")
+    await tools.browser_click("second portfolio")         # the ordinal is the number
+    assert page.url == "https://gallery.example/omar"
+
+
+async def test_click_asks_before_leaving_the_site_and_refuses_account_controls(gallery) -> None:
+    session, page = gallery
+    tools = tools_for(session, None)
+    asked = await tools.browser_click("raj patel")
+    assert isinstance(asked, NeedsConfirmation) and "elsewhere.example" in asked.summary
+    assert page.url == "https://gallery.example/"         # nothing happened before the yes
+    assert (await asked.resume()).startswith("Click the link 'Raj Patel portfolio'")
+    assert page.url == "https://elsewhere.example/raj"
+    await page.goto("https://gallery.example/")
+    assert "blocked" in await tools.browser_click("sign out")
+    assert "can't find" in await tools.browser_click("nobody here")
+
+
+async def test_a_second_browser_request_is_told_busy_instead_of_waiting(gallery) -> None:
+    import asyncio
+
+    session, _ = gallery
+    tools = tools_for(session, None)
+    gate = asyncio.Event()
+
+    async def slow(*_a, **_k):
+        await gate.wait()
+        return "scrolled"
+
+    tools._browser_scroll = slow
+    first = asyncio.create_task(tools.browser_scroll("down"))
+    await asyncio.sleep(0.05)
+    assert (await tools.browser_show()).startswith("I'm still busy in the browser (scrolling)")
+    gate.set()
+    assert await first == "scrolled"
+    assert (await tools.browser_show()).startswith("Showing Portfolio gallery")   # free again
+
+
+async def test_a_stuck_page_gives_up_after_the_time_limit(gallery) -> None:
+    import asyncio
+
+    session, _ = gallery
+    tools = tools_for(session, None)
+    tools.step_timeout_s = 0.2
+
+    async def hang(*_a, **_k):
+        await asyncio.sleep(30)
+
+    tools._browser_scroll = hang
+    out = await tools.browser_scroll("down")
+    assert out.startswith("The page stopped responding") and not tools._job.locked()
+
+
+def test_pick_element_by_words_number_and_ordinal() -> None:
+    from actions.browser import pick_element
+
+    els = [{"id": 1, "tag": "a", "text": "Home", "href": "h", "inview": True},
+           {"id": 2, "tag": "a", "text": "Sarah Lee portfolio", "href": "s", "inview": True},
+           {"id": 3, "tag": "a", "text": "Omar portfolio", "href": "o", "inview": True},
+           {"id": 4, "tag": "a", "text": "Offscreen portfolio", "href": "x", "inview": False}]
+    assert pick_element(els, "sarah lee portfolio")["id"] == 2
+    assert pick_element(els, "omar")["id"] == 3
+    assert pick_element(els, "portfolio", 2)["id"] == 3        # on-screen matches first
+    assert pick_element(els, "", 2)["id"] == 2                 # the 2nd link on screen
+    assert pick_element(els, "last portfolio")["id"] == 4
+    assert pick_element(els, "nothing") is None and pick_element(els, "", 9) is None
