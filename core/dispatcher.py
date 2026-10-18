@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from core.confirm import Confirmer, PendingAction, UtteranceTracker, is_accept
+from core.confirm import Confirmer, PendingAction, UtteranceTracker, answer_kind, is_accept
 from core.registry import NeedsConfirmation, Registry, Tier, Tool, ToolError
 from core.untrusted import wrap
 
@@ -256,8 +256,19 @@ class Dispatcher:
             return False
         if source == "voice" and not self.confirmer.armed:
             return False  # spoken before the summary finished: not an answer yet
-        if is_accept(text, self.accept_phrases):
+        kind = answer_kind(text, self.accept_phrases, pending.summary)
+        if kind == "yes":
             await self._confirm(f"confirmed_{source}")
+        elif kind == "unclear" and pending.unclear < 2:
+            # Seen live: "yeah" came back as "Ja." or "anfangen" and every such reply cancelled the
+            # action. A short reply that is neither yes nor no is asked again, and the timer restarts.
+            pending.unclear += 1
+            pending.armed_at = self.confirmer.clock()
+            log.info("pending #%d: unclear answer (%d), asking again", pending.id, pending.unclear)
+            self.notify(
+                f'[system notice] The user\'s reply "{text[:60]}" wasn\'t a clear yes or no. "{pending.summary}" '
+                "is still waiting: ask them briefly to say yes or no. Don't call the tool again."
+            )
         else:
             reason = f'the user answered "{text[:80]}", which is not a confirmation'
             self._finish_cancel(self.confirmer.take(), reason, "cancelled")

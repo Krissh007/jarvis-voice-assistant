@@ -123,7 +123,8 @@ hotkeys:
   cancel: ctrl+alt+n
 
 confirm:
-  accept_phrases: [confirm, "yes", yes do it, go ahead, yeah, yep, sure, okay, ok]
+  accept_phrases: [confirm, "yes", yes do it, go ahead, yeah, yep, sure, okay, ok, do it, go for it, proceed,
+                   please do, of course, absolutely, haan, avunu, ja]   # echoing the action also counts: "open it"
   timeout_s: 20
 
 apps:

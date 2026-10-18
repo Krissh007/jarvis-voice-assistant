@@ -107,7 +107,7 @@ each; they change the orb live, and your choices are kept in `data/orb_look.json
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `confirm.accept_phrases` | yes, yeah, sure, okay, confirm, go ahead… | What counts as "yes" |
+| `confirm.accept_phrases` | yes, yeah, sure, okay, confirm, go ahead, do it, haan, avunu… | What counts as "yes". Echoing the action also counts ("open it" for "Open figma.com"). A clear no, "wait", or a longer sentence cancels; a short reply that is neither (often a mis-heard "yeah") is asked again, up to twice |
 | `confirm.timeout_s` | `20` | Seconds to answer, counted from when JARVIS finished reading the summary |
 
 ### What JARVIS may use

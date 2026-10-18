@@ -94,7 +94,7 @@ async def test_typed_confirm_in_text_mode(h) -> None:
     assert h.audit()[-1]["confirmation"] == "confirmed_text"
 
 
-@pytest.mark.parametrize("answer", ["no", "not now", "yes but change it to eggs", "what?"])
+@pytest.mark.parametrize("answer", ["no", "not now", "yes but change it to eggs", "wait", "please write it as eggs instead"])
 async def test_any_other_utterance_cancels(h, answer) -> None:
     await h.model_calls("test_write_note", text="buy milk")
     await h.speak_summary()
@@ -442,3 +442,37 @@ async def test_a_repeated_read_only_call_shares_the_running_one(tmp_path) -> Non
     assert all(r["status"] == "ok" and "a chat window" in r["result"] for r in results)
     assert [a["result"] for a in h.audit()].count("same call already running: shared its result") == 2
     assert h.dispatcher._share_key(safe_writer_tool(writes), {}) is None  # anything that acts is never merged
+
+
+@pytest.mark.parametrize("answer", ["what?", "anfangen", "Pérez de la Maza", "हिंदू कैलेंडर"])
+async def test_a_short_unclear_reply_is_asked_again_not_done(h, answer) -> None:
+    """Seen live: "yeah" was transcribed as "anfangen" and each such reply cancelled the action."""
+    await h.model_calls("test_write_note", text="buy milk")
+    await h.speak_summary()
+    await h.user_says(answer)
+    assert h.notes == [] and h.pending is not None and h.pending.unclear == 1
+    assert "wasn't a clear yes or no" in h.notices[-1]
+    await h.user_says("yes")
+    assert h.notes == ["buy milk"] and h.pending is None
+
+
+async def test_three_unclear_replies_cancel(h) -> None:
+    await h.model_calls("test_write_note", text="buy milk")
+    await h.speak_summary()
+    for answer in ("what?", "hmm", "huh"):
+        await h.user_says(answer)
+    assert h.notes == [] and h.pending is None
+
+
+@pytest.mark.parametrize("text, summary, ok", [
+    ("Yeah, yes, open it.", "Open www.figma.com in the JARVIS browser", True),
+    ("open it", "Open www.figma.com in the JARVIS browser", True),
+    ("yes open that", "Open www.figma.com in the JARVIS browser", True),
+    ("open the other one", "Open www.figma.com in the JARVIS browser", False),
+    ("delete it", "Open www.figma.com in the JARVIS browser", False),    # not the action that was asked
+    ("don't open it", "Open www.figma.com in the JARVIS browser", False),
+])
+def test_echoing_the_action_counts_as_yes(text, summary, ok) -> None:
+    from core.confirm import answer_kind
+
+    assert (answer_kind(text, ["confirm", "yes", "yeah"], summary) == "yes") is ok

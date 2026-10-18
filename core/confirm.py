@@ -28,6 +28,31 @@ def normalize(text: str) -> str:
 FILLER_WORDS = {"yeah", "yep", "yup", "ok", "okay", "sure", "please", "jarvis", "now", "right", "alright", "fine"}
 
 
+# Words that clearly mean "no" or "not yet" ("don't" normalises to "don t").
+NEGATIVE_WORDS = {"no", "nope", "nah", "cancel", "stop", "don", "dont", "wait", "not", "never", "later", "hold"}
+UNCLEAR_MAX_WORDS = 4   # a reply this short that is neither yes nor no is asked again, not taken as a "no"
+
+
+def summary_phrases(summary: str) -> list[str]:
+    """Echoing the action counts as yes: for "Open www.figma.com ..." that's "open it" / "open that"."""
+    words = normalize(summary).split()
+    if not words or not words[0].isalpha():
+        return []
+    return [f"{words[0]} {w}" for w in ("it", "that", "this", "please")]
+
+
+def answer_kind(text: str, phrases: list[str], summary: str = "") -> str:
+    """'yes', 'no' or 'unclear' for a reply to a pending action. Only a clear yes confirms; a clear
+    no or a longer sentence (a new request) cancels; a short reply that is neither (often a
+    mis-transcribed "yeah") is asked again."""
+    if is_accept(text, phrases + summary_phrases(summary)):
+        return "yes"
+    words = normalize(text).split()
+    if not words or any(w in NEGATIVE_WORDS for w in words) or len(text.split()) > UNCLEAR_MAX_WORDS:
+        return "no"   # (length counts the words as said: normalising splits Hindi words at their vowel marks)
+    return "unclear"
+
+
 def is_accept(text: str, phrases: list[str]) -> bool:
     """True if the utterance contains an accept phrase and every other word is harmless filler.
 
@@ -52,6 +77,7 @@ class PendingAction:
     id: int = field(default_factory=lambda: next(_ids))
     turn_done: bool = False  # the model turn that read the summary has completed
     armed_at: float | None = None  # summary finished playing; confirmations accepted from here
+    unclear: int = 0  # short replies that were neither yes nor no (asked again, up to twice)
 
 
 class Confirmer:
