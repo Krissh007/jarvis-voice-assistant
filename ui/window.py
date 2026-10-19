@@ -16,7 +16,8 @@ WebSocket like any view. To its window it sends only console lines starting "jar
 - `jarvis:mode:{"expanded": true|false}`: open or close the control centre;
 - `jarvis:drag`: start moving the window with the mouse (the orb was dragged);
 - `jarvis:front`: come to the front;
-- `jarvis:size:{"size": px}`: the orb's new size (the Customize slider), in pixels.
+- `jarvis:size:{"size": px}`: the orb's new size (the Customize slider), in pixels;
+- `jarvis:hide` / `jarvis:show`: the orb's show/hide hotkey (the page keeps running while hidden).
 The orb window answers with `jarvisPlace({expanded, x, y, canvas})`: where the orb is in the page.
 
 The parent side, WindowProcess, starts a child, notices when it's closed, and stops it on quit.
@@ -183,6 +184,11 @@ def run_window(argv: list[str] | None = None) -> int:
                 view.showNormal()
                 view.raise_()
                 view.activateWindow()
+            elif command == "hide" and orb_mode:  # the show/hide hotkey (the page keeps running, hidden)
+                view.hide()
+            elif command == "show" and orb_mode:
+                view.show()
+                view.raise_()
             elif command == "mode" and orb_mode:
                 try:
                     expanded = bool(json.loads(data).get("expanded"))

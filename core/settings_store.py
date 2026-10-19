@@ -89,7 +89,9 @@ SETTINGS: tuple[Setting, ...] = (
     Setting("memory.keep_conversations_days", "memory", "Keep conversations for (days)", "int",
             "Older lines are deleted automatically.", low=1, high=365, step=1),
     # Hotkeys
-    Setting("hotkeys.push_to_talk", "hotkeys", "Talk", "hotkey", "Wake JARVIS, or hold to talk in push-to-talk mode."),
+    Setting("hotkeys.show_orb", "hotkeys", "Show or hide the orb", "hotkey"),
+    Setting("hotkeys.push_to_talk", "hotkeys", "Talk", "hotkey",
+            "Wake JARVIS, or hold to talk in push-to-talk mode. Long-pressing the orb does the same."),
     Setting("hotkeys.mute", "hotkeys", "Mute the microphone", "hotkey"),
     Setting("hotkeys.stop", "hotkeys", "Stop", "hotkey", "Stops talking and the current action; again to pause music."),
     Setting("hotkeys.confirm", "hotkeys", "Confirm", "hotkey", "Says yes to the action JARVIS is asking about."),

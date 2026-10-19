@@ -116,8 +116,9 @@ audio:
   echo_tail_ms: 400
 
 hotkeys:
+  show_orb: ctrl+alt+space      # show or hide the orb
   mute: ctrl+alt+m
-  push_to_talk: ctrl+alt+space
+  push_to_talk: ctrl+alt+t      # talk without the wake word (hold it in push_to_talk mode); or long-press the orb
   stop: ctrl+alt+s
   confirm: ctrl+alt+y
   cancel: ctrl+alt+n

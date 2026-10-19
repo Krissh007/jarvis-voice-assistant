@@ -1,3 +1,7 @@
+// JARVIS's orb. Tap it for the radial menu (Chat, Talk, Command centre), hold it to talk, double-tap to
+// mute or unmute the microphone, drag it anywhere. Its colour shows the state: blue listening, amber
+// working, grey muted, red when something JARVIS needs isn't working (the reason shows under it).
+// The older control centre below (opened only with #open=1 now) is kept for previews:
 // JARVIS's orb: a quick-action control centre. Idle, only the orb is visible. Tap it to talk, drag it
 // anywhere, double-tap it to open the control centre under it: the controls (talk, mute, new chat, stop,
 // sleep), then the sections a reply needs (the answer, a confirmation, a picture, what's playing), then the
@@ -90,6 +94,8 @@ function setView(next) {
   const prev = view;
   view = next;
   document.body.classList.toggle("voice", next === "voice");
+  document.body.classList.toggle("menu", next === "menu");
+  showMenu(next === "menu");
   clearTimeout(captionTimer);
   if (next === "closed") { if (!$("look").hidden) showLook(false); return setExpanded(false); }
   if (prev === "closed") setExpanded(true);     // the window grows; jarvisPlace() fades the panel in
@@ -131,7 +137,8 @@ function setExpanded(expanded) {
 function handle(ev) {
   switch (ev.kind) {
     case "hello": return hello(ev);
-    case "level": setState(ev.state); orbState.levelTarget = ev.level || 0; return;
+    case "level": setProblem(ev.problem); setState(ev.state); orbState.levelTarget = ev.level || 0; return;
+    case "orb_visibility": toWindow(ev.visible ? "show" : "hide"); return;
     case "state": return setState(ev.state);
     case "partial": return partial(ev);
     case "message": return message(ev);
@@ -150,6 +157,8 @@ function handle(ev) {
 
 function hello(ev) {
   const snap = ev.snapshot || {};
+  setProblem(snap.problem);
+  if (snap.orb_visible === false) toWindow("hide");
   setSpeak((snap.voice ?? snap.speak) !== false);
   setAnnounce(snap.announce !== false);
   if (snap.caption_s) captionMs = snap.caption_s * 1000;
@@ -169,12 +178,29 @@ function hello(ev) {
   layout();
 }
 
+let problem = null;
+function tint() {   // muted grey, working amber, a problem red, otherwise blue
+  if (!orb) return;
+  orb.setTint(state === "muted" ? "muted" : state === "working" ? "amber" : problem ? "error" : "blue");
+}
+function setProblem(text) {
+  const next = text || null;
+  if (next === problem) return;
+  problem = next;
+  const el = $("problem");
+  el.textContent = problem || "";
+  el.hidden = !problem || view === "closed";
+  $("orb").title = problem ? "JARVIS: " + problem : "";
+  tint();
+  layout();
+}
+
 function setState(next) {
   if (!next) return;
   const wasAwake = state !== "asleep" && state !== "starting", changed = next !== state;
   state = next;
   orbState.actTarget = ACT[next] ?? 0.55;
-  orb && orb.setTint(next === "muted" ? "red" : next === "working" ? "amber" : "blue");
+  tint();
   $("mute").classList.toggle("on", next === "muted");
   $("mute").textContent = next === "muted" ? "Unmute" : "Mute";
   if (next === "asleep" && wasAwake) setView("closed");   // "go to sleep": back to just the orb
@@ -232,6 +258,11 @@ function layout() {
   const panel = $("panel");
   panel.style.left = cx + "px";
   panel.style.top = cy + place.canvas * 0.36 + "px";          // just under the orb's bands
+  placeMenu(cx, cy);
+  const prob = $("problem");
+  prob.style.left = cx + "px";
+  prob.style.top = cy + place.canvas * 0.36 + (view === "menu" ? orbRadius() * 0.55 + 70 : 4) + "px";
+  prob.hidden = !problem || view === "closed";
   sendShape();
 }
 
@@ -410,31 +441,78 @@ $("lookReset").addEventListener("click", () => { look = { ...lookDefaults }; app
 
 // ---------------------------------------------------------------- the orb: tap, double-tap, drag
 
-let tapTimer = null, down = null;
+let tapTimer = null, holdTimer = null, down = null;
+const HOLD_MS = 550, DOUBLE_MS = 280;
 const orbRadius = () => place.canvas * 0.36;
 const onOrb = (e) => Math.hypot(e.clientX - (place.x || innerWidth / 2), e.clientY - (place.y || innerHeight / 2)) <= orbRadius();
 $("orb").addEventListener("mousedown", (e) => {
   if (e.button !== 0 || !onOrb(e)) return;
-  down = { x: e.clientX, y: e.clientY, dragged: false };
+  down = { x: e.clientX, y: e.clientY, dragged: false, held: false };
+  clearTimeout(holdTimer);
+  holdTimer = setTimeout(() => {               // hold: talk
+    if (!down || down.dragged) return;
+    down.held = true;
+    clearTimeout(tapTimer); tapTimer = null;
+    if (view === "menu") setView("closed");
+    send({ type: "control", action: "talk" });
+  }, HOLD_MS);
 });
 addEventListener("mousemove", (e) => {
   if (down && !down.dragged && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 5) {
     down.dragged = true;
+    clearTimeout(holdTimer);
     toWindow("drag");                          // the window moves with the mouse until it's released
   }
 });
 addEventListener("mouseup", (e) => {
+  clearTimeout(holdTimer);
   if (!down) return;
-  const wasDrag = down.dragged;
+  const { dragged, held } = down;
   down = null;
-  if (wasDrag || !onOrb(e)) return;
-  if (tapTimer) {                              // double-tap: open or close the control centre
+  if (dragged || held || !onOrb(e)) return;
+  if (tapTimer) {                              // double-tap: mute or unmute the microphone
     clearTimeout(tapTimer); tapTimer = null;
-    setView(view === "full" ? "closed" : "full");
-  } else {
-    tapTimer = setTimeout(() => { tapTimer = null; send({ type: "control", action: "talk" }); }, 280);
+    send({ type: "control", action: "mute" });
+  } else {                                     // tap: open or close the menu (or close the old control centre)
+    tapTimer = setTimeout(() => {
+      tapTimer = null;
+      setView(view === "menu" || view === "full" ? "closed" : "menu");
+    }, DOUBLE_MS);
   }
 });
+
+// ---------------------------------------------------------------- the radial menu
+
+const MENU_ANGLES = [150, 90, 30];             // degrees, clockwise from the right: under the orb, left to right
+const MENU_CLOSE_MS = 8000;
+let menuTimer = null;
+function showMenu(on) {
+  const menu = $("radial");
+  clearTimeout(menuTimer);
+  menu.hidden = !on;
+  if (!on) return;
+  layout();
+  [...menu.children].forEach((b, i) => animateIn(b, i * 40));
+  menuTimer = setTimeout(() => { if (view === "menu") setView("closed"); }, MENU_CLOSE_MS);
+}
+function placeMenu(cx, cy) {
+  const r = orbRadius() + 56;
+  [...$("radial").children].forEach((b, i) => {
+    const a = MENU_ANGLES[i] * Math.PI / 180;
+    b.style.left = Math.round(cx + r * Math.cos(a)) + "px";
+    b.style.top = Math.round(cy + r * Math.sin(a)) + "px";
+  });
+}
+for (const b of $("radial").children) {
+  b.addEventListener("mouseenter", () => { clearTimeout(menuTimer); });
+  b.addEventListener("click", () => {
+    const go = b.dataset.go;
+    setView("closed");
+    if (go === "talk") send({ type: "control", action: "talk" });
+    else if (go === "chat") send({ type: "control", action: "open_app" });
+    else if (go === "command") send({ type: "control", action: "open_command" });
+  });
+}
 
 // ---------------------------------------------------------------- the click-through shape
 
@@ -443,7 +521,12 @@ let lastShape = "";
 function sendShape() {
   const cx = Math.round(place.x || innerWidth / 2), cy = Math.round(place.y || innerHeight / 2);
   const shapes = [{ c: [cx, cy], r: Math.round(orbRadius()) }];
-  if (place.expanded) {
+  if (place.expanded && view === "menu") {
+    for (const el of $("radial").children) {
+      const b = el.getBoundingClientRect();
+      if (b.width) shapes.push({ c: [Math.round(b.left + b.width / 2), Math.round(b.top + b.height / 2)], r: Math.round(b.width / 2) + 2 });
+    }
+  } else if (place.expanded) {
     for (const el of document.querySelectorAll("#controls, #look, #composer, #quick .chip, #sections .card")) {
       const b = el.getBoundingClientRect();
       if (b.width && b.height && el.offsetParent !== null) shapes.push({ x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height) });

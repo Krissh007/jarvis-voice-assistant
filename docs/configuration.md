@@ -91,7 +91,7 @@ is what lowers both columns.
 | Setting | Default | Meaning |
 |---|---|---|
 | `web_ui.port` | `0` | The web window's port on 127.0.0.1 (`0` = any free port). Every connection needs this launch's random token |
-| `web_ui.window` | `true` | Show the orb (tap = talk, double-tap = control centre, drag anywhere); `false` = tray only |
+| `web_ui.window` | `true` | Show the orb: tap = menu (Chat, Talk, Command centre), hold = talk, double-tap = mute or unmute, drag anywhere. Its colour: blue listening, amber working, grey muted, red when something JARVIS needs isn't working (the reason shows under it); `false` = tray only |
 | `web_ui.orb_size` | `112` | How big the orb looks, in pixels (70–260) |
 | `web_ui.core_size` | `0.83` | The arc reactor core's size as a share of the cloud's (0.4–1.0) |
 | `web_ui.orb_brightness` | `0.55` | How bright the orb's arc reactor core and its nucleus glow, 0.2 (faint) to 1.0 (bright) |
@@ -113,7 +113,7 @@ each; they change the orb live, and your choices are kept in `data/orb_look.json
 | `window.opacity` | `1.0` | Below 1 lets windows behind show through |
 | `window.close_button` | `quit` | The X quits JARVIS, or `hide` keeps it running in the tray |
 | `window.speak_typed_replies` | `true` | Answers to typed messages are also spoken (the starting value of "Speak replies" in either window) |
-| `hotkeys.*` | see file | `mute`, `push_to_talk`, `stop`, `confirm`, `cancel` |
+| `hotkeys.*` | see file | `show_orb` (Ctrl+Alt+Space: show or hide the orb), `push_to_talk` (Ctrl+Alt+T), `mute`, `stop`, `confirm`, `cancel`. Change them on the app's Settings page (after a restart) or here |
 
 ### Confirmation
 

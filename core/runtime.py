@@ -35,6 +35,8 @@ from core.wakeword import WakeState
 
 log = logging.getLogger(__name__)
 
+PROBLEM_GRACE_S = 20  # the voice session may take this long to connect before the orb shows an error
+
 # The chat's web search: Off refuses these for that message (think_through searches on its own too).
 WEB_TOOLS = ("search_web", "read_page", "site_search", "think_through")
 WEB_OFF = "The user turned web search off for this message. Answer from what you know, without searching."
@@ -213,6 +215,7 @@ class WebBridge:
         "announce": ("Announce", lambda a: a.toggle_announce()),
         "voice": ("Voice", lambda a: a.toggle_voice()),
         "open_app": ("App", lambda a: a.open_app("chat")),
+        "open_command": ("Command centre", lambda a: a.open_app("command")),
         "open_settings": ("Settings", lambda a: a.open_app("settings")),
     }
 
@@ -223,6 +226,53 @@ class WebBridge:
         self.bus = assistant.bus
         self.look_path = look_path or Services().data_dir / "orb_look.json"
         self.attachments = AttachmentStore()  # the chat's pictures, until their message is sent
+        self.last_route: dict | None = None  # the reasoning layer's latest decision (route event), for the status strip
+        self.bus.subscribe(self._remember_route)
+
+    def problem(self) -> str | None:
+        """Something JARVIS needs that isn't working right now (the orb's error ring), in a few words, or None."""
+        a = self._a
+        if getattr(a, "_ready", False) and a.mode != "text":
+            session = getattr(a, "session", None)
+            connected = bool(session is not None and getattr(session, "connected", None) and session.connected.is_set())
+            if not connected and time.monotonic() - getattr(a, "_ready_at", time.monotonic()) > PROBLEM_GRACE_S:
+                return "The voice session isn't connected."
+        if a.config["features"].get("agent_hub") and a.services.hub_reachable is False:
+            return "The Agent Hub isn't reachable."
+        return None
+
+    def _remember_route(self, event) -> None:
+        if event.kind == "route":
+            self.last_route = {**event.data, "ts": event.ts}
+
+    async def status(self) -> dict:
+        """The command centre's strip: the voice session, the Agent Hub and its agents, which models do what,
+        the latest routing decision, and tools loaded here vs in the Hub's registry. Never a key's value."""
+        a = self._a
+        models = a.config.get("models") or {}
+        groq = (a.config.get("groq") or {}).get("models") or []
+        tools = sorted(t.name for t in a.registry.visible())
+        hub_info: dict = {"enabled": bool(a.config["features"].get("agent_hub")), "reachable": a.services.hub_reachable}
+        if hub_info["enabled"] and a.services.hub is not None:
+            try:
+                report = await asyncio.wait_for(a.services.hub.agent_status(), 6)
+                hub_info.update(reachable=True, agents=report.get("agents", []), planner=report.get("planner"),
+                                registry_tools=report.get("tools_total"))
+            except (ToolError, asyncio.TimeoutError) as exc:
+                hub_info.update(reachable=False, error=str(exc)[:160])
+            except Exception:
+                log.exception("Agent Hub status failed")
+                hub_info.update(reachable=False, error="The Agent Hub's status couldn't be read.")
+        live = bool(getattr(getattr(a, "session", None), "connected", None) and a.session.connected.is_set())
+        return {
+            "voice_session": live,
+            "hub": hub_info,
+            "models": {"voice": models.get("live"), "text": models.get("flash"),
+                       "reasoning": groq[0] if groq and env_key("GROQ_API_KEY") else None,
+                       "reasoning_fallback": models.get("flash")},
+            "route": self.last_route,
+            "tools": {"loaded": len(tools), "names": tools},
+        }
 
     def snapshot(self) -> dict:
         a = self._a
@@ -241,6 +291,8 @@ class WebBridge:
             "look": orb_look(a.config, self.look_path),
             "look_defaults": orb_look(a.config, None),
             "caption_s": _clamp(web.get("caption_seconds"), 8, 2, 60),
+            "problem": self.problem(),
+            "orb_visible": a.orb_visible,
         }
 
     def set_look(self, values: dict) -> dict:
@@ -434,6 +486,7 @@ class Assistant:
         self.window_proc = None  # ui.window.WindowProcess: the orb (control centre), see-through
         self.chat_proc = None  # ui.window.WindowProcess: the complete chat page, in a normal window
         self.app_proc = None  # ui.window.WindowProcess: the app (sidebar shell), in a normal window
+        self.orb_visible = True  # the show/hide hotkey
         from core.settings_store import SettingsStore
 
         self.settings = SettingsStore(config, Services().data_dir / "settings.json")  # the app's Settings page
@@ -618,7 +671,8 @@ class Assistant:
             recap=self.transcript.recap,  # seeds a fresh session after a drop
         )
         self.hotkeys = Hotkeys(
-            {k: v for k, v in config["hotkeys"].items() if k in {"mute", "push_to_talk", "stop", "confirm", "cancel"}},
+            {k: v for k, v in config["hotkeys"].items()
+             if k in {"mute", "push_to_talk", "stop", "confirm", "cancel", "show_orb"} and v},
             self._hotkey_from_thread,
         )
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -705,6 +759,7 @@ class Assistant:
         if self.app_proc is not None:
             tasks.append(asyncio.create_task(self.app_proc.watch(), name="app-window"))
         self._ready = True
+        self._ready_at = time.monotonic()  # the voice session gets a moment to connect before it counts as a problem
         if self.services.ducker is not None:
             self.services.ducker.start()
         self._main_task = asyncio.current_task()
@@ -1074,6 +1129,14 @@ class Assistant:
             asyncio.ensure_future(self.dispatcher.on_hotkey("stop"))
         elif name in {"confirm", "cancel"} and pressed:
             asyncio.ensure_future(self.dispatcher.on_hotkey(name))
+        elif name == "show_orb" and pressed:
+            self.toggle_orb()
+
+    def toggle_orb(self, visible: bool | None = None) -> None:
+        """The show/hide hotkey (and the tray): the orb's window hides or comes back where it was."""
+        self.orb_visible = (not self.orb_visible) if visible is None else bool(visible)
+        log.info("orb %s", "shown" if self.orb_visible else "hidden")
+        self.bus.publish("orb_visibility", visible=self.orb_visible)
 
     async def _ticker(self) -> None:
         """Housekeeping: confirmation arming/timeouts, quiet utterances, wake-word sleep."""

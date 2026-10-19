@@ -8,7 +8,13 @@
 </head>
 <body>
   <div id="stage">
-    <canvas id="orb" aria-label="JARVIS. Tap to talk, double-tap for the control centre, drag to move."></canvas>
+    <canvas id="orb" aria-label="JARVIS. Tap for the menu, hold to talk, double-tap to mute, drag to move."></canvas>
+    <nav id="radial" hidden aria-label="JARVIS menu">
+      <button data-go="chat" title="Chat" aria-label="Chat"><svg class="ri"><use href="/static/vendor/lucide/sprite.svg#i-message-square" /></svg><span>Chat</span></button>
+      <button data-go="talk" title="Talk (or hold the orb)" aria-label="Talk"><svg class="ri"><use href="/static/vendor/lucide/sprite.svg#i-mic" /></svg><span>Talk</span></button>
+      <button data-go="command" title="Command centre" aria-label="Command centre"><svg class="ri"><use href="/static/vendor/lucide/sprite.svg#i-activity" /></svg><span>Command</span></button>
+    </nav>
+    <div id="problem" hidden role="status"></div>
     <div id="panel" hidden>
       <div id="controls" role="toolbar" aria-label="Controls">
         <button data-action="talk" title="Talk (Ctrl+Alt+Space)">Talk</button>

@@ -158,6 +158,10 @@ class HubClient:
     async def describe_tool(self, tool_id: str) -> dict:
         return await self._call("describe_tool", {"tool_id": tool_id})
 
+    async def agent_status(self) -> dict:
+        """The Hub's agents (reachable?, tools), its planner and its tool counts: the command centre's strip."""
+        return await self._call("agent_status", {})
+
     async def call_tool(self, tool_id: str, args: dict, confirmed: bool = False) -> dict:
         """Run one Hub tool (actions/brain.py). confirmed=True only after the user's own yes."""
         return await self._call("call_tool", {"tool_id": tool_id, "args": args, "confirmed": confirmed})
@@ -258,6 +262,7 @@ class HubBridge:
         self._toasted = False
         item = self.held.pop(0)
         self._save_held()
+        self._timeline(item)
         if self.services.taint:
             self.services.taint()  # the text came from job sites and mail: never acted on without a yes
         if self.services.notify:
@@ -279,6 +284,7 @@ class HubBridge:
         self._save_held()
         self._toasted = False
         for item in items:
+            self._timeline(item)
             status = str(item.get("status") or "done")
             title = "From your agents" + ("" if status == "done" else f" ({status})")
             say = _clean(item.get("say")) or "Finished."
@@ -288,6 +294,13 @@ class HubBridge:
         if self.toast is not None and items:
             self.toast("JARVIS", f"{len(items)} result{'s' if len(items) != 1 else ''} from your agents "
                                  "in JARVIS's window.")
+
+    def _timeline(self, item: dict) -> None:
+        """A finished agent request, for the command centre's timeline (the words are the agents', shown as text)."""
+        bus = getattr(self.services, "bus", None)
+        if bus is not None:
+            bus.publish("agent_update", request_id=str(item.get("request_id") or "")[:40],
+                        status=str(item.get("status") or "done")[:20], say=_clean(item.get("say"), 300))
 
     def _hub_back(self) -> None:
         """Tell the model, without a reply, that the Hub works again, so it stops repeating an old failure."""

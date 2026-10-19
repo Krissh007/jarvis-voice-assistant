@@ -453,6 +453,15 @@ class Brain:
                    models: list, seconds: float = 0.0) -> None:
         log.info("ask_brain %s: route %s, %d steps, %s tokens, %.1f s", outcome, decision.route, steps,
                  tokens.get("total_tokens", 0), seconds)
+        bus = getattr(self.services, "bus", None)
+        if bus is not None:  # the command centre's routing line: never the request's text
+            try:
+                bus.publish("route", route=decision.route, tools=decision.tool_ids[:8],
+                            categories=list(decision.categories)[:6], models=[str(m) for m in models][:4],
+                            outcome=outcome, steps=steps, seconds=round(seconds, 1),
+                            fallback=outcome == "fallback_flash")
+            except Exception:
+                log.exception("couldn't publish the route")
         if self.log_path is None:
             return
         record = {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),

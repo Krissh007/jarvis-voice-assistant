@@ -12,6 +12,8 @@ const ORB_PALETTES = {
   blue: { cyan: [90, 205, 255], ice: [190, 240, 255], deep: [25, 95, 255] },
   red: { cyan: [255, 95, 105], ice: [255, 205, 210], deep: [190, 25, 45] },
   amber: { cyan: [255, 185, 70], ice: [255, 235, 190], deep: [210, 110, 20] },
+  muted: { cyan: [138, 155, 176], ice: [210, 220, 232], deep: [60, 76, 98] },
+  error: { cyan: [255, 77, 106], ice: [255, 198, 208], deep: [168, 16, 44] },
 };
 
 function createOrb(canvas) {

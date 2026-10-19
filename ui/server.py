@@ -40,15 +40,15 @@ STATIC = Path(__file__).resolve().parent / "static"
 for _type, _ext in (("text/javascript", ".js"), ("text/css", ".css"), ("text/html", ".html")):
     mimetypes.add_type(_type, _ext)
 ACTIONS = {"talk", "sleep", "mute", "stop", "confirm", "cancel", "new_chat", "open_chat", "announce", "voice",
-           "open_app", "open_settings"}
+           "open_app", "open_settings", "open_command"}
 REQUESTS = {"settings", "facts", "conversations", "conversation"}  # read-only, answered to the asking page only
 MAX_MESSAGE_BYTES = 8000  # one WebSocket message from the page (chat is limited to 2000 characters)
 LEVEL_FPS = 15  # orb updates
 HISTORY_KINDS = {"message", "tool_started", "tool_finished", "confirm_requested", "confirm_resolved",
-                 "sources", "memory_used"}
+                 "sources", "memory_used", "agent_update", "route"}
 HISTORY_MAX = 150
 STREAM_KINDS = HISTORY_KINDS | {"partial", "state", "status", "focus", "media", "conversation", "announce", "voice",
-                                "look"}
+                                "look", "orb_visibility"}
 
 
 class Bridge(Protocol):
@@ -65,6 +65,7 @@ class Bridge(Protocol):
     def regenerate(self, speak: bool) -> bool: ...  # the chat's Regenerate
     def pin(self, text: Any) -> dict: ...  # the chat's Pin to memory
     async def snap_screen(self) -> dict: ...  # "attach my screen" (private windows blacked out)
+    async def status(self) -> dict: ...  # the command centre's strip (asks the Agent Hub)
     attachments: Any  # core.attachments.AttachmentStore: uploaded pictures until their message is sent
     def change_setting(self, key: str, value: Any) -> dict: ...  # one change from the Settings page
     def forget_fact(self, fact_id: Any) -> dict: ...  # the Memory settings' Forget button
@@ -171,19 +172,23 @@ def create_app(bridge: Bridge, token: str, port: int) -> FastAPI:
         await socket_.send_text(_dumps({"kind": "hello", "snapshot": bridge.snapshot(), "history": history}))
         tasks = [asyncio.create_task(_send_events(socket_, stream)),
                  asyncio.create_task(_send_levels(socket_, bridge))]
+        replies: set[asyncio.Task] = set()  # slow replies on their way, so the page keeps working meanwhile
         try:
             while True:
                 text = await socket_.receive_text()
                 reply = _handle(bridge, text)
-                if reply is not None:
+                if asyncio.iscoroutine(reply):  # the status request waits for the Agent Hub
+                    replies.add(task := asyncio.create_task(_send_later(socket_, reply)))
+                    task.add_done_callback(replies.discard)
+                elif reply is not None:
                     await socket_.send_text(_dumps(reply))
         except WebSocketDisconnect:
             pass
         finally:
             stream.close()
-            for t in tasks:
+            for t in [*tasks, *replies]:
                 t.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+            await asyncio.gather(*tasks, *replies, return_exceptions=True)
             log.info("web UI disconnected")
 
     return app
@@ -226,6 +231,10 @@ def _handle(bridge: Bridge, text: str) -> dict[str, Any] | None:
         bridge.control(msg["action"])
     elif kind == "look" and isinstance(msg.get("look"), dict):
         bridge.set_look(msg["look"])
+    elif kind == "request" and msg.get("what") == "status":
+        async def status_reply() -> dict[str, Any]:  # asks the Agent Hub: a few seconds at most
+            return {"kind": "reply", "id": rid, "what": "status", "data": await bridge.status()}
+        return status_reply()
     elif kind == "request" and msg.get("what") in REQUESTS:
         data = bridge.request(msg["what"], msg.get("arg")) if "arg" in msg else bridge.request(msg["what"])
         return {"kind": "reply", "id": rid, "what": msg["what"], "data": data}
@@ -241,6 +250,13 @@ def _handle(bridge: Bridge, text: str) -> dict[str, Any] | None:
     return None
 
 
+async def _send_later(socket_, reply) -> None:
+    try:
+        await socket_.send_text(_dumps(await reply))
+    except Exception:  # the page went away meanwhile, or the status couldn't be built
+        log.warning("web UI: a slow reply wasn't sent")
+
+
 async def _send_events(socket_, stream) -> None:
     async for event in stream:
         await socket_.send_text(_dumps(event.to_dict()))
@@ -251,10 +267,10 @@ async def _send_levels(socket_, bridge: Bridge) -> None:
     last = None
     while True:
         snap = bridge.snapshot()
-        now = (snap["state"], round(float(snap.get("level") or 0.0), 2))
+        now = (snap["state"], round(float(snap.get("level") or 0.0), 2), snap.get("problem"))
         if now != last:
             last = now
-            await socket_.send_text(_dumps({"kind": "level", "state": now[0], "level": now[1]}))
+            await socket_.send_text(_dumps({"kind": "level", "state": now[0], "level": now[1], "problem": now[2]}))
         await asyncio.sleep(1 / LEVEL_FPS)
 
 
