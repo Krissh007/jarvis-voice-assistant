@@ -64,4 +64,21 @@ samples:
   - {q: "what's my bank's customer care number", want: none}
   - {q: "which school did I go to", want: none}
 
-holdout: []
+# Also written before measuring, and never looked at while choosing thresholds: the honest check.
+holdout:
+  - {q: "what floor is the car on", want: car}
+  - {q: "remind me who Ananya is", want: sister}
+  - {q: "what are my gym days", want: gym}
+  - {q: "am I okay with peanut butter", want: allergy}
+  - {q: "what's Priya's date of birth", want: wife_bday}
+  - {q: "what kind of rock do I enjoy", want: music}
+  - {q: "what laptop model do I have", want: laptop}
+  - {q: "when do I pay the landlord", want: landlord}
+  - {q: "which cricket team is mine", want: team}
+  - {q: "what size shoes should I buy", want: shoe}
+  - {q: "Go or Rust, what did I settle on", want: rust_go}
+  - {q: "what's my favourite food", want: fav_food}
+  - {q: "what's my car's registration number", want: none}
+  - {q: "who is my family doctor", want: none}
+  - {q: "what's my mom's name", want: none}
+  - {q: "when is my sister's birthday", want: none}
