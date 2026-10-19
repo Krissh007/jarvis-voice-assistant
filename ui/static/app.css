@@ -40,11 +40,19 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 
 #controls { align-self: center; display: flex; gap: 2px; padding: 3px; border-radius: 999px; background: var(--glass);
   border: 1px solid var(--hair); box-shadow: 0 8px 28px rgba(0, 0, 0, .35); }
-#controls button { border: 0; background: transparent; border-radius: 999px; padding: 6px 12px; font-size: 12px; }
+#controls button { border: 0; background: transparent; border-radius: 999px; padding: 6px 9px; font-size: 12px;
+  white-space: nowrap; }
 #controls button:hover { background: rgba(255, 255, 255, .08); }
 #controls button.accent { background: rgba(42, 168, 255, .22); color: #cfeeff; }
 #controls button.red { color: #ffb3b9; }
 #controls button.on { background: rgba(255, 100, 112, .25); color: #ffd3d7; }
+#controls button.open { background: rgba(42, 168, 255, .22); color: #cfeeff; }
+
+#look[hidden] { display: none; }
+#look .slider { display: grid; grid-template-columns: 110px 1fr 44px; align-items: center; gap: 8px; margin: 6px 0;
+  font-size: 12px; color: var(--dim); }
+#look input[type=range] { width: 100%; accent-color: var(--accent); }
+#look output { text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
 
 #sections { display: flex; flex-direction: column; gap: 10px; }
 #sections:empty { display: none; }
@@ -83,3 +91,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .chip:hover { background: var(--glass-hi); }
 #status { text-align: center; font-size: 11px; min-height: 15px; text-shadow: 0 0 6px #000; }
 #status:empty { display: none; }
+
+/* ---------------------------------------------------------------- the voice view: only the sections, the answer as a caption */
+body.voice #controls, body.voice #composer, body.voice #quick, body.voice #status, body.voice #look { display: none; }
+body.voice #sections { align-items: center; }
+body.voice .card { max-width: 320px; }
+body.voice .card:not(.warn):not(.media) { text-align: center; padding: 8px 14px; background: rgba(8, 12, 20, .84); }
+body.voice .card:not(.warn):not(.media) h2 { display: none; }

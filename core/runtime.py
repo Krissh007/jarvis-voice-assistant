@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import sys
 import threading
@@ -120,6 +121,45 @@ class Transcript:
             self._buf[w] = ""
 
 
+# The orb's look. config.yaml (web_ui) has the defaults; what Krishna sets with the Customize sliders in the
+# control centre is kept in data/orb_look.json and wins. Each value: (default, lowest, highest).
+LOOK = {
+    "orb_size": (112, 70, 260),          # how big the orb looks, in pixels
+    "core_size": (0.83, 0.4, 1.0),       # the arc reactor core's size, as a share of the cloud's
+    "orb_brightness": (0.55, 0.2, 1.0),  # the core and its nucleus
+    "cloud_brightness": (0.45, 0.2, 1.0),
+    "ribbon_brightness": (0.5, 0.2, 1.0),  # the Möbius ribbons around the cloud
+}
+
+
+def _clamp(value, default, low: float, high: float):
+    if isinstance(value, bool):
+        return default
+    try:
+        return min(max(float(value), low), high)
+    except (TypeError, ValueError):
+        return default
+
+
+def _saved_look(path: Path | None) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8")) if path and path.is_file() else {}
+    except (OSError, ValueError):
+        return {}
+    return {k: v for k, v in data.items() if k in LOOK} if isinstance(data, dict) else {}
+
+
+def orb_look(config: dict, path: Path | None) -> dict:
+    """The orb's look: each setting from the saved file if it has it, else config.yaml, else the default."""
+    web = config.get("web_ui") or {}
+    saved = _saved_look(path)
+    look = {}
+    for key, (default, low, high) in LOOK.items():
+        look[key] = _clamp(saved.get(key), _clamp(web.get(key), default, low, high), low, high)
+    look["orb_size"] = int(round(look["orb_size"]))
+    return look
+
+
 class WebBridge:
     """Everything the web UI (ui/server.py) may see and do: the event bus, a small snapshot, chat
     messages, and the same buttons the tray and hotkeys have. Runs on the assistant's loop."""
@@ -135,22 +175,44 @@ class WebBridge:
         "open_chat": ("Open chat", lambda a: a.open_chat()),
     }
 
-    def __init__(self, assistant: Assistant) -> None:
+    def __init__(self, assistant: Assistant, look_path: Path | None = None) -> None:
         self._a = assistant
         self.bus = assistant.bus
+        self.look_path = look_path or Services().data_dir / "orb_look.json"
 
     def snapshot(self) -> dict:
         a = self._a
         status = a._face_status()
         pending = a.dispatcher.confirmer.pending if hasattr(a, "dispatcher") else None
+        web = a.config.get("web_ui") or {}
         return {
             "state": status["state"],
             "level": status["level"],
             "user": a.transcript._labels["user"],
             "speak": a.speak_typed,
             "pending": {"id": pending.id, "summary": pending.summary} if pending else None,
-            "quick_actions": [str(q)[:80] for q in ((a.config.get("web_ui") or {}).get("quick_actions") or [])][:8],
+            "quick_actions": [str(q)[:80] for q in (web.get("quick_actions") or [])][:8],
+            "look": orb_look(a.config, self.look_path),
+            "look_defaults": orb_look(a.config, None),
+            "caption_s": _clamp(web.get("caption_seconds"), 8, 2, 60),
         }
+
+    def set_look(self, values: dict) -> dict:
+        """Keep the Customize sliders' settings (only known keys, each kept in range) for the next start."""
+        saved = _saved_look(self.look_path)
+        for key, (_default, low, high) in LOOK.items():
+            value = _clamp(values.get(key), None, low, high)
+            if value is not None:
+                saved[key] = int(round(value)) if key == "orb_size" else round(value, 3)
+        try:
+            self.look_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.look_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(saved), encoding="utf-8")
+            tmp.replace(self.look_path)
+            log.info("web: kept the orb's look (%s)", ", ".join(f"{k} {v}" for k, v in sorted(saved.items())))
+        except OSError as exc:
+            log.warning("web: couldn't keep the orb's look: %s", exc)
+        return orb_look(self._a.config, self.look_path)
 
     def chat(self, text: str, speak: bool) -> bool:
         log.info("web: typed message (%d characters, %s)", len(text), "spoken reply" if speak else "silent reply")
@@ -189,12 +251,13 @@ class Assistant:
             from ui.window import WindowProcess
 
             ucfg = config.get("web_ui") or {}
-            self.web = WebUI(WebBridge(self), int(ucfg.get("port") or 0))
+            bridge = WebBridge(self)
+            self.web = WebUI(bridge, int(ucfg.get("port") or 0))
             icon = Path(__file__).resolve().parent.parent / "assets" / "jarvis.ico"
             if ucfg.get("window", True):
                 self.window_proc = WindowProcess(
                     self.web.url, state_path=Services().data_dir / "orb_window.json", mode="orb",
-                    size=int(ucfg.get("orb_size", 160)), on_top=bool(ucfg.get("always_on_top", True)),
+                    size=orb_look(config, bridge.look_path)["orb_size"], on_top=bool(ucfg.get("always_on_top", True)),
                     icon=icon, on_closed=self._window_closed, log_path=options.log_dir / "window.log",
                 )
             self.chat_proc = WindowProcess(

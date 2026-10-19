@@ -55,6 +55,7 @@ class Bridge(Protocol):
     def snapshot(self) -> dict[str, Any]: ...  # state, level, user, speak, muted, pending
     def chat(self, text: str, speak: bool) -> bool: ...
     def control(self, action: str) -> bool: ...
+    def set_look(self, values: dict) -> dict: ...  # the orb's size and brightness (Customize)
 
 
 def security_headers(port: int) -> dict[str, str]:
@@ -153,6 +154,8 @@ def _handle(bridge: Bridge, text: str) -> None:
         bridge.chat(msg["text"], bool(msg.get("speak", True)))
     elif msg.get("type") == "control" and msg.get("action") in ACTIONS:
         bridge.control(msg["action"])
+    elif msg.get("type") == "look" and isinstance(msg.get("look"), dict):
+        bridge.set_look(msg["look"])
     else:
         log.warning("web UI: dropped an unknown message type %r", str(msg.get("type"))[:20])
 

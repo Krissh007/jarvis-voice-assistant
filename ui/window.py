@@ -15,7 +15,8 @@ WebSocket like any view. To its window it sends only console lines starting "jar
 - `jarvis:shape:[...]`: the orb page's clickable circles and boxes, in page pixels;
 - `jarvis:mode:{"expanded": true|false}`: open or close the control centre;
 - `jarvis:drag`: start moving the window with the mouse (the orb was dragged);
-- `jarvis:front`: come to the front.
+- `jarvis:front`: come to the front;
+- `jarvis:size:{"size": px}`: the orb's new size (the Customize slider), in pixels.
 The orb window answers with `jarvisPlace({expanded, x, y, canvas})`: where the orb is in the page.
 
 The parent side, WindowProcess, starts a child, notices when it's closed, and stops it on quit.
@@ -131,7 +132,7 @@ def run_window(argv: list[str] | None = None) -> int:
     parser.add_argument("--mode", choices=["orb", "chat"], default="orb")
     parser.add_argument("--title", default="JARVIS")
     parser.add_argument("--state", type=Path)
-    parser.add_argument("--size", type=int, default=160, help="orb mode: how big the orb looks, in pixels")
+    parser.add_argument("--size", type=int, default=112, help="orb mode: how big the orb looks, in pixels")
     parser.add_argument("--width", type=int, default=1100, help="chat mode: first width")
     parser.add_argument("--height", type=int, default=760, help="chat mode: first height")
     parser.add_argument("--on-top", action="store_true")
@@ -162,7 +163,7 @@ def run_window(argv: list[str] | None = None) -> int:
     screen = (avail.x(), avail.y(), avail.width(), avail.height())
     canvas = orb_canvas(args.size)
     shapes: list[dict] = []
-    orb = {"expanded": False, "inner": (canvas // 2, canvas // 2), "home": None, "placing": False}
+    orb = {"expanded": False, "inner": (canvas // 2, canvas // 2), "home": None, "placing": False, "canvas": canvas}
 
     if orb_mode and not ("cx" in state and "cy" in state):  # first time: near the top right
         state.update(cx=screen[0] + screen[2] - canvas // 2 - 40, cy=screen[1] + canvas // 2 + 120)
@@ -188,6 +189,12 @@ def run_window(argv: list[str] | None = None) -> int:
                 except (ValueError, AttributeError):
                     return
                 set_expanded(expanded)
+            elif command == "size" and orb_mode:
+                try:
+                    size = int(json.loads(data).get("size"))
+                except (ValueError, AttributeError, TypeError):
+                    return
+                resize(min(max(size, 70), 260))
 
     class View(QWebEngineView):
         def moveEvent(self, event):  # noqa: N802
@@ -225,7 +232,7 @@ def run_window(argv: list[str] | None = None) -> int:
     def place() -> None:
         """Tell the page where its orb is (it lays everything else out around it)."""
         ox, oy = orb["inner"]
-        page.runJavaScript(f"window.jarvisPlace && window.jarvisPlace({json.dumps({'expanded': orb['expanded'], 'x': ox, 'y': oy, 'canvas': canvas})})")
+        page.runJavaScript(f"window.jarvisPlace && window.jarvisPlace({json.dumps({'expanded': orb['expanded'], 'x': ox, 'y': oy, 'canvas': orb['canvas']})})")
 
     def set_expanded(expanded: bool) -> None:
         """Open the control centre around the orb, or close back to just the orb, keeping the orb where it
@@ -236,7 +243,7 @@ def run_window(argv: list[str] | None = None) -> int:
         centre = (int(state["cx"]), int(state["cy"]))
         if not expanded and orb["home"] is not None:
             centre = orb["home"]  # opened near an edge and not moved since: back to where it was
-        rect, inner = orb_geometry(centre, expanded, canvas, screen)
+        rect, inner = orb_geometry(centre, expanded, orb["canvas"], screen)
         orb["placing"] = True
         orb["expanded"], orb["inner"] = expanded, inner
         view.setGeometry(*rect)
@@ -244,6 +251,18 @@ def run_window(argv: list[str] | None = None) -> int:
         if expanded:
             orb["home"] = centre
         state.update(cx=rect[0] + inner[0], cy=rect[1] + inner[1])
+        place()
+
+    def resize(size: int) -> None:
+        """A new orb size: the same centre on the screen, a new canvas (and, closed, a new window size)."""
+        orb["canvas"] = orb_canvas(size)
+        rect, inner = orb_geometry((int(state["cx"]), int(state["cy"])), orb["expanded"], orb["canvas"], screen)
+        orb["placing"] = True
+        orb["inner"] = inner
+        view.setGeometry(*rect)
+        orb["placing"] = False
+        if not orb["expanded"]:
+            shapes[:] = [{"c": inner, "r": orb["canvas"] * 0.36}]
         place()
 
     if orb_mode:
@@ -297,7 +316,7 @@ def run_window(argv: list[str] | None = None) -> int:
 
 
 class WindowProcess:
-    def __init__(self, url: str, *, state_path: Path, mode: str = "orb", size: int = 160, width: int = 1100,
+    def __init__(self, url: str, *, state_path: Path, mode: str = "orb", size: int = 112, width: int = 1100,
                  height: int = 760, on_top: bool = True, icon: Path | None = None,
                  on_closed: Callable[[], None] | None = None, python: str | None = None,
                  log_path: Path | None = None) -> None:

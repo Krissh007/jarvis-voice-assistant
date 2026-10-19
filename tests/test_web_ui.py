@@ -496,3 +496,57 @@ def test_quick_actions_come_from_the_config(assistant) -> None:
     assistant.config["web_ui"]["quick_actions"] = ["What's on my screen?", "x" * 200]
     snap = WebBridge(assistant).snapshot()
     assert snap["quick_actions"][0] == "What's on my screen?" and len(snap["quick_actions"][1]) == 80
+
+
+def test_the_orbs_look_comes_from_the_config_kept_in_range(assistant, tmp_path) -> None:
+    from core.runtime import WebBridge
+
+    web = assistant.config["web_ui"]
+    for key in ("orb_size", "core_size", "orb_brightness", "cloud_brightness", "ribbon_brightness", "caption_seconds"):
+        web.pop(key, None)
+    snap = WebBridge(assistant, look_path=tmp_path / "look.json").snapshot()
+    assert snap["look"] == {"orb_size": 112, "core_size": 0.83, "orb_brightness": 0.55, "cloud_brightness": 0.45,
+                            "ribbon_brightness": 0.5}
+    assert snap["look_defaults"] == snap["look"] and snap["caption_s"] == 8
+    web.update(orb_size=999, orb_brightness=7, cloud_brightness=None, core_size=True, caption_seconds="soon")
+    snap = WebBridge(assistant, look_path=tmp_path / "look.json").snapshot()
+    assert snap["look"] == {"orb_size": 260, "core_size": 0.83, "orb_brightness": 1.0, "cloud_brightness": 0.45,
+                            "ribbon_brightness": 0.5}
+    web.update(orb_size=10, orb_brightness=0, cloud_brightness=0.7, caption_seconds=1)
+    snap = WebBridge(assistant, look_path=tmp_path / "look.json").snapshot()
+    assert snap["look"]["orb_size"] == 70 and snap["look"]["orb_brightness"] == 0.2
+    assert snap["look"]["cloud_brightness"] == 0.7 and snap["caption_s"] == 2
+
+
+def test_customize_keeps_its_settings_over_the_config(assistant, tmp_path) -> None:
+    import json as _json
+
+    from core.runtime import WebBridge, orb_look
+
+    path = tmp_path / "data" / "orb_look.json"
+    bridge = WebBridge(assistant, look_path=path)
+    look = bridge.set_look({"orb_size": 150.4, "core_size": 2, "cloud_brightness": "x", "evil": 1})
+    assert _json.loads(path.read_text(encoding="utf-8")) == {"orb_size": 150, "core_size": 1.0}
+    assert look["orb_size"] == 150 and look["core_size"] == 1.0
+    bridge.set_look({"orb_brightness": 0.3})                      # adds to what was kept
+    snap = bridge.snapshot()
+    assert snap["look"]["orb_size"] == 150 and snap["look"]["orb_brightness"] == 0.3
+    assert snap["look_defaults"]["orb_size"] == assistant.config["web_ui"].get("orb_size", 112)
+    path.write_text("not json", encoding="utf-8")                 # a broken file: back to the config
+    assert orb_look(assistant.config, path) == orb_look(assistant.config, None)
+
+
+def test_the_page_can_send_the_orbs_look(ui) -> None:
+    bridge, client = ui
+    looks = []
+    bridge.set_look = lambda values: looks.append(values) or {}
+    with connect(client) as ws:
+        ws.receive_text()  # hello
+        ws.send_text(json.dumps({"type": "look", "look": {"orb_size": 140}}))
+        ws.send_text(json.dumps({"type": "look", "look": "big"}))  # not a dict: dropped
+        ws.send_text(json.dumps({"type": "control", "action": "mute"}))
+        for _ in range(50):
+            if bridge.controls:
+                break
+            json.loads(ws.receive_text())  # level updates keep coming
+    assert looks == [{"orb_size": 140}]

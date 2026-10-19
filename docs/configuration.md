@@ -80,7 +80,16 @@ is what lowers both columns.
 |---|---|---|
 | `web_ui.port` | `0` | The web window's port on 127.0.0.1 (`0` = any free port). Every connection needs this launch's random token |
 | `web_ui.window` | `true` | Show the orb (tap = talk, double-tap = control centre, drag anywhere); `false` = tray only |
-| `web_ui.orb_size` | `160` | How big the orb looks, in pixels |
+| `web_ui.orb_size` | `112` | How big the orb looks, in pixels (70–260) |
+| `web_ui.core_size` | `0.83` | The arc reactor core's size as a share of the cloud's (0.4–1.0) |
+| `web_ui.orb_brightness` | `0.55` | How bright the orb's arc reactor core and its nucleus glow, 0.2 (faint) to 1.0 (bright) |
+| `web_ui.cloud_brightness` | `0.45` | How bright the cloud of light points around the core glows, on its own, 0.2 to 1.0 |
+| `web_ui.ribbon_brightness` | `0.5` | How bright the glowing Möbius ribbons around the cloud are, 0.2 to 1.0 |
+
+The five orb settings above are defaults. The **Customize** button in the control centre has a slider for
+each; they change the orb live, and your choices are kept in `data/orb_look.json`, which wins over
+`config.yaml`. Reset goes back to the `config.yaml` values.
+| `web_ui.caption_seconds` | `8` | Voice mode: a reply's caption under the orb fades after this many seconds (2–60) |
 | `web_ui.quick_actions` | 4 examples | Buttons in the control centre; each sends its text to JARVIS (up to 8, 80 characters) |
 | `web_ui.chat_width` / `web_ui.chat_height` | `1100` / `760` | The chat page's window the first time; then it remembers |
 | `web_ui.always_on_top` | `true` | Keep the orb above other windows |

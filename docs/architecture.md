@@ -262,22 +262,35 @@ receives can confirm an action.
   - It's drawn in 3D by `orb3d.js`, with Three.js 0.186.1 stored in `ui/static/vendor/three`. Nothing is
     loaded from the internet, and the add-ons' imports are rewritten to relative paths because the
     page's security policy allows no import map. It's the user's reference design on the graphics card:
-    - a particle shell and a tunnel of HUD rings;
-    - three tilted orbit bands with flowing light and a comet each, and lightning along them;
-    - a voice wave and sparks;
-    - a bloom glow using only the tighter blur layers (the widest ones fogged the desktop).
+    - "Cloud and core", which Krishna designed from the mock-ups;
+    - outside: a soft cloud of light points shaped like a sphere that slowly breathes, with no lines or
+      rings; when JARVIS speaks it swirls and bulges with the voice;
+    - inside: an arc reactor like Iron Man's (Krishna picked it from ten inner shapes): a glowing
+      nucleus, an inner ring, ten segments that light up in a chase while JARVIS is busy, and an outer
+      ring with ticks, gently tilting; the cloud is 1.2 times the reactor's size;
+    - around the cloud, hugging it: three glowing Möbius ribbons (the first orb's orbit bands with a half
+      twist) with flowing light and a comet each, and lightning along them while JARVIS speaks;
+    - a bloom glow using only the tighter blur layers (the widest ones fogged the desktop);
+    - each part has its own brightness: `web_ui.orb_brightness` (the core, 0.55) and
+      `web_ui.cloud_brightness` (the cloud, 0.45);
+    - Customize (a button in the control bar) has sliders for the orb's size, the core's size and the
+      core's, the cloud's and the ribbons' brightness. They apply live (the window resizes around the same centre: `jarvis:size`), and
+      `WebBridge.set_look` keeps them in `data/orb_look.json`, which wins over `config.yaml`.
   - A last pass sets each pixel's alpha from its brightness, so the glow blends into the desktop.
     Without WebGL, `orb.js` draws the 2D version (`#orb=2d` forces it).
-  - When idle, it's only the orb, about 160 px across (`web_ui.orb_size`). It's low when asleep,
+  - When idle, it's only the orb, about 112 px across (`web_ui.orb_size`). It's low when asleep,
     brighter when listening and strongest when speaking; red when muted, amber while working on a task.
   - Tap it to talk. Drag it anywhere on the screen; it stays where it's left.
   - Double-tap it to open the control centre, stacked under the orb:
-    - a controls bar: Talk, Mute, New chat, Stop, Sleep;
+    - a controls bar: Talk, Mute, New chat, Stop, Sleep, Customize;
     - the sections a reply needs (the answer, a confirmation with Confirm / Cancel, a picture, what's
       playing), in the order they came;
     - the typing box;
     - quick-action chips (`web_ui.quick_actions`).
-  - If the orb was closed, it opens to show new sections.
+  - Voice mode: if the orb was closed, a reply shows only its sections (the answer as a short caption,
+    a confirmation, a picture, what's playing) under the orb, with no controls, typing box or chips.
+    They fade after `web_ui.caption_seconds` (8 s) once JARVIS has finished; a confirmation stays until
+    it's answered. Double-tap opens the full control centre around them.
   - Double-tap again, Esc, or JARVIS going to sleep closes it back to just the orb.
   - The page uses no CSS animations or transitions. In the see-through Qt window the browser engine
     doesn't advance them, so fades stopped halfway and left cards half see-through. Fades and slides

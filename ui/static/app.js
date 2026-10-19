@@ -1,9 +1,13 @@
 // JARVIS's orb: a quick-action control centre. Idle, only the orb is visible. Tap it to talk, drag it
 // anywhere, double-tap it to open the control centre under it: the controls (talk, mute, new chat, stop,
 // sleep), then the sections a reply needs (the answer, a confirmation, a picture, what's playing), then the
-// typing box and quick-action chips, stacked under the orb. Sections stay until the orb is double-tapped
-// closed or JARVIS goes to sleep. "New chat" opens the complete chat page in its own window. The orb is
-// drawn in 3D (orb3d.js, Three.js) when WebGL works, else in 2D (orb.js).
+// typing box and quick-action chips, stacked under the orb. "New chat" opens the complete chat page in its
+// own window. The orb is drawn in 3D (orb3d.js, Three.js) when WebGL works, else in 2D (orb.js).
+//
+// Three views: "closed" (just the orb), "voice" and "full". Talking to a closed orb opens the voice view:
+// only the sections, with the answer as a short caption, and no controls, typing box or chips. It fades
+// back to the orb a few seconds (web_ui.caption_seconds) after JARVIS finishes; a confirmation keeps it
+// open until it's answered. Double-tap opens the full control centre, and double-tap, Esc or sleep closes it.
 //
 // Every text is set with textContent, never as HTML: replies and tool results can contain text from web
 // pages and apps. The token comes from the URL's #fragment. Messages for the window itself go out as
@@ -20,6 +24,8 @@ const MAX_SECTIONS = 4;
 const ACT = { starting: 0, asleep: 0, listening: 0.55, speaking: 1, working: 0.75, muted: 0.15 };
 
 let ws = null, retryMs = 500, pendingId = null, state = "starting";
+let view = "closed", captionMs = 8000;
+let look = { orb_size: 112, core_size: 0.83, orb_brightness: 0.55, cloud_brightness: 0.45, ribbon_brightness: 0.5 }, lookDefaults = { ...look };
 const place = { expanded: false, x: 0, y: 0, canvas: 235 };
 const orbState = { act: 0, actTarget: 0, level: 0, levelTarget: 0 };
 
@@ -78,6 +84,37 @@ function animateOut(el, done) {
   animate(240, 0, (e) => { el.style.opacity = 1 - e; el.style.transform = `scale(${1 - 0.03 * e})`; }, done);
 }
 
+function setView(next) {
+  if (next === view) return;
+  const prev = view;
+  view = next;
+  document.body.classList.toggle("voice", next === "voice");
+  clearTimeout(captionTimer);
+  if (next === "closed") { if (!$("look").hidden) showLook(false); return setExpanded(false); }
+  if (prev === "closed") setExpanded(true);     // the window grows; jarvisPlace() fades the panel in
+  else if (next === "full") { layout(); [$("controls"), $("composer"), $("quick")].forEach((el, i) => animateIn(el, i * 45)); }
+  if (next === "voice") captionSoon();
+}
+
+// The voice view fades back to just the orb once JARVIS has finished and nothing's changed for a while.
+let captionTimer = null, touched = 0;
+function captionSoon() {
+  touched = performance.now();
+  clearTimeout(captionTimer);
+  if (view !== "voice") return;
+  captionTimer = setTimeout(() => {
+    if (view !== "voice") return;
+    if (pendingId || state === "speaking" || state === "working") return captionSoon();
+    const panel = $("panel"), started = performance.now();
+    animate(300, 0, (e) => { panel.style.opacity = 1 - e; }, () => {
+      panel.style.opacity = "";
+      if (view !== "voice") return;
+      if (touched > started) return captionSoon();   // something new came while it faded
+      setView("closed");
+    });
+  }, captionMs);
+}
+
 function setExpanded(expanded) {
   if (expanded === place.expanded) return;
   if (!expanded) clearSections(true);
@@ -110,6 +147,10 @@ function handle(ev) {
 function hello(ev) {
   const snap = ev.snapshot || {};
   setSpeak(snap.speak !== false);
+  if (snap.caption_s) captionMs = snap.caption_s * 1000;
+  if (snap.look) look = { ...look, ...snap.look };
+  if (snap.look_defaults) lookDefaults = { ...lookDefaults, ...snap.look_defaults };
+  applyLook(false);
   setState(snap.state || "starting");
   const quick = $("quick");
   quick.replaceChildren();
@@ -125,13 +166,14 @@ function hello(ev) {
 
 function setState(next) {
   if (!next) return;
-  const wasAwake = state !== "asleep" && state !== "starting";
+  const wasAwake = state !== "asleep" && state !== "starting", changed = next !== state;
   state = next;
   orbState.actTarget = ACT[next] ?? 0.55;
   orb && orb.setTint(next === "muted" ? "red" : next === "working" ? "amber" : "blue");
   $("mute").classList.toggle("on", next === "muted");
   $("mute").textContent = next === "muted" ? "Unmute" : "Mute";
-  if (next === "asleep" && wasAwake) setExpanded(false);   // "go to sleep": back to just the orb
+  if (next === "asleep" && wasAwake) setView("closed");   // "go to sleep": back to just the orb
+  else if (changed) captionSoon();
 }
 
 let statusTimer = null;
@@ -156,7 +198,7 @@ function section(key, title, cls) {
     $("sections").append(el);                    // stacked under the orb, in the order they came
     sections.set(key, el);
     while (sections.size > MAX_SECTIONS) removeSection(sections.keys().next().value);
-    setExpanded(true);                         // something to show: open the control centre
+    if (view === "closed") setView("voice");   // something to show: the voice view, unless already open
     layout();
     animateIn(el);
   }
@@ -207,6 +249,7 @@ function partial(ev) {
     liveReply = (liveReply + ev.text).replace(/\s+/g, " ").trimStart();
     answerSection().querySelector(".reply").textContent = liveReply;
   }
+  captionSoon();
   sendShapeSoon();
 }
 
@@ -220,6 +263,7 @@ function message(ev) {
     liveReply = "";
     el.querySelector(".reply").textContent = ev.text;
   }
+  captionSoon();
   sendShapeSoon();
 }
 
@@ -269,7 +313,7 @@ function confirmRequested(ev) {
 }
 
 function confirmResolved(ev) {
-  if (ev.id === pendingId) { pendingId = null; removeSection("confirm"); }
+  if (ev.id === pendingId) { pendingId = null; removeSection("confirm"); captionSoon(); }
 }
 
 // ---------------------------------------------------------------- buttons and the typing box
@@ -288,7 +332,48 @@ $("composer").addEventListener("submit", (e) => {
   if (send({ type: "chat", text, speak: speakOn() })) $("input").value = "";
   else setStatus("Not connected: your message is still in the box.");
 });
-addEventListener("keydown", (e) => { if (e.key === "Escape" && place.expanded) setExpanded(false); });
+addEventListener("keydown", (e) => { if (e.key === "Escape" && view !== "closed") setView("closed"); });
+
+// ---------------------------------------------------------------- Customize: the orb's size and brightness
+
+// The sliders show a value now and keep it a moment later: the window resizes and the setting is saved
+// (data/orb_look.json) once the slider stops moving.
+const LOOK_PERCENT = new Set(["core_size", "orb_brightness", "cloud_brightness", "ribbon_brightness"]);
+let sizeTimer = null, saveTimer = null;
+function applyLook(changed) {
+  if (orb && orb.setBrightness) orb.setBrightness(look.orb_brightness, look.cloud_brightness, look.ribbon_brightness);
+  if (orb && orb.setCoreSize) orb.setCoreSize(look.core_size);
+  for (const input of document.querySelectorAll("#look input")) {
+    const key = input.dataset.key, value = look[key];
+    input.value = LOOK_PERCENT.has(key) ? Math.round(value * 100) : value;
+    input.nextElementSibling.textContent = LOOK_PERCENT.has(key) ? Math.round(value * 100) + "%" : value + " px";
+  }
+  const canvas = Math.round(look.orb_size / 0.68);   // ORB_SCALE in ui/window.py
+  if (canvas !== place.canvas) {
+    clearTimeout(sizeTimer);
+    sizeTimer = setTimeout(() => {
+      if (preview) { place.canvas = canvas; sizeOrb(); layout(); } else toWindow("size", { size: look.orb_size });
+    }, changed ? 120 : 0);
+  }
+  if (changed) { clearTimeout(saveTimer); saveTimer = setTimeout(() => send({ type: "look", look }), 500); }
+}
+for (const input of document.querySelectorAll("#look input")) {
+  input.addEventListener("input", () => {
+    const key = input.dataset.key;
+    look[key] = LOOK_PERCENT.has(key) ? input.value / 100 : Number(input.value);
+    applyLook(true);
+  });
+}
+function showLook(open) {
+  $("look").hidden = !open;
+  $("customize").setAttribute("aria-expanded", open ? "true" : "false");
+  $("customize").classList.toggle("open", open);
+  if (open) animateIn($("look"));
+  layout();
+}
+$("customize").addEventListener("click", () => showLook($("look").hidden));
+$("lookDone").addEventListener("click", () => showLook(false));
+$("lookReset").addEventListener("click", () => { look = { ...lookDefaults }; applyLook(true); });
 
 // ---------------------------------------------------------------- the orb: tap, double-tap, drag
 
@@ -312,7 +397,7 @@ addEventListener("mouseup", (e) => {
   if (wasDrag || !onOrb(e)) return;
   if (tapTimer) {                              // double-tap: open or close the control centre
     clearTimeout(tapTimer); tapTimer = null;
-    setExpanded(!place.expanded);
+    setView(view === "full" ? "closed" : "full");
   } else {
     tapTimer = setTimeout(() => { tapTimer = null; send({ type: "control", action: "talk" }); }, 280);
   }
@@ -326,9 +411,9 @@ function sendShape() {
   const cx = Math.round(place.x || innerWidth / 2), cy = Math.round(place.y || innerHeight / 2);
   const shapes = [{ c: [cx, cy], r: Math.round(orbRadius()) }];
   if (place.expanded) {
-    for (const el of document.querySelectorAll("#controls, #composer, #quick .chip, #sections .card")) {
+    for (const el of document.querySelectorAll("#controls, #look, #composer, #quick .chip, #sections .card")) {
       const b = el.getBoundingClientRect();
-      if (b.width && b.height) shapes.push({ x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height) });
+      if (b.width && b.height && el.offsetParent !== null) shapes.push({ x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height) });
     }
   }
   const json = JSON.stringify(shapes);
@@ -358,8 +443,16 @@ function sizeOrb() {
   c.style.width = c.style.height = css + "px";
   if (px === orbPixels || orbMaking) return;
   orbPixels = px;
+  if (orb) {                                  // a new size: the 3D orb fits its canvas itself, the 2D one is redrawn
+    if (!orb.is3d) c.width = c.height = px;
+    return;
+  }
   if (!orb) c.width = c.height = px;          // the 3D orb sizes its own canvas
-  orbMaking = makeOrb(c).then((o) => { orb = o; orbMaking = null; setState(state); });
+  orbMaking = makeOrb(c).then((o) => {
+    orb = o; orbMaking = null;
+    applyLook(false);
+    setState(state);
+  });
 }
 
 const t0 = performance.now();
@@ -376,8 +469,8 @@ function frame(now) {
   orb.draw(t, orbState.act, lv, dt);
 }
 
-if (preview) window.jarvisPlace({ expanded: params.get("open") === "1", x: innerWidth / 2,
-  y: params.get("open") === "1" ? place.canvas / 2 + 6 : innerHeight / 2 });
+if (preview && params.get("open") === "1") setView("full");
+else if (preview) window.jarvisPlace({ expanded: false, x: innerWidth / 2, y: innerHeight / 2 });
 else sizeOrb();
 layout();
 requestAnimationFrame(frame);
