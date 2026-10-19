@@ -184,3 +184,41 @@ async def test_echoed_wrapper_tags_never_reach_the_clipboard(board) -> None:
     assert "untrusted_content" not in paused.summary
     await paused.resume()
     assert board["text"] == "Hello from JARVIS."
+
+
+# ---------------------------------------------------------------- show_on_screen
+
+def test_show_on_screen_puts_a_list_in_the_window() -> None:
+    from core.bus import EventBus
+    bus = EventBus()
+    seen = []
+    bus.subscribe(seen.append)
+    result = screen.Screen(Services(bus=bus)).show_on_screen("Dinner ideas", ["Biryani", " ", "Dal  makhani"])
+    assert "Shown on screen" in result and "2 items" in result and "don't read it out" in result
+    ev = seen[-1]
+    assert ev.kind == "media" and ev.data["type"] == "text"
+    assert ev.data["title"] == "Dinner ideas" and ev.data["items"] == ["Biryani", "Dal makhani"]
+    assert bus.recent() == []  # transient, like screen pictures: never kept in the history
+
+
+def test_show_on_screen_caps_and_refuses_empty() -> None:
+    from core.bus import EventBus
+    from core.registry import ToolError
+    bus = EventBus()
+    seen = []
+    bus.subscribe(seen.append)
+    s = screen.Screen(Services(bus=bus))
+    s.show_on_screen("", [f"item {i}" for i in range(100)], "x" * 10000)
+    data = seen[-1].data
+    assert data["title"] == "For you" and len(data["items"]) == screen.MAX_SHOW_ITEMS
+    assert len(data["text"]) == screen.MAX_SHOW_TEXT
+    with pytest.raises(ToolError):
+        s.show_on_screen("Nothing", [], "")
+    with pytest.raises(ToolError):
+        screen.Screen(Services()).show_on_screen("No window", ["a"])
+
+
+def test_prompt_sends_lists_to_the_screen_and_asks_before_guessing() -> None:
+    from core.prompts import PERSONA
+    assert "show_on_screen" in PERSONA and "Did you mean Claude?" in PERSONA
+    assert "never say you're doing" in PERSONA and "never a general word" in PERSONA

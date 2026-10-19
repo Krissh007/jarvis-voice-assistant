@@ -16,7 +16,7 @@ from ctypes import wintypes
 from actions.app_ui import looks_secret
 from core.llm import USAGE_LIMIT_MESSAGE, LLMUnavailable
 from core.privacy import redact
-from core.registry import Registry, Tier, Tool
+from core.registry import Registry, Tier, Tool, ToolError
 
 log = logging.getLogger(__name__)
 
@@ -105,6 +105,7 @@ def foreground_title() -> str:
 
 
 PREVIEW_WIDTH = 560  # the picture shown beside the orb (already redacted), never saved
+MAX_SHOW_ITEMS, MAX_SHOW_ITEM, MAX_SHOW_TEXT = 30, 300, 4000  # show_on_screen limits
 
 
 def preview_data_url(jpeg: bytes, width: int = PREVIEW_WIDTH) -> str:
@@ -160,6 +161,21 @@ class Screen:
         log.info("looked at the screen (%d private windows hidden)", len(hidden))
         return redact(answer) + note
 
+    def show_on_screen(self, title: str = "", items: list[str] | None = None, text: str = "") -> str:
+        """Put a list or text in JARVIS's own window instead of reading it aloud. Tier SAFE: it only displays."""
+        title = " ".join(str(title or "").split())[:80] or "For you"
+        items = [" ".join(str(i).split())[:MAX_SHOW_ITEM] for i in (items or []) if str(i).strip()][:MAX_SHOW_ITEMS]
+        text = str(text or "").strip()[:MAX_SHOW_TEXT]
+        if not items and not text:
+            raise ToolError("There was nothing to show.")
+        bus = getattr(self.services, "bus", None)
+        if bus is None:
+            raise ToolError("My window isn't open, so I can't show it on screen.")
+        bus.publish("media", type="text", title=title, items=items, text=text)
+        shown = f"{len(items)} item{'s' if len(items) != 1 else ''}" if items else "the text"
+        return (f"Shown on screen: {title} ({shown}). Tell the user in a few words that it's on their screen; "
+                "don't read it out.")
+
     async def active_window(self) -> str:
         """Title of the window in front. Rung 2 (Win32). Tier SAFE, read-only; output untrusted."""
         title = await asyncio.to_thread(foreground_title)
@@ -183,6 +199,22 @@ def register(registry: Registry, config: dict, services) -> None:
         untrusted_output=True,
         rung=2,
         parameters={"type": "object", "properties": {"question": {"type": "string"}}},
+    ))
+    registry.register(Tool(
+        name="show_on_screen",
+        description=("Show a list, steps, a table's rows, code or long text in your window instead of reading it "
+                     "aloud: use it whenever an answer has more than three items or would take more than two "
+                     "sentences to say. Give a short title and either items (one line each) or text. Then just "
+                     "say it's on the screen, maybe naming one or two highlights."),
+        func=screen.show_on_screen,
+        tier=Tier.SAFE,
+        read_only=True,
+        rung=1,
+        parameters={"type": "object", "properties": {
+            "title": {"type": "string"},
+            "items": {"type": "array", "items": {"type": "string"}},
+            "text": {"type": "string"},
+        }},
     ))
     registry.register(Tool(
         name="active_window",

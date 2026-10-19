@@ -151,6 +151,16 @@ function message(ev) {
 }
 
 function media(ev) {
+  if (ev.type === "text") {                    // a list or text JARVIS put on screen instead of reading it aloud
+    const [r, b] = bubble("jarvis", ev.title || "For you", ev.text || "");
+    const items = Array.isArray(ev.items) ? ev.items : [];
+    if (items.length) {
+      const ol = document.createElement("ol");
+      for (const item of items) { const li = document.createElement("li"); li.textContent = String(item); ol.append(li); }
+      b.append(ol);
+    }
+    return add(r);
+  }
   if (ev.type !== "image" || !String(ev.data || "").startsWith("data:image/")) return;
   const [r, b] = bubble("jarvis", ev.title || "Picture", ev.caption || "");
   const img = document.createElement("img");

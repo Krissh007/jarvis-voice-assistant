@@ -21,6 +21,7 @@ if (params.get("bg") === "1" || preview) document.body.classList.add("backdrop")
 const $ = (id) => document.getElementById(id);
 
 const MAX_SECTIONS = 4;
+const LIST_HOLD_MS = 45000;   // the voice view stays this long when JARVIS put a list on screen
 const ACT = { starting: 0, asleep: 0, listening: 0.55, speaking: 1, working: 0.75, muted: 0.15 };
 
 let ws = null, retryMs = 500, pendingId = null, state = "starting";
@@ -112,7 +113,7 @@ function captionSoon() {
       if (touched > started) return captionSoon();   // something new came while it faded
       setView("closed");
     });
-  }, captionMs);
+  }, sections.has("list") ? Math.max(captionMs, LIST_HOLD_MS) : captionMs);   // a list needs time to read
 }
 
 function setExpanded(expanded) {
@@ -283,6 +284,7 @@ function toolFinished(ev) {
 }
 
 function media(ev) {                   // a picture a tool showed (e.g. the screen JARVIS just looked at)
+  if (ev.type === "text") return shownText(ev);
   if (ev.type !== "image" || !String(ev.data || "").startsWith("data:image/")) return;
   const card = section("image", ev.title || "Picture", "media");
   card.replaceChildren(card.firstChild);
@@ -292,6 +294,21 @@ function media(ev) {                   // a picture a tool showed (e.g. the scre
   card.append(img);
   if (ev.caption) { const p = document.createElement("p"); p.className = "dim"; p.textContent = ev.caption; card.append(p); }
   img.onload = sendShape;
+}
+
+function shownText(ev) {               // a list or text JARVIS put on screen instead of reading it aloud
+  const card = section("list", ev.title || "For you", "media list");
+  card.replaceChildren(card.firstChild);
+  card.firstChild.textContent = ev.title || "For you";
+  const items = Array.isArray(ev.items) ? ev.items : [];
+  if (items.length) {
+    const ol = document.createElement("ol");
+    for (const item of items) { const li = document.createElement("li"); li.textContent = String(item); ol.append(li); }
+    card.append(ol);
+  }
+  if (ev.text) { const p = document.createElement("p"); p.className = "text"; p.textContent = String(ev.text); card.append(p); }
+  captionSoon();
+  sendShapeSoon();
 }
 
 function confirmRequested(ev) {
