@@ -184,6 +184,44 @@ async def test_poller_survives_a_hub_that_is_down_and_recovers() -> None:
     assert len(s.notices) == 1
 
 
+async def test_recovery_tells_the_model_quietly_that_the_hub_is_back() -> None:
+    context: list[str] = []
+    s = make_services(context=context.append)
+    hub = FakeHub()
+    hub.down = True
+    bridge = HubBridge(hub, s, poll_s=0.01)
+    task = asyncio.create_task(bridge.poll_loop())
+    await asyncio.sleep(0.1)
+    assert context == []                                      # nothing while it's still down
+    hub.down = False
+    for _ in range(100):
+        if context:
+            break
+        await asyncio.sleep(0.05)
+    task.cancel()
+    assert len(context) == 1 and "running again" in context[0] and "agent_hub_request again" in context[0]
+    assert s.notices == []                                    # a fact for the model, not something to say
+
+
+async def test_announce_off_shows_results_instead_of_speaking(tmp_path) -> None:
+    from core.bus import EventBus
+    bus = EventBus()
+    seen = []
+    bus.subscribe(seen.append)
+    toasts = []
+    s = make_services(announce=lambda: False, can_speak=lambda: False, bus=bus)
+    path = tmp_path / "held.json"
+    bridge = HubBridge(FakeHub(updates=[item("Discovery finished: 11 new jobs."), item("Boom.", status="failed")]),
+                       s, held_path=path, toast=lambda t, m: toasts.append(m))
+    await bridge.deliver_once()
+    assert s.notices == [] and not s.tainted and bridge.held == []
+    shown = [e.data for e in seen if e.kind == "media"]
+    assert [d["title"] for d in shown] == ["From your agents", "From your agents (failed)"]
+    assert shown[0]["text"] == "Discovery finished: 11 new jobs." and shown[0]["type"] == "text"
+    assert len(toasts) == 1 and "2 results" in toasts[0]
+    assert json.loads(path.read_text(encoding="utf-8")) == []
+
+
 # ---------------------------------------------------------------- through the real dispatcher
 
 @pytest.fixture

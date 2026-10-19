@@ -186,6 +186,12 @@ class LiveSession:
         """Add an app message to the conversation, in order, and let the model respond to it."""
         self._outgoing.put_nowait(("notice", text))
 
+    def send_context(self, text: str) -> None:
+        """Add an app message to the conversation without asking for a reply (turn_complete=False): a fact
+        the model should know from now on, e.g. that the Agent Hub is back. Dropped while disconnected."""
+        if self.connected.is_set():
+            self._outgoing.put_nowait(("context", text))
+
     def new_conversation(self) -> None:
         """Forget the conversation so far: reconnect without the resumption handle, so the model starts
         fresh (a new chat). Anything already queued is sent first."""
@@ -283,9 +289,10 @@ class LiveSession:
                 await session.send_tool_response(function_responses=payload)
             elif kind == "new_conversation":
                 raise _NewConversation()
-            elif kind == "notice":
+            elif kind in ("notice", "context"):
                 await session.send_client_content(
-                    turns=types.Content(role="user", parts=[types.Part(text=payload)]), turn_complete=True
+                    turns=types.Content(role="user", parts=[types.Part(text=payload)]),
+                    turn_complete=kind == "notice",
                 )
 
     async def _receive_loop(self, session: Any) -> None:

@@ -563,3 +563,16 @@ def test_the_end_of_the_wake_phrase_is_not_sent_to_gemini(monkeypatch) -> None:
     a._wake_tail_until = 0.0         # half a second on
     a._on_mic_chunk(b"\x03\x00")
     assert sent == [b"\x03\x00"]
+
+
+def test_player_clear_logs_what_it_cut_off(caplog) -> None:
+    import logging
+
+    pb = PlaybackState()
+    player = Player(pb)
+    player.clear("stop key")                                    # nothing playing: nothing to log
+    assert "playback stopped" not in caplog.text
+    player.enqueue(b"\x00\x00" * 24_000)                       # one second of speech
+    with caplog.at_level(logging.INFO, logger="core.audio"):
+        player.clear("stop key")
+    assert "playback stopped (stop key): dropped 1.0 s of queued speech" in caplog.text

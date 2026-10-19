@@ -51,6 +51,8 @@ function handle(ev) {
     case "media": return media(ev);
     case "conversation": return newConversation();
     case "status": return setStatus(ev.text);
+    case "announce": return setAnnounce(ev.on);
+    case "voice": return setVoice(ev.on);
     case "focus": if (ev.target === "chat") console.log("jarvis:front"); return;
   }
 }
@@ -58,10 +60,26 @@ function handle(ev) {
 function hello(ev) {
   const snap = ev.snapshot || {};
   newConversation();
-  $("speak").checked = snap.speak !== false;
+  setVoice((snap.voice ?? snap.speak) !== false);
+  setAnnounce(snap.announce !== false);
   setState(snap.state || "starting");
   for (const old of ev.history || []) handle(old);
   if (snap.pending && !confirms.has(snap.pending.id)) confirmRequested({ id: snap.pending.id, summary: snap.pending.summary });
+}
+
+function setVoice(on) {                    // the Voice setting: the Speak checkbox and the Voice button
+  $("speak").checked = on;
+  const b = $("voice");
+  b.setAttribute("aria-pressed", on ? "true" : "false");
+  b.textContent = on ? "Voice: on" : "Voice: off";
+  b.classList.toggle("on", !on);
+}
+
+function setAnnounce(on) {                 // the Announce button shows what JARVIS says it is now
+  const b = $("announce");
+  b.setAttribute("aria-pressed", on ? "true" : "false");
+  b.textContent = on ? "Announce: on" : "Announce: off";
+  b.classList.toggle("on", !on);
 }
 
 function newConversation() {
@@ -245,6 +263,10 @@ $("composer").addEventListener("submit", (e) => {
 });
 document.querySelectorAll("button[data-action]").forEach((b) => {
   b.addEventListener("click", () => send({ type: "control", action: b.dataset.action }));
+});
+$("speak").addEventListener("change", (e) => {   // the Voice setting: JARVIS answers with the new state
+  e.target.checked = !e.target.checked;          // show the old state until it does
+  send({ type: "control", action: "voice" });
 });
 
 // ---------------------------------------------------------------- the small orb

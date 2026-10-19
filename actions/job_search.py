@@ -39,6 +39,14 @@ TOPICS = ("overview", "shortlist", "review", "applications", "questions", "blank
 PARKED = ("draft_saved", "draft_unsaved")  # applications the apply agent filled as far as it could and saved for the user
 PROBLEM_WINDOW = timedelta(hours=24)
 AGENT_LABEL = {"search": "job search", "score": "scoring", "docs": "document", "apply": "apply"}
+# JobPilot's current agent names; runs from before the rename keep the old ones (search, score, docs).
+AGENT_ALIAS = {"discovery": "search", "scoring": "score", "documents": "docs"}
+
+
+def _agent(run: dict[str, Any]) -> str:
+    """A run's agent under the old names, so old and new runs count the same."""
+    name = str(run.get("agent") or "")
+    return AGENT_ALIAS.get(name, name)
 MAX_ITEMS = 5
 STALE_AFTER = timedelta(hours=30)
 TIMEOUT_SECONDS = 5.0
@@ -221,7 +229,7 @@ class JobSearchStatus:
 
     def freshness(self) -> str:
         runs = [run for run in self.fetch("/runs", None)
-                if run.get("agent") == "search" and not run.get("is_example")]
+                if _agent(run) == "search" and not run.get("is_example")]
         if not runs:
             return "JobPilot hasn't run a job search yet."
         latest = max(runs, key=lambda run: run.get("started_at") or "")
@@ -298,7 +306,7 @@ class JobSearchStatus:
         now = self.now()
         latest: dict[str, dict[str, Any]] = {}
         for run in self.fetch("/runs", None):
-            agent = run.get("agent")
+            agent = _agent(run)
             if run.get("is_example") or agent in skip or run.get("status") == "running":
                 continue
             if agent not in latest or (run.get("started_at") or "") > (latest[agent].get("started_at") or ""):

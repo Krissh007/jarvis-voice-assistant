@@ -476,3 +476,20 @@ def test_echoing_the_action_counts_as_yes(text, summary, ok) -> None:
     from core.confirm import answer_kind
 
     assert (answer_kind(text, ["confirm", "yes", "yeah"], summary) == "yes") is ok
+
+
+async def test_context_is_sent_without_asking_for_a_reply() -> None:
+    events = fl.RecordingEvents()
+    client = fl.FakeClient([[]])
+    session = LiveSession(
+        client, "m", lambda handle: build_live_config(system_instruction="x", voice=None,
+                                                      push_to_talk=False, resume_handle=handle), events)
+    session.send_context("[system notice] dropped: not connected yet")
+    task = asyncio.create_task(session.run())
+    await asyncio.sleep(0.1)
+    session.send_context("[system notice] the Agent Hub is running again")
+    await asyncio.sleep(0.05)
+    task.cancel()
+    sent = [s for s in client.sessions[0].sent if "client_content" in s]
+    assert [s["client_content"].parts[0].text for s in sent] == ["[system notice] the Agent Hub is running again"]
+    assert sent[0]["turn_complete"] is False

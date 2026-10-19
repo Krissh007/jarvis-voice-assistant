@@ -56,6 +56,8 @@ class Services:
     background: list = field(default_factory=list)  # async callables the runtime runs as tasks for its lifetime
     notify: Callable[[str], None] | None = None  # sends a [system notice] to the model; set by the runtime
     can_speak: Callable[[], bool] | None = None  # True when a result may be announced right now
+    announce: Callable[[], bool] | None = None  # False: the user turned announcements off (show, don't speak)
+    context: Callable[[str], None] | None = None  # tells the model a fact without asking it to reply
     taint: Callable[[], None] | None = None  # marks the turn as carrying untrusted text
 
 

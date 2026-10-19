@@ -318,3 +318,14 @@ def test_with_the_agent_hub_on_status_points_shortlist_and_approvals_to_the_hub(
 
     assert "agent_hub_request" in description(True) and "quick overall summary" in description(True)
     assert "agent_hub_request" not in description(False) and "shortlist" in description(False)
+
+
+def test_runs_under_jobpilots_new_agent_names_count(tmp_path):
+    # JobPilot renamed search/score/docs to discovery/scoring/documents; runs started through the Hub use them.
+    runs = [run("search", "ok", 72), run("discovery", "ok", 8), run("scoring", "error", 2, "QuotaExhausted"),
+            run("documents", "error", 1, "Gemini quota")]
+    status = JobSearchStatus(FakeApi(runs=runs), tmp_path, now=lambda: NOW)
+    assert status.freshness() == "The last job search finished 8 hours ago."
+    text = status.problems()
+    assert "The scoring run failed 2 hours ago: QuotaExhausted" in text
+    assert "The document run failed 1 hour ago: Gemini quota" in text

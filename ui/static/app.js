@@ -140,6 +140,8 @@ function handle(ev) {
     case "confirm_resolved": return confirmResolved(ev);
     case "media": return media(ev);
     case "conversation": return clearSections();
+    case "announce": return setAnnounce(ev.on);
+    case "voice": return setSpeak(ev.on);
     case "status": return setStatus(ev.text);
     case "focus": if (!ev.target) toWindow("front"); return;
   }
@@ -147,7 +149,8 @@ function handle(ev) {
 
 function hello(ev) {
   const snap = ev.snapshot || {};
-  setSpeak(snap.speak !== false);
+  setSpeak((snap.voice ?? snap.speak) !== false);
+  setAnnounce(snap.announce !== false);
   if (snap.caption_s) captionMs = snap.caption_s * 1000;
   if (snap.look) look = { ...look, ...snap.look };
   if (snap.look_defaults) lookDefaults = { ...lookDefaults, ...snap.look_defaults };
@@ -339,8 +342,20 @@ document.querySelectorAll("button[data-action]").forEach((b) => {
   b.addEventListener("click", () => send({ type: "control", action: b.dataset.action }));
 });
 const speakOn = () => $("speak").getAttribute("aria-pressed") === "true";
-function setSpeak(on) { $("speak").setAttribute("aria-pressed", on ? "true" : "false"); }
-$("speak").addEventListener("click", () => setSpeak(!speakOn()));
+function setSpeak(on) {                    // the Voice setting: the speaker icon and the Voice button
+  $("speak").setAttribute("aria-pressed", on ? "true" : "false");
+  const b = $("voice");
+  b.setAttribute("aria-pressed", on ? "true" : "false");
+  b.textContent = on ? "Voice: on" : "Voice: off";
+  b.classList.toggle("on", !on);
+}
+function setAnnounce(on) {                 // the Announce button shows what JARVIS says it is now
+  const b = $("announce");
+  b.setAttribute("aria-pressed", on ? "true" : "false");
+  b.textContent = on ? "Announce: on" : "Announce: off";
+  b.classList.toggle("on", !on);
+}
+$("speak").addEventListener("click", () => send({ type: "control", action: "voice" }));   // JARVIS answers with the new state
 $("talk").addEventListener("click", () => send({ type: "control", action: "talk" }));
 $("composer").addEventListener("submit", (e) => {
   e.preventDefault();

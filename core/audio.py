@@ -100,12 +100,19 @@ class Player:
             self._chunks.append(samples)
             self.playback.set_playing(True)
 
-    def clear(self) -> None:
+    def clear(self, reason: str = "") -> None:
+        """Stop talking now and drop everything queued. Logged when it cut something off."""
         with self._lock:
+            left = sum(len(c) for c in self._chunks)
+            if self._current is not None:
+                left += max(0, len(self._current) - self._pos)
             self._chunks.clear()
             self._current = None
             self._pos = 0
             self.playback.set_playing(False)
+        if left:
+            log.info("playback stopped%s: dropped %.1f s of queued speech",
+                     f" ({reason})" if reason else "", left / OUTPUT_RATE)
 
     def _callback(self, outdata: np.ndarray, frames: int, _time, _status) -> None:
         out = outdata[:, 0]

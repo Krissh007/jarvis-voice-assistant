@@ -160,6 +160,39 @@ def orb_look(config: dict, path: Path | None) -> dict:
     return look
 
 
+# The window's on/off buttons, kept in data/prefs.json: key -> the web_ui setting in config.yaml used
+# until the button is first pressed (both default on).
+PREFS = {
+    "announce": "announce",      # speak background news: agent results, reminders, the morning briefing
+    "voice": "voice_replies",    # speak at all; off = every reply is text only (chat and caption)
+}
+
+
+def load_prefs(config: dict, path: Path | None) -> dict[str, bool]:
+    """Each button's last setting from the file, else config.yaml's web_ui value, else on."""
+    data: object = {}
+    for source in ([path, path.with_name("announce.json")] if path else []):  # announce.json: before prefs.json
+        try:
+            if source.is_file():
+                data = json.loads(source.read_text(encoding="utf-8"))
+                break
+        except (OSError, ValueError):
+            pass
+    if not isinstance(data, dict):
+        data = {}
+    web = config.get("web_ui") or {}
+    return {key: data[key] if isinstance(data.get(key), bool) else bool(web.get(setting, True))
+            for key, setting in PREFS.items()}
+
+
+def save_prefs(path: Path, prefs: dict[str, bool]) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({k: bool(prefs[k]) for k in PREFS}), encoding="utf-8")
+    except OSError as exc:
+        log.warning("couldn't keep the window's settings: %s", exc)
+
+
 class WebBridge:
     """Everything the web UI (ui/server.py) may see and do: the event bus, a small snapshot, chat
     messages, and the same buttons the tray and hotkeys have. Runs on the assistant's loop."""
@@ -173,6 +206,8 @@ class WebBridge:
         "cancel": ("Cancel", lambda a: a.on_hotkey("cancel", True)),
         "new_chat": ("New chat", lambda a: a.new_conversation(open_chat=True)),
         "open_chat": ("Open chat", lambda a: a.open_chat()),
+        "announce": ("Announce", lambda a: a.toggle_announce()),
+        "voice": ("Voice", lambda a: a.toggle_voice()),
     }
 
     def __init__(self, assistant: Assistant, look_path: Path | None = None) -> None:
@@ -189,7 +224,9 @@ class WebBridge:
             "state": status["state"],
             "level": status["level"],
             "user": a.transcript._labels["user"],
-            "speak": a.speak_typed,
+            "speak": a.voice,  # the typing box's speaker toggle is the Voice setting
+            "voice": a.voice,
+            "announce": a.announce,
             "pending": {"id": pending.id, "summary": pending.summary} if pending else None,
             "quick_actions": [str(q)[:80] for q in (web.get("quick_actions") or [])][:8],
             "look": orb_look(a.config, self.look_path),
@@ -246,6 +283,10 @@ class Assistant:
         self.chat_proc = None  # ui.window.WindowProcess: the complete chat page, in a normal window
         wcfg = config.get("window") or {}
         self.speak_typed = bool(wcfg.get("speak_typed_replies", True))
+        self.prefs_path = Services().data_dir / "prefs.json"
+        prefs = load_prefs(config, self.prefs_path)
+        self.announce = prefs["announce"]  # the Announce button: speak background news
+        self.voice = prefs["voice"]  # the Voice button: off = text-only replies, nothing is spoken
         if config["features"].get("web_ui") and self.mode != "text":
             from ui.server import WebUI
             from ui.window import WindowProcess
@@ -383,6 +424,8 @@ class Assistant:
             self.dispatcher.condenser = Condenser(llm, config)
         self.services.notify = self._notify
         self.services.can_speak = self._can_announce
+        self.services.announce = lambda: self.announce
+        self.services.context = lambda text: self.session.send_context(text)
         self.services.taint = lambda: setattr(self.dispatcher, "tainted", True)
 
         def instruction() -> str:
@@ -678,6 +721,32 @@ class Assistant:
         """A background result may be spoken now: JARVIS is awake and not mid-conversation or mid-action."""
         return (self.wake is None or self.wake.awake) and not self._busy()
 
+    def set_announce(self, on: bool) -> None:
+        """The Announce button. Off: background news (agent results, reminders, the morning briefing) is
+        shown in the window and as a toast, never spoken. Answers to the user's own questions still are."""
+        self.announce = bool(on)
+        save_prefs(self.prefs_path, {"announce": self.announce, "voice": self.voice})
+        log.info("announcements %s", "on" if self.announce else "off")
+        self.bus.publish("announce", on=self.announce)
+        self._status("(announcements on)" if self.announce else "(announcements off: shown, not spoken)")
+
+    def toggle_announce(self) -> None:
+        self.set_announce(not self.announce)
+
+    def set_voice(self, on: bool) -> None:
+        """The Voice button. Off: JARVIS never speaks; every reply, typed or spoken, is text in the chat and
+        the caption. The microphone still works. Turning it off also cuts off anything being said now."""
+        self.voice = bool(on)
+        if not self.voice:
+            self.player.clear("voice replies off")
+        save_prefs(self.prefs_path, {"announce": self.announce, "voice": self.voice})
+        log.info("voice replies %s", "on" if self.voice else "off")
+        self.bus.publish("voice", on=self.voice)
+        self._status("(voice replies on)" if self.voice else "(voice replies off: text only)")
+
+    def toggle_voice(self) -> None:
+        self.set_voice(not self.voice)
+
     def stop_all(self) -> None:
         """The Stop button: stops JARVIS (talking, a running action, a pending one) and leaves the music alone.
 
@@ -704,7 +773,7 @@ class Assistant:
         if self.wake is None:
             return
         self._drop_reply = True
-        self.player.clear()
+        self.player.clear("sleep")
         if self.wake.awake:
             self.wake.awake = False
             self.transcript.flush()
@@ -718,7 +787,7 @@ class Assistant:
         self._last_ack = now
         if self.playback.playing:
             self._drop_reply = True  # the rest of the current reply
-            self.player.clear()
+            self.player.clear("Talk pressed")
         if self.dispatcher.awaiting_confirmation:
             return  # it's waiting for a yes/no; a "Yes?" of its own would confuse that
         self._notify('[system notice] The user pressed Talk while you were already listening. '
@@ -733,7 +802,7 @@ class Assistant:
             self.wake.touch()
             self._acknowledge()
             return
-        self.player.clear()  # if it was talking, let the user speak
+        self.player.clear("Talk pressed")  # if it was talking, let the user speak
         if self.wake is None:
             return
         self.wake.wake()
@@ -762,7 +831,7 @@ class Assistant:
             return
         self._reply_channel = "chat"
         self.transcript.add_typed(text, source)
-        self.player.clear()  # typing while JARVIS talks interrupts it, like speaking would
+        self.player.clear("typed message")  # typing while JARVIS talks interrupts it, like speaking would
         self._quiet_reply = not speak
         if self.wake is not None and self.wake.awake:
             self.wake.touch()
@@ -784,13 +853,13 @@ class Assistant:
         elif name == "push_to_talk" and self.gate.push_to_talk:
             self.gate.ptt_held = pressed
             if pressed:
-                self.player.clear()  # barge-in
+                self.player.clear("push-to-talk")  # barge-in
                 self.session.activity_start()
             else:
                 self.session.activity_end()
         elif name == "stop" and pressed:
             self._drop_reply = True  # the model keeps streaming this reply; don't play the rest
-            self.player.clear()
+            self.player.clear("stop key")
             if self.tasks.stop() and self._task_next is not None:
                 self._task_next.cancel()
             asyncio.ensure_future(self.dispatcher.on_hotkey("stop"))
@@ -930,7 +999,7 @@ class Assistant:
 
     async def _switch_audio(self) -> None:
         """Reopen speaker and mic on whatever Windows is using now."""
-        self.player.clear()
+        self.player.clear("audio device changed")
         if self._mic:
             self._mic.stop()
         self.player.stop()
@@ -997,6 +1066,9 @@ class Assistant:
         when = spoken_time(due, datetime.now())
         self._status(f"  [reminder] {text}" + (f" (was due {when})" if late else ""))
         asyncio.get_running_loop().run_in_executor(None, show_toast, "JARVIS reminder", text)
+        if not self.announce:  # the Announce button is off: the toast and a card, no voice
+            self.bus.publish("media", type="text", title="Reminder", text=text + (f" (was due {when})" if late else ""))
+            return
         if self.wake and not self.wake.awake:
             self.wake.wake()  # so the user can answer
             self._status("(awake)")
@@ -1010,6 +1082,8 @@ class Assistant:
     async def _briefing(self) -> None:
         from core.briefing import maybe_brief
 
+        if not self.announce:
+            return  # the Announce button is off; the briefing waits for a day it's on
         try:
             await maybe_brief(self.services, self.config, self._notify,
                               lambda: setattr(self.dispatcher, "tainted", True),
@@ -1030,13 +1104,13 @@ class Assistant:
         self.dispatcher.flush_utterance()
         if self.wake:
             self.wake.touch()
-        if not self._drop_reply and not self._quiet_reply:
+        if self.voice and not self._drop_reply and not self._quiet_reply:
             self.player.enqueue(pcm)
             self._out_level = rms_level(pcm, 5000)
             self._out_level_at = time.monotonic()
 
     def on_interrupted(self) -> None:
-        self.player.clear()
+        self.player.clear("you spoke over it")
 
     def on_input_transcript(self, text: str) -> None:
         self._last_heard = time.monotonic()

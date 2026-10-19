@@ -39,12 +39,12 @@ STATIC = Path(__file__).resolve().parent / "static"
 # Windows' registry often maps .js to text/plain, and with nosniff the browser then won't run it.
 for _type, _ext in (("text/javascript", ".js"), ("text/css", ".css"), ("text/html", ".html")):
     mimetypes.add_type(_type, _ext)
-ACTIONS = {"talk", "sleep", "mute", "stop", "confirm", "cancel", "new_chat", "open_chat"}
+ACTIONS = {"talk", "sleep", "mute", "stop", "confirm", "cancel", "new_chat", "open_chat", "announce", "voice"}
 MAX_MESSAGE_BYTES = 8000  # one WebSocket message from the page (chat is limited to 2000 characters)
 LEVEL_FPS = 15  # orb updates
 HISTORY_KINDS = {"message", "tool_started", "tool_finished", "confirm_requested", "confirm_resolved"}
 HISTORY_MAX = 150
-STREAM_KINDS = HISTORY_KINDS | {"partial", "state", "status", "focus", "media", "conversation"}
+STREAM_KINDS = HISTORY_KINDS | {"partial", "state", "status", "focus", "media", "conversation", "announce", "voice"}
 
 
 class Bridge(Protocol):

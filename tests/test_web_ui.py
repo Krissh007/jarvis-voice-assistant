@@ -550,3 +550,86 @@ def test_the_page_can_send_the_orbs_look(ui) -> None:
                 break
             json.loads(ws.receive_text())  # level updates keep coming
     assert looks == [{"orb_size": 140}]
+
+
+async def test_announce_button_toggles_keeps_and_silences_reminders(assistant, tmp_path, monkeypatch) -> None:
+    from datetime import datetime
+
+    from actions import reminders
+    from core.runtime import WebBridge, load_prefs
+
+    monkeypatch.setattr(reminders, "show_toast", lambda *a: None)  # no real Windows toast
+    a = assistant
+    a._loop = asyncio.get_running_loop()
+    a.prefs_path = tmp_path / "prefs.json"
+    a.announce = a.voice = True                                         # not whatever this PC has saved
+    seen, notices = [], []
+    a.bus.subscribe(seen.append)
+    a.session.send_notice = notices.append
+    bridge = WebBridge(a)
+    assert bridge.snapshot()["announce"] is True
+    assert bridge.control("announce")
+    for _ in range(50):
+        if not a.announce:
+            break
+        await asyncio.sleep(0.01)
+    assert a.announce is False and bridge.snapshot()["announce"] is False
+    assert load_prefs({}, a.prefs_path) == {"announce": False, "voice": True}   # kept for the next start
+    assert [e.data["on"] for e in seen if e.kind == "announce"] == [False]
+
+    await a._on_reminder("Call the bank", datetime.now(), late=False)   # off: a card, not a spoken notice
+    assert notices == []
+    cards = [e.data for e in seen if e.kind == "media"]
+    assert cards and cards[-1]["title"] == "Reminder" and cards[-1]["text"] == "Call the bank"
+
+    a.toggle_announce()
+    assert a.announce is True and load_prefs({}, a.prefs_path)["announce"] is True
+
+
+async def test_voice_button_makes_every_reply_text_only(assistant, tmp_path) -> None:
+    from core.runtime import WebBridge, load_prefs
+
+    a = assistant
+    a._loop = asyncio.get_running_loop()
+    a.prefs_path = tmp_path / "prefs.json"
+    a.announce = a.voice = True
+    seen, played = [], []
+    a.bus.subscribe(seen.append)
+    a.player.enqueue = played.append
+    bridge = WebBridge(a)
+    a.on_audio(b"\x01\x00" * 100)                                     # on: replies are spoken
+    assert len(played) == 1 and bridge.snapshot()["voice"] is True and bridge.snapshot()["speak"] is True
+
+    assert bridge.control("voice")
+    for _ in range(50):
+        if not a.voice:
+            break
+        await asyncio.sleep(0.01)
+    assert a.voice is False and bridge.snapshot()["voice"] is False and bridge.snapshot()["speak"] is False
+    assert [e.data["on"] for e in seen if e.kind == "voice"] == [False]
+    assert load_prefs({}, a.prefs_path) == {"announce": True, "voice": False}
+
+    a.submit_text("what time is it", speak=True)                        # even a "spoken reply" message
+    a.on_audio(b"\x01\x00" * 100)
+    a.on_turn_complete()                                                # and the answer after a tool call
+    a.on_audio(b"\x01\x00" * 100)
+    a.on_output_transcript("It's seven.")
+    assert len(played) == 1                                             # nothing more was played
+    assert any(e.kind == "partial" or e.kind == "message" for e in seen)  # the words still reach the chat
+
+    a.toggle_voice()
+    a.on_audio(b"\x01\x00" * 100)
+    assert a.voice is True and len(played) == 2
+
+
+def test_window_settings_default_from_config_and_read_the_old_announce_file(tmp_path) -> None:
+    from core.runtime import load_prefs
+
+    missing = tmp_path / "prefs.json"
+    assert load_prefs({}, missing) == {"announce": True, "voice": True}
+    config = {"web_ui": {"announce": False, "voice_replies": False}}
+    assert load_prefs(config, missing) == {"announce": False, "voice": False}
+    (tmp_path / "announce.json").write_text('{"announce": false}', encoding="utf-8")   # before prefs.json
+    assert load_prefs({}, missing) == {"announce": False, "voice": True}
+    missing.write_text("not json", encoding="utf-8")
+    assert load_prefs({}, missing) == {"announce": False, "voice": True}             # falls back to the old file
