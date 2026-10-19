@@ -208,6 +208,8 @@ class WebBridge:
         "open_chat": ("Open chat", lambda a: a.open_chat()),
         "announce": ("Announce", lambda a: a.toggle_announce()),
         "voice": ("Voice", lambda a: a.toggle_voice()),
+        "open_app": ("App", lambda a: a.open_app("chat")),
+        "open_settings": ("Settings", lambda a: a.open_app("settings")),
     }
 
     def __init__(self, assistant: Assistant, look_path: Path | None = None) -> None:
@@ -262,6 +264,74 @@ class WebBridge:
         self._a.ui(f"web: {label}", run, self._a)
         return True
 
+    # ---- the app's requests (answered to the page that asked; see ui/server.py) ----
+
+    def _live_settings(self) -> dict:
+        look = orb_look(self._a.config, self.look_path)
+        return {"prefs.voice": self._a.voice, "prefs.announce": self._a.announce,
+                **{f"look.{k}": v for k, v in look.items()}}
+
+    def _settings_view(self) -> dict:
+        from core.settings_store import secret_status
+
+        a = self._a
+        view = a.settings.view(self._live_settings())
+        live_connected = bool(getattr(getattr(a, "session", None), "connected", None)
+                              and a.session.connected.is_set())
+        view["status"] = {
+            "voice_session": live_connected,
+            "agent_hub": a.services.hub_reachable,  # None until the first check
+            "secrets": secret_status(env_key),
+            "restart": a.settings.pending_restart(),
+            "accent": "Cyan-blue",
+        }
+        return view
+
+    def request(self, what: str) -> dict | None:
+        """Read-only data for the app: "settings" (with set / not set for keys, never values) or "facts"."""
+        if what == "settings":
+            return self._settings_view()
+        if what == "facts":
+            store = self._a.services.memory
+            return {"facts": store.facts() if store is not None else []}
+        return None
+
+    def change_setting(self, key: str, value) -> dict:
+        """One change from the Settings page. Returns {"ok", "message", "settings"}; never raises."""
+        from core.settings_store import BY_KEY, check
+
+        a = self._a
+        setting = BY_KEY.get(key)
+        try:
+            if setting is None:
+                raise ValueError("That isn't a setting JARVIS knows.")
+            if key.startswith("prefs."):
+                on = check(setting, value)
+                (a.set_voice if key == "prefs.voice" else a.set_announce)(on)
+                message = f"{setting.label} {'on' if on else 'off'}."
+            elif key.startswith("look."):
+                self.set_look({key[5:]: check(setting, value)})
+                self.bus.publish("look", look=orb_look(a.config, self.look_path))
+                message = f"{setting.label} changed."
+            else:
+                a.settings.change(key, value)
+                message = f"{setting.label} saved. Restart JARVIS to use it."
+            ok = True
+        except ValueError as exc:
+            ok, message = False, str(exc)
+        log.info("web: setting %s %s", key, "changed" if ok else "refused")
+        return {"ok": ok, "key": key, "message": message, "settings": self._settings_view()}
+
+    def forget_fact(self, fact_id) -> dict:
+        """The Memory settings' Forget button (the page asks "are you sure" first; the click is the user's)."""
+        store = self._a.services.memory
+        if store is None or isinstance(fact_id, bool) or not isinstance(fact_id, int):
+            return {"ok": False, "message": "Memory isn't available.", "facts": []}
+        fact = next((f for f in store.facts() if f["id"] == fact_id), None)
+        ok = bool(fact) and store.remove(fact)
+        log.info("web: forgot fact %s", fact_id if ok else f"{fact_id} (not found)")
+        return {"ok": ok, "message": "Forgotten." if ok else "That fact was already gone.", "facts": store.facts()}
+
 
 class Assistant:
     """The running voice assistant: audio + session + tools behind the dispatcher."""
@@ -281,6 +351,10 @@ class Assistant:
         self.web = None  # ui.server.WebUI: the web page's server (features.web_ui)
         self.window_proc = None  # ui.window.WindowProcess: the orb (control centre), see-through
         self.chat_proc = None  # ui.window.WindowProcess: the complete chat page, in a normal window
+        self.app_proc = None  # ui.window.WindowProcess: the app (sidebar shell), in a normal window
+        from core.settings_store import SettingsStore
+
+        self.settings = SettingsStore(config, Services().data_dir / "settings.json")  # the app's Settings page
         wcfg = config.get("window") or {}
         self.speak_typed = bool(wcfg.get("speak_typed_replies", True))
         self.prefs_path = Services().data_dir / "prefs.json"
@@ -304,6 +378,11 @@ class Assistant:
             self.chat_proc = WindowProcess(
                 self.web.chat_url, state_path=Services().data_dir / "chat_window.json", mode="chat",
                 width=int(ucfg.get("chat_width", 1100)), height=int(ucfg.get("chat_height", 760)), on_top=False,
+                icon=icon, log_path=options.log_dir / "window.log",
+            )
+            self.app_proc = WindowProcess(  # the app: sidebar with Chat, Command centre, Memory, Settings
+                self.web.app_url, state_path=Services().data_dir / "app_window.json", mode="chat",
+                width=int(ucfg.get("app_width", 1240)), height=int(ucfg.get("app_height", 800)), on_top=False,
                 icon=icon, log_path=options.log_dir / "window.log",
             )
         elif config["features"].get("window") and self.mode != "text":
@@ -541,6 +620,8 @@ class Assistant:
             tasks.append(asyncio.create_task(self.window_proc.watch(), name="web-window"))
         if self.chat_proc is not None:
             tasks.append(asyncio.create_task(self.chat_proc.watch(), name="chat-window"))
+        if self.app_proc is not None:
+            tasks.append(asyncio.create_task(self.app_proc.watch(), name="app-window"))
         self._ready = True
         if self.services.ducker is not None:
             self.services.ducker.start()
@@ -573,6 +654,8 @@ class Assistant:
                 timed("web window", self.window_proc.stop)
             if self.chat_proc is not None:
                 timed("chat window", self.chat_proc.stop)
+            if self.app_proc is not None:
+                timed("app window", self.app_proc.stop)
             if self.tray is not None:
                 timed("tray", self.tray.stop)
             if self.face is not None:
@@ -929,6 +1012,19 @@ class Assistant:
             self.bus.publish("focus", target="chat")
         else:
             self.chat_proc.start()
+
+    APP_SECTIONS = ("chat", "command", "memory", "settings")
+
+    def open_app(self, section: str = "chat") -> None:
+        """The app window on one of its sections, brought forward (and switched) if it's already open."""
+        section = section if section in self.APP_SECTIONS else "chat"
+        if self.app_proc is None:
+            return
+        if self.app_proc.alive:
+            self.bus.publish("focus", target="app", section=section)
+        else:
+            self.app_proc.url = self.web.app_url + f"&s={section}"
+            self.app_proc.start()
 
     def new_conversation(self, open_chat: bool = False) -> None:
         """A new chat: the model starts without the conversation so far, and every view clears its

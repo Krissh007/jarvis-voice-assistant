@@ -3,6 +3,14 @@
 Settings live in `config.yaml`, which is commented throughout, and secrets live in `.env`, which is
 never committed. Restart JARVIS after changing either file.
 
+The app's **Settings** page (orb → App, or the chat window's Settings button) changes a fixed set of
+them without editing `config.yaml`: the reply voice, listening mode and timing, the models, memory
+limits, the hotkeys and the orb's look. Voice, Announce and the orb's look apply at once; the rest are
+saved in `data/settings.json`, laid over `config.yaml` at the next start, and marked "Restart to apply"
+until then. Each value is checked (range, model-id shape, hotkey clashes) before it's kept, and nothing
+else in `config.yaml` can be changed that way. Delete `data/settings.json` to go back to `config.yaml`
+alone. Keys and tokens are shown there only as set or not set.
+
 ## `.env`
 
 | Variable | Required | Purpose |
@@ -11,6 +19,7 @@ never committed. Restart JARVIS after changing either file.
 | `TAVILY_API_KEY` | no | Tavily web search (falls back to DuckDuckGo) |
 | `OPENROUTER_API_KEY` | no | Fallback text model; set `models.openrouter` too |
 | `GROQ_API_KEY` | no | The reasoning layer's model (`ask_brain`), free at console.groq.com; without it `ask_brain` uses Gemini Flash |
+| `AGENT_HUB_TOKEN` | with `features.agent_hub` | Must equal `HUB_TOKEN` in the Agent Hub's own `.env` |
 
 Values that are left as comments or blank are ignored.
 
@@ -95,6 +104,9 @@ each; they change the orb live, and your choices are kept in `data/orb_look.json
 | `web_ui.caption_seconds` | `8` | Voice mode: a reply's caption under the orb fades after this many seconds (2–60) |
 | `web_ui.quick_actions` | 4 examples | Buttons in the control centre; each sends its text to JARVIS (up to 8, 80 characters) |
 | `web_ui.chat_width` / `web_ui.chat_height` | `1100` / `760` | The chat page's window the first time; then it remembers |
+| `web_ui.app_width` / `web_ui.app_height` | `1240` / `800` | The app's window (sidebar: Chat, Command centre, Memory, Settings) the first time; then it remembers |
+| `web_ui.voice_replies` | `true` | Starting value of the **Voice** button (off = text-only replies); the button's choice is kept in `data/prefs.json` |
+| `web_ui.announce` | `true` | Starting value of the **Announce** button (off = agent results and reminders shown, not spoken); kept in `data/prefs.json` |
 | `web_ui.always_on_top` | `true` | Keep the orb above other windows |
 | `web_ui.close_button` | `quit` | Closing the orb (Alt+F4) quits JARVIS, or `hide` keeps it running in the tray |
 | `window.always_on_top` | `true` | The older Tk window (`features.window`, used only when `web_ui` is off): keep it above others |

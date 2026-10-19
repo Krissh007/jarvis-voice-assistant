@@ -58,6 +58,7 @@ class Services:
     can_speak: Callable[[], bool] | None = None  # True when a result may be announced right now
     announce: Callable[[], bool] | None = None  # False: the user turned announcements off (show, don't speak)
     context: Callable[[str], None] | None = None  # tells the model a fact without asking it to reply
+    hub_reachable: bool | None = None  # the Agent Hub answered its last check (None = not checked yet)
     taint: Callable[[], None] | None = None  # marks the turn as carrying untrusted text
 
 

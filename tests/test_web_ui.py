@@ -227,6 +227,8 @@ def assistant(tmp_path, monkeypatch):
     cfg["listening"]["mode"] = "push_to_talk"
     cfg["features"].update(test_tools=True, web_ui=True, window=False, tray=False)
     a = Assistant(cfg, client=None, options=Options(log_dir=tmp_path))
+    a.prefs_path = tmp_path / "prefs.json"  # not this PC's saved Voice / Announce
+    a.voice = a.announce = True
     monkeypatch.setattr(a.session, "send_text", lambda text: None)
     monkeypatch.setattr(a.session, "send_notice", lambda text: None)
     testing.NOTES.clear()

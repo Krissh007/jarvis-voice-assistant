@@ -142,6 +142,7 @@ function handle(ev) {
     case "conversation": return clearSections();
     case "announce": return setAnnounce(ev.on);
     case "voice": return setSpeak(ev.on);
+    case "look": look = { ...look, ...(ev.look || {}) }; return applyLook(true);   // changed in the app's Settings
     case "status": return setStatus(ev.text);
     case "focus": if (!ev.target) toWindow("front"); return;
   }

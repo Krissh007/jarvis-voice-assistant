@@ -227,6 +227,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     setup_logging()
     config = load_config()
+    from core.settings_store import apply_overlay
+
+    apply_overlay(config, ROOT / "data" / "settings.json")  # changes made on the app's Settings page
     if args.mic:
         config["audio"]["input_device"] = args.mic
     if args.install_shortcut:

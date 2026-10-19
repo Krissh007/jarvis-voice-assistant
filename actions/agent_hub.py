@@ -314,11 +314,13 @@ class HubBridge:
                     self.synced = False  # it may have restarted: send the skills again
                     self._hub_back()
                 failures, delay = 0, self.poll_s
+                self.services.hub_reachable = True
                 await self.sync_once()
             except asyncio.CancelledError:
                 raise
             except ToolError as exc:
                 failures += 1
+                self.services.hub_reachable = False
                 if failures == 1:
                     log.warning("Agent Hub unreachable: %s", exc)
                 delay = min(30.0, self.poll_s * 2 ** min(failures, 3))

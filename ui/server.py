@@ -39,12 +39,15 @@ STATIC = Path(__file__).resolve().parent / "static"
 # Windows' registry often maps .js to text/plain, and with nosniff the browser then won't run it.
 for _type, _ext in (("text/javascript", ".js"), ("text/css", ".css"), ("text/html", ".html")):
     mimetypes.add_type(_type, _ext)
-ACTIONS = {"talk", "sleep", "mute", "stop", "confirm", "cancel", "new_chat", "open_chat", "announce", "voice"}
+ACTIONS = {"talk", "sleep", "mute", "stop", "confirm", "cancel", "new_chat", "open_chat", "announce", "voice",
+           "open_app", "open_settings"}
+REQUESTS = {"settings", "facts"}  # read-only data the app asks for, answered to that page only
 MAX_MESSAGE_BYTES = 8000  # one WebSocket message from the page (chat is limited to 2000 characters)
 LEVEL_FPS = 15  # orb updates
 HISTORY_KINDS = {"message", "tool_started", "tool_finished", "confirm_requested", "confirm_resolved"}
 HISTORY_MAX = 150
-STREAM_KINDS = HISTORY_KINDS | {"partial", "state", "status", "focus", "media", "conversation", "announce", "voice"}
+STREAM_KINDS = HISTORY_KINDS | {"partial", "state", "status", "focus", "media", "conversation", "announce", "voice",
+                                "look"}
 
 
 class Bridge(Protocol):
@@ -56,6 +59,9 @@ class Bridge(Protocol):
     def chat(self, text: str, speak: bool) -> bool: ...
     def control(self, action: str) -> bool: ...
     def set_look(self, values: dict) -> dict: ...  # the orb's size and brightness (Customize)
+    def request(self, what: str) -> dict | None: ...  # the app's read-only data: settings, facts
+    def change_setting(self, key: str, value: Any) -> dict: ...  # one change from the Settings page
+    def forget_fact(self, fact_id: Any) -> dict: ...  # the Memory settings' Forget button
 
 
 def security_headers(port: int) -> dict[str, str]:
@@ -97,6 +103,10 @@ def create_app(bridge: Bridge, token: str, port: int) -> FastAPI:
     async def chat():  # the complete chat page
         return FileResponse(STATIC / "chat.html", media_type="text/html")
 
+    @app.get("/app")
+    async def app_page():  # the app: sidebar with Chat, Command centre, Memory, Settings
+        return FileResponse(STATIC / "app" / "index.html", media_type="text/html")
+
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
     @app.websocket("/ws")
@@ -118,7 +128,9 @@ def create_app(bridge: Bridge, token: str, port: int) -> FastAPI:
         try:
             while True:
                 text = await socket_.receive_text()
-                _handle(bridge, text)
+                reply = _handle(bridge, text)
+                if reply is not None:
+                    await socket_.send_text(_dumps(reply))
         except WebSocketDisconnect:
             pass
         finally:
@@ -138,26 +150,36 @@ def current_conversation(bus: EventBus) -> list:
     return events[starts[-1] + 1:] if starts else events
 
 
-def _handle(bridge: Bridge, text: str) -> None:
-    """One message from the page. Anything malformed is dropped (and logged without its content)."""
+def _handle(bridge: Bridge, text: str) -> dict[str, Any] | None:
+    """One message from the page. Anything malformed is dropped (and logged without its content).
+    Requests get a reply for the page that sent them: {"kind": "reply", "id": <its id>, ...}."""
     if len(text.encode("utf-8", "replace")) > MAX_MESSAGE_BYTES:
         log.warning("web UI: dropped an oversized message (%d characters)", len(text))
-        return
+        return None
     try:
         msg = json.loads(text)
     except ValueError:
         log.warning("web UI: dropped a message that isn't JSON")
-        return
+        return None
     if not isinstance(msg, dict):
-        return
-    if msg.get("type") == "chat" and isinstance(msg.get("text"), str):
+        return None
+    kind = msg.get("type")
+    rid = msg.get("id") if isinstance(msg.get("id"), (int, str)) else None
+    if kind == "chat" and isinstance(msg.get("text"), str):
         bridge.chat(msg["text"], bool(msg.get("speak", True)))
-    elif msg.get("type") == "control" and msg.get("action") in ACTIONS:
+    elif kind == "control" and msg.get("action") in ACTIONS:
         bridge.control(msg["action"])
-    elif msg.get("type") == "look" and isinstance(msg.get("look"), dict):
+    elif kind == "look" and isinstance(msg.get("look"), dict):
         bridge.set_look(msg["look"])
+    elif kind == "request" and msg.get("what") in REQUESTS:
+        return {"kind": "reply", "id": rid, "what": msg["what"], "data": bridge.request(msg["what"])}
+    elif kind == "setting" and isinstance(msg.get("key"), str) and "value" in msg:
+        return {"kind": "reply", "id": rid, "what": "setting", "data": bridge.change_setting(msg["key"], msg["value"])}
+    elif kind == "forget":
+        return {"kind": "reply", "id": rid, "what": "forget", "data": bridge.forget_fact(msg.get("fact"))}
     else:
-        log.warning("web UI: dropped an unknown message type %r", str(msg.get("type"))[:20])
+        log.warning("web UI: dropped an unknown message type %r", str(kind)[:20])
+    return None
 
 
 async def _send_events(socket_, stream) -> None:
@@ -211,6 +233,11 @@ class WebUI:
     def chat_url(self) -> str:
         """The complete chat page's address (same token)."""
         return f"http://127.0.0.1:{self.port}/chat#t={self.token}"
+
+    @property
+    def app_url(self) -> str:
+        """The app's address (same token); add "&s=<section>" to open it on a section."""
+        return f"http://127.0.0.1:{self.port}/app#t={self.token}"
 
     async def serve(self) -> None:
         import uvicorn
