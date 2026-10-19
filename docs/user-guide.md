@@ -260,6 +260,8 @@ frozen: web pages can't change it, and each step still follows its own safety ru
 remember. It never stores passwords, PINs or card numbers. A fact such as "call me Krishna" sets the
 name it uses; "don't call me sir or by my name" makes it use none. Facts about how it should talk
 (friendlier, more humour) are followed too, and when two disagree the newer one wins.
+With the memory model from `.\run.bat --setup-memory`, it finds facts by meaning: "when is my
+wife's birthday" finds "Priya was born on 3 March". Without it, it matches words.
 
 **Reminders** (`data/reminders.sqlite`). You can set them up to 30 days ahead, and they survive
 restarts. One that falls due while JARVIS is closed is delivered at the next start, marked as late.

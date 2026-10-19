@@ -23,6 +23,12 @@ from core.registry import Registry, Tier, Tool, ToolError
 log = logging.getLogger(__name__)
 
 MAX_FACTS = 100
+# Meaning search (step 3), chosen on the tuning half of tests/fixtures/memory_recall_samples.yaml:
+SEARCH_LIMIT = 3  # candidates handed to the model
+MIN_SCORE = 0.25  # below this nothing is "about" the topic (unrelated questions peaked at 0.33)
+MARGIN = 0.20  # drop candidates this far behind the best one
+KEYWORD_BONUS = 0.05  # per shared word, up to 3: exact names and terms still count
+PROMPT_FACTS = 20  # facts in the system instruction; the rest are found with recall
 MAX_FACT_CHARS = 300
 # Words in the user's own utterance that count as an explicit request to remember.
 EXPLICIT_ASK = re.compile(
@@ -96,11 +102,17 @@ class MemoryStore:
     def facts(self) -> list[dict[str, str]]:
         try:
             with self.db.connect() as db:
-                rows = db.execute("SELECT id, text, added FROM facts ORDER BY id").fetchall()
+                rows = db.execute("SELECT id, text, added, uses FROM facts ORDER BY id").fetchall()
         except sqlite3.Error:
             log.exception("memory database unreadable; starting empty")
             return []
-        return [{"id": r["id"], "text": r["text"], "added": r["added"]} for r in rows]
+        return [{"id": r["id"], "text": r["text"], "added": r["added"], "uses": r["uses"]} for r in rows]
+
+    def mark_used(self, facts: list[dict]) -> None:
+        ids = [(f["id"],) for f in facts if "id" in f]
+        if ids:
+            with self.db.connect() as db:
+                db.executemany("UPDATE facts SET uses = uses + 1 WHERE id = ?", ids)
 
     def add(self, text: str, source: str = "") -> str:
         """'added', 'updated' (replaced a near-duplicate) or 'duplicate'."""
@@ -123,14 +135,45 @@ class MemoryStore:
                            (text, _now(), source, self._vector(text)))
             return "added"
 
-    def search(self, topic: str) -> list[dict[str, str]]:
-        """Facts sharing words with the topic, best first. Empty topic = everything."""
+    def search(self, topic: str, limit: int = SEARCH_LIMIT) -> list[dict[str, str]]:
+        """Facts about the topic, best first. Empty topic = everything.
+
+        With the embedding model: by meaning, plus a small bonus per shared word (names like "Ananya"),
+        so "when is my wife's birthday" finds "Priya was born on 3 March". Up to `limit` hits at or
+        above MIN_SCORE and within MARGIN of the best: a few candidates for the model to judge, since no
+        single score separates "the answer" from "something unrelated" (docs/memory-plan.md, step 3).
+        Without it: facts sharing words, as before."""
         facts = self.facts()
         want = words(topic)
         if not want:
             return facts
-        scored = [(len(want & words(f["text"])), i, f) for i, f in enumerate(facts)]
-        return [f for n, _, f in sorted(scored, key=lambda s: (-s[0], s[1])) if n]
+        overlap = [len(want & words(f["text"])) for f in facts]
+        scores = self._meaning_scores(topic, facts)
+        if scores is None:
+            scored = [(n, i, f) for i, (n, f) in enumerate(zip(overlap, facts))]
+            return [f for n, _, f in sorted(scored, key=lambda s: (-s[0], s[1])) if n][:limit]
+        hybrid = [s + KEYWORD_BONUS * min(n, 3) for s, n in zip(scores, overlap)]
+        ranked = sorted(range(len(facts)), key=lambda i: -hybrid[i])
+        if not ranked or hybrid[ranked[0]] < MIN_SCORE:
+            return []
+        floor = max(MIN_SCORE, hybrid[ranked[0]] - MARGIN)
+        return [facts[i] for i in ranked if hybrid[i] >= floor][:limit]
+
+    def _meaning_scores(self, topic: str, facts: list[dict[str, str]]) -> list[float] | None:
+        """Cosine similarity of each fact with the topic, or None when the model can't be used."""
+        if self.embedder is None or not self.embedder.available() or not facts:
+            return None
+        from core.embed import from_blob
+
+        try:
+            self.backfill()  # facts saved while the model was loading
+            with self.db.connect() as db:
+                blobs = {r["id"]: r["embedding"] for r in db.execute("SELECT id, embedding FROM facts")}
+            query = self.embedder.encode([topic])[0]
+        except Exception:
+            log.exception("meaning search failed; using keywords")
+            return None
+        return [float(from_blob(blobs[f["id"]]) @ query) if blobs.get(f["id"]) else 0.0 for f in facts]
 
     def best_match(self, text: str) -> dict[str, str] | None:
         hits = self.search(text)
@@ -151,16 +194,28 @@ def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
-def prompt_section(store: MemoryStore, limit: int = 40) -> str:
-    """The memory list for the system instruction, or '' when empty."""
-    facts = store.facts()[-limit:]
+# Facts about how JARVIS should talk or address the user: always in the system instruction.
+_TALK = re.compile(r"\b(?:call(?:ed)? me|my name is|address|tone|friendly|formal|humou?r|polite|talk to me|"
+                   r"speak|answers?|replies|I should|you should)\b", re.IGNORECASE)
+
+
+def prompt_section(store: MemoryStore, limit: int = PROMPT_FACTS) -> str:
+    """The memory list for the system instruction, or '' when empty: every fact about how to talk, then
+    the most-recalled and newest others, up to `limit`. The rest are a `recall` away."""
+    facts = store.facts()
     if not facts:
         return ""
-    lines = "\n".join(f"- {f['text']}" for f in facts)
+    talk = [f for f in facts if _TALK.search(f["text"]) or _NO_NAME.search(f["text"])]
+    others = sorted((f for f in facts if f not in talk), key=lambda f: (-f.get("uses", 0), -f["id"]))
+    shown = talk[-limit:] + others[:max(0, limit - len(talk))]
+    shown.sort(key=lambda f: f["id"])
+    lines = "\n".join(f"- {f['text']}" for f in shown)
+    more = len(facts) - len(shown)
+    tail = f"{more} more are saved: use recall to look one up when it might help.\n" if more else ""
     return (
         "Things the user asked you to remember (their own words, saved earlier), oldest first. Use them when "
         "relevant. Some say how you should talk (tone, humour, what to call the user): follow those over the "
-        "voice and tone rules above, and when two disagree the later one wins:\n" + lines + "\n"
+        "voice and tone rules above, and when two disagree the later one wins:\n" + lines + "\n" + tail
     )
 
 
@@ -192,7 +247,11 @@ class Memory:
         hits = self.store.search(topic)
         if not hits:
             return f"I don't have anything remembered about {topic}." if topic else "I haven't been asked to remember anything yet."
-        return "Remembered:\n" + "\n".join(f"- {f['text']}" for f in hits[:15])
+        if not topic.strip():
+            return "Remembered:\n" + "\n".join(f"- {f['text']}" for f in hits[:15])
+        self.store.mark_used(hits)
+        return ("Closest remembered facts (they may not answer the question; if none does, say you don't "
+                "know):\n" + "\n".join(f"- {f['text']}" for f in hits))
 
     def forget(self, fact: str = "", everything: bool = False) -> str:
         """Delete a remembered fact (or all of them). Tier CONFIRM."""

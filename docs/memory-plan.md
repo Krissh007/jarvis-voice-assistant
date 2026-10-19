@@ -86,6 +86,22 @@ batched at the end (as agreed for this plan).
 3. **Meaning-based recall for facts.** Hybrid search; system instruction gets the top facts only.
    A labelled set of ~30 recall questions in `tests/fixtures/` (written before measuring), as was
    done for routing.
+   *Done 19 October 2026.* `tests/fixtures/memory_recall_samples.yaml`: 22 facts, 32 tuning
+   questions (6 that memory can't answer) and 16 holdout questions (4 unanswerable), both committed
+   before any measuring; thresholds chosen on the tuning half only.
+
+   | | Tuning: right fact first | Tuning: in top 3 | Holdout: first / top 3 |
+   |---|---|---|---|
+   | Keywords (before) | 13 of 26 | 13 of 26 | 5 / 8 of 12 |
+   | Meaning + keyword bonus | 24 of 26 | 25 of 26 | 12 / 12 of 12 |
+
+   No single score separates "the answer" from "something unrelated" (correct matches went as low
+   as 0.21-0.27, unrelated ones up to 0.33), so `recall` returns up to 3 candidates (score 0.25 or
+   more, within 0.20 of the best) and tells the model they may not answer the question. Unanswerable
+   questions got nothing in 4 of 6 (tuning) and 0 of 4 (holdout: each got a nearby fact, e.g.
+   "when is my sister's birthday" finds where she lives). The keyword bonus changed nothing measurable
+   here; it's kept for exact names. ~15 ms per search. The system instruction now carries every fact
+   about how to talk plus the most-recalled and newest others, 20 at most (schema 2: `facts.uses`).
 4. **Conversation log.** Record finished messages from voice and chat, secret filter, retention,
    pause command, "forget today's conversation". `recall` with `when`.
 5. **Sharing.** `ask_brain` gets read-only `recall`; the drop recap reads from `messages`; Memory

@@ -411,3 +411,13 @@ to its own chat page:
   searched. Loads in 0.4 s in the background at start; 5 ms per sentence.
 - Remembered facts now get a meaning vector (new ones straight away, older ones in the background).
   Search by meaning arrives in step 3; without the model, memory keeps using keywords.
+
+## Memory, step 3: finding facts by meaning (19 October 2026)
+
+- `recall` now searches by meaning (with a small bonus for shared words): on 32 labelled questions
+  written before measuring, the right fact comes first 24 of 26 times, up from 13 with keywords;
+  12 of 12 on a holdout set nobody tuned on. It returns up to 3 close candidates and tells the model
+  they may not answer the question (questions memory can't answer still return a nearby fact, such
+  as where your sister lives for her birthday; not yet checked by voice).
+- The system instruction carries your talk and naming wishes plus the 20 most-recalled and newest
+  facts; the rest are found with `recall`. The database upgrades itself (schema 2).

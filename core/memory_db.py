@@ -17,14 +17,15 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # 2: facts.uses
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS facts (
     id INTEGER PRIMARY KEY,
     text TEXT NOT NULL,
     added TEXT NOT NULL,             -- ISO time, local; updated when a fact is reworded
     source TEXT NOT NULL DEFAULT '', -- voice / chat / import
-    embedding BLOB                   -- float32 vector, or NULL until computed
+    embedding BLOB,                  -- float32 vector, or NULL until computed
+    uses INTEGER NOT NULL DEFAULT 0  -- times recall returned it: the most-used go in the system instruction
 );
 CREATE TABLE IF NOT EXISTS conversations (
     id INTEGER PRIMARY KEY,
@@ -70,8 +71,11 @@ class MemoryDB:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as db:
             db.execute("PRAGMA journal_mode=WAL")
-            if db.execute("PRAGMA user_version").fetchone()[0] < SCHEMA_VERSION:
-                db.executescript(SCHEMA)
+            version = db.execute("PRAGMA user_version").fetchone()[0]
+            if version < SCHEMA_VERSION:
+                if version == 1:  # made by memory step 1 or 2
+                    db.execute("ALTER TABLE facts ADD COLUMN uses INTEGER NOT NULL DEFAULT 0")
+                db.executescript(SCHEMA)  # IF NOT EXISTS throughout: safe on an existing file
                 db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     @contextmanager
