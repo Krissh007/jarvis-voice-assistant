@@ -222,3 +222,10 @@ def test_prompt_sends_lists_to_the_screen_and_asks_before_guessing() -> None:
     from core.prompts import PERSONA
     assert "show_on_screen" in PERSONA and "Did you mean Claude?" in PERSONA
     assert "never say you're doing" in PERSONA and "never a general word" in PERSONA
+
+
+def test_prompt_credits_the_user_and_claude_and_asks_which_drive() -> None:
+    from core.prompts import PERSONA
+    assert "they are your developer" in PERSONA and "never mention a developer" in PERSONA
+    assert "Claude can do it" in PERSONA and "Never say\n  they must implement" in PERSONA
+    assert "The E drive or Google Drive?" in PERSONA and "step\n  by step" in PERSONA
