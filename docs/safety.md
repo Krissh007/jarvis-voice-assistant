@@ -205,6 +205,32 @@ Enforced in `core/privacy.py` and the modules that use it.
 - In wake-word mode, no audio leaves the PC until "hey jarvis" is detected offline.
 - Your wake-word training clips stay in `data/wake/`.
 
+## The app: pictures, pins and settings
+
+- **Pictures** you attach in the chat (`/upload`, `/snap`) need the app's own Origin and the launch token,
+  10 MB at most. Each is decoded and saved again as a JPEG (only real images get in; a photo's metadata,
+  such as its location, is dropped) and kept in memory for 15 minutes, never on disk. Screen pictures
+  black out private windows first. The vision model's description reaches the voice model wrapped as
+  untrusted data, and the turn is tainted, so text inside a picture can't trigger an action without a yes.
+- **Pin to memory** is your own click, so it counts as your explicit ask, with remember's checks (300
+  characters, no passwords, PINs or payment details).
+- **Web search off** for a message refuses `search_web`, `read_page`, `site_search` and `think_through`
+  in the dispatcher until your next message; the app's notes go to the model only, never to the check
+  that spots a typed "yes".
+- **Settings** can change only the keys listed in `core/settings_store.py`, each checked (kind, range,
+  model-id shape, hotkey clashes, and a modifier on every hotkey), and kept in `data/settings.json`
+  without touching `config.yaml`. Feature switches and the Agent Hub's address are shown, never changed.
+  Keys and tokens are reported as set or not set; their values never reach the page.
+
+## Conversation log
+
+Finished lines only (what you and JARVIS said), from the bus's `message` events: never tool output,
+pages, screen or clipboard text, file contents or confirmations. A line the secret check flags, or one
+that says "password / PIN / card number is…", is dropped. Kept `memory.keep_conversations_days` (30);
+"don't remember this conversation" pauses it until the next new chat; `forget_conversation` (this,
+today, all) always asks first. Past lines go back to the model wrapped as untrusted, because JARVIS's
+replies can echo web text. Tests never write to the real `data/memory.sqlite` (`tests/conftest.py`).
+
 ## Audit log
 
 Every tool call is appended to `logs/actions.jsonl` with:

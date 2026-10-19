@@ -279,9 +279,16 @@ receives can confirm an action.
   - A last pass sets each pixel's alpha from its brightness, so the glow blends into the desktop.
     Without WebGL, `orb.js` draws the 2D version (`#orb=2d` forces it).
   - When idle, it's only the orb, about 112 px across (`web_ui.orb_size`). It's low when asleep,
-    brighter when listening and strongest when speaking; red when muted, amber while working on a task.
-  - Tap it to talk. Drag it anywhere on the screen; it stays where it's left.
-  - Double-tap it to open the control centre, stacked under the orb:
+    brighter when listening and strongest when speaking; grey when muted, amber while working on a task,
+    and red when something JARVIS needs isn't working, with the reason under it (`WebBridge.problem`:
+    the voice session not connected after 20 s, or the Agent Hub unreachable; it rides on `level`).
+  - Tap it for the radial menu: Chat, Talk and Command centre, three round buttons under the orb (the
+    window expands as for the control centre; the buttons are reported as click-through shapes). It
+    closes after a choice, Esc, or 8 s. Hold it (550 ms) to talk; double-tap to mute or unmute. Drag it
+    anywhere on the screen; it stays where it's left. `hotkeys.show_orb` (Ctrl+Alt+Space) hides and
+    shows it: the bus's `orb_visibility` reaches the page, which tells its window `jarvis:hide`/`show`.
+  - The older control centre (opened with `#open=1` in previews; its Customize sliders now live in the
+    app's Settings › Appearance) is stacked under the orb:
     - a controls bar: Talk, Mute, New chat, Stop, Sleep, Customize;
     - the sections a reply needs (the answer, a confirmation with Confirm / Cancel, a picture, what's
       playing), in the order they came;
@@ -295,11 +302,26 @@ receives can confirm an action.
   - The page uses no CSS animations or transitions. In the see-through Qt window the browser engine
     doesn't advance them, so fades stopped halfway and left cards half see-through. Fades and slides
     run on animation frames in `app.js` instead.
-- **The chat page** (`/chat`, `chat.html`, `chat.js`) is the complete interface, in its own normal
-  window. New chat on the orb or the page opens it and starts a new conversation.
-  - Left: a small orb and the controls.
-  - Middle: the conversation, typed and spoken, with confirmations and pictures inline.
-  - Right: activity (tools and plan steps) and vision.
+- **The app** (`/app`, `ui/static/app/`) is the complete interface, in its own normal window; it
+  replaced the older chat page (`/chat` is still served but nothing opens it). The orb's Chat and
+  Command centre, New chat and the old Settings button open it on a section (`#s=chat|command|memory|settings`;
+  a `focus` event with `target: "app"` switches section when it's already open). Preact 10.29.8 + htm
+  3.1.1 as plain modules (no build step; `ui/static/vendor`), Lucide icons from a 48-icon sprite,
+  `ui/static/shared/` for the connection (`ws.js`: events, and requests that get one reply), a small
+  store and the dark cyan theme. Sections, from an icon sidebar (split view puts Chat and the Command
+  centre side by side):
+  - **Chat**: the conversation as turns (what you said, then JARVIS's replies, tool chips, plan cards
+    with Approve / Cancel, pictures), reply actions (copy, regenerate the last, pin to memory), and a
+    context panel per answer: tools with their status (`tool_finished.ok`), web sources (`sources`:
+    titles and sites, never links) and memory used (`memory_used`). The composer sends, stops, talks,
+    attaches pictures (`/upload`) or the screen (`/snap`), and sets web search auto / on / off for one
+    message (off refuses the web tools for it: `Dispatcher.turn_blocked`).
+  - **Command centre**: a status strip (`WebBridge.status`: voice session; the Agent Hub, its planner
+    and each agent from the Hub's `agent_status`; which model does what; the last route; tools loaded
+    here vs in the Hub's registry) and a live timeline of tools, confirmations, agent results
+    (`agent_update`) and routing decisions (`route`, from `ask_brain`, never the request's text).
+  - **Memory**: remembered facts (Forget asks once more) and kept conversations (memory step 4).
+  - **Settings**: see docs/configuration.md; changes are checked by `core/settings_store.py`.
 - **New chat** (`Assistant.new_conversation`): the Live session reconnects without its resumption
   handle, so the model starts fresh (`LiveSession.new_conversation`), with no recap carried over. The bus publishes `conversation`,
   views clear, and a page that connects later only gets the history since then. Memory, reminders and
@@ -328,9 +350,15 @@ receives can confirm an action.
   as a `media` event. The bus never keeps `media` events in its history, and nothing is saved.
 
 The WebSocket carries the bus (`hello` with a snapshot and recent history, then events, plus `level`
-for the orb at up to 15 fps). From the page it accepts only a chat message, which goes through
-`ChatChannel` as source `web`, and the buttons the tray and hotkeys already have: talk, sleep, mute,
-stop, confirm, cancel (`core.runtime.WebBridge`).
+for the orb at up to 15 fps). From the page it accepts: a chat message (through `ChatChannel` as
+source `web`, or with a web-search choice or pictures straight to `Assistant.submit_text`); the buttons
+the tray and hotkeys already have (talk, sleep, mute, stop, confirm, cancel) and the app's own (voice,
+announce, open_app, open_command, open_settings, new_chat); `regenerate`; and requests that get one
+reply for that page only (`{type: request|setting|forget|delete_conversation|pin, id}` →
+`{kind: "reply", id}`; `status` waits for the Agent Hub without holding up other replies).
+Pictures go over plain HTTP (`POST /upload`, `POST /snap`) with the page's Origin and the token in an
+`X-Jarvis-Token` header, 10 MB at most; `core/attachments.py` re-encodes them as JPEG and keeps them in
+memory for 15 minutes, and the vision model's description reaches the Live model wrapped as untrusted.
 
 **Safety.** WebSockets aren't covered by the browser's same-origin rules, so every connection needs:
 - the launch's random token, from the URL's `#fragment` and compared in constant time;

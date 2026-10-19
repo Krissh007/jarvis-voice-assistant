@@ -152,6 +152,35 @@ the clipboard, running a plan, forgetting a memory) is read to you first:
 | Ctrl+Alt+S | Stop JARVIS talking, and cancel what it's doing |
 | Ctrl+Alt+Y / Ctrl+Alt+N | Confirm / cancel the waiting action |
 
+## The orb and the app
+
+**The orb** floats above your other windows (drag it anywhere; it stays where you leave it).
+
+- **Tap** it for its menu: **Chat**, **Talk** and **Command centre**.
+- **Hold** it to talk. **Double-tap** it to mute or unmute the microphone.
+- **Ctrl+Alt+Space** hides or shows it. Talking without the wake word is **Ctrl+Alt+T** now.
+- Its colour: blue listening, amber working, grey muted, and **red when something JARVIS needs isn't
+  working**: the reason shows under it when you tap (the voice session not connected, or the Agent Hub
+  not reachable).
+
+**The app** opens from the orb's menu (or New chat). Its icon sidebar has four sections; the button
+under them shows Chat and the Command centre side by side.
+
+- **Chat**: everything you said and typed, and JARVIS's replies. Point at a reply to copy it, ask for it
+  again differently (the last one), or pin it to memory (select part of it to pin just that). Actions
+  that need your yes appear as a card with **Approve** and **Cancel**. The panel on the right shows what
+  an answer used: tools, web sources (site names) and memory. Click an older turn to see its panel.
+  Under the typing box: attach a picture (paperclip) or a picture of your screen (private windows are
+  blacked out first), set **Web** to auto (JARVIS decides), on or off for the next message, talk, stop.
+- **Command centre**: whether the voice session, the Agent Hub and each of its agents are working,
+  which model does what, and a live list of everything JARVIS does, newest first (green done, amber
+  running or waiting for you, red failed), with Approve / Cancel on anything waiting.
+- **Memory**: the facts JARVIS remembers (Forget asks once more) and past conversations, kept for 30
+  days. Say "don't remember this conversation" to stop keeping the current one, or "forget today's
+  conversation".
+- **Settings**: voice, models, memory, hotkeys and the orb's look. Voice, Announce and the look change at
+  once; the rest say "Restart to apply". Keys are only shown as set or not set.
+
 ## The window, tray and taskbar
 
 **The window** is a normal Windows window with a dark title bar, bottom-right at first:
