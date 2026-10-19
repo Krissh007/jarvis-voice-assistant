@@ -1,0 +1,67 @@
+# Labelled recall questions for actions/memory.py (memory plan, step 3). Written on 19 October 2026
+# BEFORE measuring any search method, and not tuned afterwards: new cases go in `holdout`.
+# `facts` is a made-up memory of the kind a user builds up; each question names the fact it should
+# find first (`want`, by key), or `want: none` when nothing remembered answers it (search must return
+# nothing, or JARVIS would answer from an unrelated fact). Used by tests/test_memory_recall.py.
+facts:
+  name: "My name is Krishna and I prefer to be called Krishna."
+  music: "Krishna likes Led Zeppelin, The Rolling Stones, Queen, and AC/DC."
+  wife_bday: "Priya was born on 3 March."
+  wife: "My wife's name is Priya."
+  car: "I parked the car on level 3, bay 42."
+  passport: "My passport expires in March 2028."
+  doctor: "Dr Rao is my dentist, her clinic is in Banjara Hills."
+  allergy: "I'm allergic to peanuts."
+  wifi_spot: "The wifi router is in the study, behind the bookshelf."
+  gym: "I go to the gym on Monday, Wednesday and Friday mornings."
+  coffee: "I take my coffee black, no sugar."
+  mom_phone_day: "I call my mom every Sunday evening."
+  laptop: "My work laptop is a ThinkPad X1 Carbon."
+  rust_go: "I decided to learn Go before Rust for backend work."
+  plant: "Water the money plant every 4 days."
+  landlord: "The rent is due on the 5th of every month."
+  bike_service: "The bike's next service is at 12000 km."
+  fav_food: "My favourite dish is Hyderabadi biryani."
+  team: "I support Sunrisers Hyderabad in the IPL."
+  tone: "I should be friendly and conversational, and I will not use the names Krishna or sir when addressing you."
+  sister: "My sister Ananya lives in Pune."
+  shoe: "My shoe size is UK 9."
+
+samples:
+  # close to the fact's own words (keyword search should manage these)
+  - {q: "where did I park the car", want: car}
+  - {q: "when does my passport expire", want: passport}
+  - {q: "who is my dentist", want: doctor}
+  - {q: "what's my shoe size", want: shoe}
+  - {q: "when is the rent due", want: landlord}
+  - {q: "which IPL team do I support", want: team}
+  - {q: "where does my sister live", want: sister}
+  - {q: "what's my wife's name", want: wife}
+  # same meaning, different words (where meaning search should help)
+  - {q: "when is my wife's birthday", want: wife_bday}
+  - {q: "what music am I into", want: music}
+  - {q: "which bands do I like", want: music}
+  - {q: "can I eat satay sauce", want: allergy}
+  - {q: "do I have any food allergies", want: allergy}
+  - {q: "how do I like my coffee", want: coffee}
+  - {q: "what should I order for dinner that I love", want: fav_food}
+  - {q: "which days do I work out", want: gym}
+  - {q: "when do I usually ring my mother", want: mom_phone_day}
+  - {q: "what computer do I use at work", want: laptop}
+  - {q: "which programming language did I pick first", want: rust_go}
+  - {q: "how often should the plant get water", want: plant}
+  - {q: "when is the motorcycle due for servicing", want: bike_service}
+  - {q: "where is the internet box", want: wifi_spot}
+  - {q: "what do I like to be called", want: name}
+  - {q: "how should you talk to me", want: tone}
+  - {q: "where's my vehicle", want: car}
+  - {q: "is my travel document still valid next year", want: passport}
+  # nothing remembered answers these: expect nothing
+  - {q: "what's my blood group", want: none}
+  - {q: "when is my anniversary", want: none}
+  - {q: "what's my brother's name", want: none}
+  - {q: "where did I keep the spare house keys", want: none}
+  - {q: "what's my bank's customer care number", want: none}
+  - {q: "which school did I go to", want: none}
+
+holdout: []
