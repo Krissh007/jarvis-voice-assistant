@@ -182,6 +182,8 @@ export function SettingsSection() {
       <div class="rows">${cat.items.map((item) => html`<${Row} item=${item} save=${save} note=${notes[item.key]} />`)}</div>
       ${cat.id === "hotkeys" && html`<p class="dim small">While you choose a key, JARVIS's current keys still work, so
         pressing one (say Ctrl+Alt+M) also does what it does now.</p>`}
+      ${cat.id === "memory" && html`<p class="dim small">Say "don't remember this conversation" to stop keeping the current
+        one, or "forget today's conversation" to delete it. Past conversations are on the Memory page.</p>`}
       ${cat.id === "appearance" && html`<div class="row"><div class="row-text"><div class="row-label">Accent colour</div>
         <div class="dim small">One accent across the orb and the app.</div></div>
         <div class="row-control"><span class="swatch"></span><span class="value">${view.status.accent}</span></div></div>`}

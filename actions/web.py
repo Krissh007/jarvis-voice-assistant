@@ -188,6 +188,24 @@ class Web:
                                                                                 "%USERPROFILE%\\Documents\\jarvis")))
         self.default_city = (config.get("weather") or {}).get("default_city")
         self.state = ResearchState()
+        self.services = services
+
+    def _show_sources(self, via: str, items: list[dict]) -> None:
+        """Tell the views where an answer's information came from: titles and sites only (shown as text,
+        never as links: the app window must not navigate away)."""
+        bus = getattr(self.services, "bus", None)
+        if bus is None:
+            return
+        out = []
+        for r in items[:8]:
+            host = (urlsplit(str(r.get("url") or "")).hostname or "").removeprefix("www.")
+            if host:
+                out.append({"title": " ".join(str(r.get("title") or host).split())[:120], "site": host})
+        if out:
+            try:
+                bus.publish("sources", via=via, sources=out)
+            except Exception:  # a broken view never affects the search
+                log.exception("couldn't publish the sources")
 
     # ---------------------------------------------------------------- tools
 
@@ -209,6 +227,7 @@ class Web:
         seen = {r["url"] for r in self.state.results}
         self.state.results.extend(r for r in results if r.get("url") and r["url"] not in seen)
         lines = [f"{i}. {r['title']} ({r['url']})\n   {r['snippet']}" for i, r in enumerate(results, 1)]
+        self._show_sources("search", results)
         return "\n".join(lines)
 
     async def read_page(self, url: str, question: str = "") -> str:
@@ -234,6 +253,7 @@ class Web:
                 return USAGE_LIMIT_MESSAGE
             self.cache.set(key, summary)
         self.state.pages.append({"url": final_url, "title": title, "summary": summary})
+        self._show_sources("page", [{"url": final_url, "title": title}])
         return f"Title: {title}\nURL: {final_url}\nSummary: {summary}"
 
     async def get_weather(self, city: str = "") -> str:

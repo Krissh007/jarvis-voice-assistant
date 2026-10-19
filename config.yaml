@@ -224,6 +224,8 @@ limits:
 memory:
   max_facts: 100                # remember() refuses when full; facts are listed in the system prompt
   embeddings: true              # search memory by meaning (model from main.py --setup-memory); false = keywords only
+  log_conversations: true       # keep what you and JARVIS said (finished lines only, never tool output or secrets)
+  keep_conversations_days: 30   # older conversation lines are deleted automatically
 
 job_search:                     # used when features.job_search is true
   api_url: http://127.0.0.1:8000/api           # JobPilot's local API (GET only; must be this computer)

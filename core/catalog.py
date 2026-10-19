@@ -94,6 +94,8 @@ CATALOG: dict[str, tuple[str, list[str]]] = {
     "remember": ("memory", ["remember", "note", "don't forget", "save fact"]),
     "recall": ("memory", ["remember", "recall", "what did i tell you", "my"]),
     "forget": ("memory", ["forget", "remove fact", "delete memory"]),
+    "pause_conversation_log": ("memory", ["don't remember this conversation", "off the record", "stop recording"]),
+    "forget_conversation": ("memory", ["forget conversation", "forget today", "delete conversation history"]),
     "set_reminder": ("reminders", ["remind", "reminder", "timer", "alarm", "later", "tomorrow"]),
     "list_reminders": ("reminders", ["reminders", "pending", "what reminders"]),
     "cancel_reminder": ("reminders", ["cancel", "reminder", "remove"]),

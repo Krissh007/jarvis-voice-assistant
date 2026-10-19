@@ -19,6 +19,7 @@ from typing import Any
 
 from core.privacy import secret_in_text
 from core.registry import Registry, Tier, Tool, ToolError
+from core.untrusted import wrap
 
 log = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ MIN_SCORE = 0.25  # below this nothing is "about" the topic (unrelated questions
 MARGIN = 0.20  # drop candidates this far behind the best one
 KEYWORD_BONUS = 0.05  # per shared word, up to 3: exact names and terms still count
 PROMPT_FACTS = 20  # facts in the system instruction; the rest are found with recall
+FORGET_SCOPES = ("this", "today", "all")  # forget_conversation
 MAX_FACT_CHARS = 300
 # Words in the user's own utterance that count as an explicit request to remember.
 EXPLICIT_ASK = re.compile(
@@ -220,9 +222,10 @@ def prompt_section(store: MemoryStore, limit: int = PROMPT_FACTS) -> str:
 
 
 class Memory:
-    def __init__(self, store: MemoryStore, registry: Registry) -> None:
+    def __init__(self, store: MemoryStore, registry: Registry, conversations=None) -> None:
         self.store = store
         self.registry = registry
+        self.conversations = conversations  # core.conversation_log.ConversationLog, or None when off
 
     def remember_tier(self, args: dict[str, Any]) -> Tier:
         """SAFE only if the user's own words asked to remember; the dispatcher adds taint on top."""
@@ -242,16 +245,67 @@ class Memory:
                 "updated": f"Updated what I remember: {fact}",
                 "duplicate": f"I already remember that: {fact}"}[result]
 
-    def recall(self, topic: str = "") -> str:
-        """Look up remembered facts about a topic (empty = everything). Read-only."""
-        hits = self.store.search(topic)
-        if not hits:
-            return f"I don't have anything remembered about {topic}." if topic else "I haven't been asked to remember anything yet."
-        if not topic.strip():
-            return "Remembered:\n" + "\n".join(f"- {f['text']}" for f in hits[:15])
-        self.store.mark_used(hits)
-        return ("Closest remembered facts (they may not answer the question; if none does, say you don't "
-                "know):\n" + "\n".join(f"- {f['text']}" for f in hits))
+    def recall(self, topic: str = "", when: str = "") -> str:
+        """Look up remembered facts and past conversations about a topic (empty = everything); `when`
+        ("yesterday", "last week") searches conversations from then only. Read-only."""
+        parts = []
+        if not when:
+            hits = self.store.search(topic)
+            if hits and not topic.strip():
+                parts.append("Remembered:\n" + "\n".join(f"- {f['text']}" for f in hits[:15]))
+            elif hits:
+                self.store.mark_used(hits)
+                parts.append("Closest remembered facts (they may not answer the question; if none does, say you don't "
+                             "know):\n" + "\n".join(f"- {f['text']}" for f in hits))
+        if self.conversations is not None and (topic.strip() or when):
+            lines = self.conversations.search(topic, when)
+            if lines:
+                said = "\n".join(f"[{l['time'][:16].replace('T', ' ')}] {'User' if l['role'] == 'user' else 'You'}: "
+                                 f"{l['text'][:300]}" for l in lines)
+                parts.append("From past conversations (what was said; it may not answer the question):\n"
+                             + wrap("conversation log", said))
+        if parts:
+            self._show_used(topic, when, parts)
+            return "\n\n".join(parts)
+        if when:
+            return f"I don't find anything from {when}" + (f" about {topic}." if topic else ".")
+        return f"I don't have anything remembered about {topic}." if topic else "I haven't been asked to remember anything yet."
+
+    def _show_used(self, topic: str, when: str, parts: list[str]) -> None:
+        """Tell the views which memory an answer used (the chat's context panel): facts by their text,
+        conversation lines only as a count (they're shown on the Memory page)."""
+        bus = getattr(self, "bus", None)
+        if bus is None:
+            return
+        facts = [line[2:] for p in parts if p.startswith(("Remembered", "Closest"))
+                 for line in p.splitlines()[1:] if line.startswith("- ")]
+        lines = sum(len(re.findall(r"^\[\d{4}-", p, re.MULTILINE)) for p in parts)
+        bus.publish("memory_used", topic=topic[:100], when=when[:30], facts=[f[:200] for f in facts[:10]],
+                    conversation_lines=lines)
+
+    def pause_log(self) -> str:
+        """Stop keeping this conversation until the next new chat. Read-only for everything else."""
+        if self.conversations is None:
+            return "I'm not keeping conversations anyway."
+        return self.conversations.pause()
+
+    def forget_conversation(self, scope: str = "this") -> str:
+        """Delete this conversation, today's, or all kept conversations. Tier CONFIRM."""
+        if self.conversations is None:
+            raise ToolError("I'm not keeping conversations.")
+        if scope not in FORGET_SCOPES:
+            raise ToolError("Forget this conversation, today's, or all of them?")
+        n = self.conversations.forget(scope)
+        what = {"this": "this conversation", "today": "today's conversations", "all": "every kept conversation"}[scope]
+        return f"Forgot {what} ({n} line{'s' if n != 1 else ''})." if n else f"There was nothing kept from {what}."
+
+    def forget_conversation_summary(self, args: dict[str, Any]) -> str:
+        scope = str(args.get("scope") or "this")
+        if self.conversations is None or scope not in FORGET_SCOPES:
+            return f"Forget conversations ({scope})"
+        n = self.conversations.count(scope)
+        what = {"this": "this conversation", "today": "everything said today", "all": "every kept conversation"}[scope]
+        return f"Forget {what} ({n} line{'s' if n != 1 else ''})"
 
     def forget(self, fact: str = "", everything: bool = False) -> str:
         """Delete a remembered fact (or all of them). Tier CONFIRM."""
@@ -288,7 +342,18 @@ def register(registry: Registry, config: dict, services) -> None:
     if embedder is not None:
         embedder.warm(then=store.backfill)  # loads in the background; startup isn't slowed
     services.memory = store
-    memory = Memory(store, registry)
+    conversations = None
+    if cfg.get("log_conversations", True):
+        from core.conversation_log import KEEP_DAYS, ConversationLog
+
+        conversations = ConversationLog(store.db, int(cfg.get("keep_conversations_days", KEEP_DAYS)),
+                                        embedder=embedder)
+        services.on_start.append(conversations.purge)
+        if getattr(services, "bus", None) is not None:
+            conversations.attach(services.bus)
+    services.conversations = conversations
+    memory = Memory(store, registry, conversations)
+    memory.bus = getattr(services, "bus", None)  # memory_used events for the chat's context panel
     registry.register(Tool(
         name="remember",
         description=(
@@ -303,12 +368,33 @@ def register(registry: Registry, config: dict, services) -> None:
     ))
     registry.register(Tool(
         name="recall",
-        description="Look up what the user asked you to remember. Empty topic lists everything.",
+        description=("Look up what the user asked you to remember, and what was said in past conversations "
+                     "(\"what did we talk about yesterday?\", \"what did I say about my car?\"). Empty topic lists "
+                     "the remembered facts. when: today, yesterday, this week, last week, this month or a date "
+                     "(YYYY-MM-DD), for conversations from then."),
         func=memory.recall,
         tier=Tier.SAFE,
         read_only=True,
-        parameters={"type": "object", "properties": {"topic": {"type": "string"}}},
+        untrusted_output=conversations is not None,  # past replies can echo web text
+        parameters={"type": "object", "properties": {"topic": {"type": "string"}, "when": {"type": "string"}}},
     ))
+    if conversations is not None:
+        registry.register(Tool(
+            name="pause_conversation_log",
+            description=("Stop keeping this conversation (\"don't remember this conversation\", \"off the record\") "
+                         "until the next new chat. Facts the user asks to remember are still saved."),
+            func=memory.pause_log,
+            tier=Tier.SAFE,
+        ))
+        registry.register(Tool(
+            name="forget_conversation",
+            description=("Delete kept conversation lines: scope this (this conversation), today, or all. Needs "
+                         "confirmation. For a single remembered fact use forget."),
+            func=memory.forget_conversation,
+            tier=Tier.CONFIRM,
+            summarize=memory.forget_conversation_summary,
+            parameters={"type": "object", "properties": {"scope": {"type": "string", "enum": list(FORGET_SCOPES)}}},
+        ))
     registry.register(Tool(
         name="forget",
         description="Delete a remembered fact the user asks you to forget (or everything=true). Needs confirmation.",

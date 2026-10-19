@@ -61,7 +61,8 @@ def test_page_and_assets_are_served_with_a_strict_policy(ui) -> None:
     page = client.get("/")
     assert page.status_code == 200 and "<canvas id=\"orb\"" in page.text
     csp = page.headers["content-security-policy"]
-    assert "script-src 'self'" in csp and f"connect-src ws://127.0.0.1:{PORT}" in csp and "unsafe" not in csp
+    # connect-src: this page's own origin (picture uploads) and its WebSocket, nothing else
+    assert "script-src 'self'" in csp and f"connect-src 'self' ws://127.0.0.1:{PORT}" in csp and "unsafe" not in csp
     assert page.headers["x-content-type-options"] == "nosniff"
     for asset, kind in (("app.js", "text/javascript"), ("app.css", "text/css")):
         reply = client.get(f"/static/{asset}")  # with nosniff, a wrong type means the page doesn't run
@@ -474,22 +475,22 @@ def test_window_commands_carry_the_mode_and_size(tmp_path) -> None:
     assert c[c.index("--mode") + 1] == "chat" and "--on-top" not in c
 
 
-async def test_new_chat_starts_fresh_clears_views_and_opens_the_chat_page(assistant, monkeypatch) -> None:
+async def test_new_chat_starts_fresh_clears_views_and_opens_the_app_on_chat(assistant, monkeypatch) -> None:
     from core.runtime import WebBridge
 
     a = assistant
     a._loop = asyncio.get_running_loop()
     fresh, opened, events = [], [], []
     monkeypatch.setattr(a.session, "new_conversation", lambda: fresh.append(1))
-    monkeypatch.setattr(a.chat_proc, "start", lambda: opened.append(1))
+    monkeypatch.setattr(a.app_proc, "start", lambda: opened.append(a.app_proc.url))
     a.bus.subscribe(events.append)
     assert WebBridge(a).control("new_chat")
     await asyncio.sleep(0.01)
-    assert fresh == [1] and opened == [1]
+    assert fresh == [1] and len(opened) == 1 and opened[0].endswith("&s=chat")   # the app replaced the chat page
     assert any(e.kind == "conversation" and e.data == {"action": "new"} for e in events)
-    monkeypatch.setattr(type(a.chat_proc), "alive", property(lambda self: True))
-    a.open_chat()  # already open: it's asked to come forward instead
-    assert opened == [1] and events[-1].kind == "focus" and events[-1].data == {"target": "chat"}
+    monkeypatch.setattr(type(a.app_proc), "alive", property(lambda self: True))
+    a.open_chat()  # already open: it's asked to come forward on Chat instead
+    assert len(opened) == 1 and events[-1].kind == "focus" and events[-1].data == {"target": "app", "section": "chat"}
 
 
 def test_quick_actions_come_from_the_config(assistant) -> None:

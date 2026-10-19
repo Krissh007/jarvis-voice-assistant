@@ -175,6 +175,8 @@ each; they change the orb live, and your choices are kept in `data/orb_look.json
 | `limits.page_cache_ttl_h` | `24` | How long page summaries are cached |
 | `memory.max_facts` | `100` | Memory size |
 | `memory.embeddings` | `true` | Search memory by meaning with the on-device model from `--setup-memory`; `false` (or no model) = keyword search only |
+| `memory.log_conversations` | `true` | Keep what you and JARVIS said (finished lines only; never tool output, web pages, screen or clipboard text, or a line that looks like a password, PIN or card number), so `recall` can answer "what did we talk about yesterday?". "Don't remember this conversation" pauses it until the next new chat |
+| `memory.keep_conversations_days` | `30` | Conversation lines older than this are deleted at start and once a day |
 | `briefing.news_query` | `top news today` | Headline search for the morning briefing |
 | `agent_hub.url` | `http://127.0.0.1:8765/mcp` | The Agent Hub's MCP address (this computer only). The bearer token is `AGENT_HUB_TOKEN` in `.env` and must equal the Hub's `HUB_TOKEN` |
 | `agent_hub.poll_s` | `5` | How often JARVIS looks for finished results |

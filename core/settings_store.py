@@ -84,6 +84,10 @@ SETTINGS: tuple[Setting, ...] = (
             "remember refuses new facts once this many are kept.", low=10, high=500, step=10),
     Setting("memory.embeddings", "memory", "Search memory by meaning", "bool",
             "Off: keyword search only (uses less memory)."),
+    Setting("memory.log_conversations", "memory", "Keep conversations", "bool",
+            "What you and JARVIS said, so you can ask about it later. Never tool output, web pages or secrets."),
+    Setting("memory.keep_conversations_days", "memory", "Keep conversations for (days)", "int",
+            "Older lines are deleted automatically.", low=1, high=365, step=1),
     # Hotkeys
     Setting("hotkeys.push_to_talk", "hotkeys", "Talk", "hotkey", "Wake JARVIS, or hold to talk in push-to-talk mode."),
     Setting("hotkeys.mute", "hotkeys", "Mute the microphone", "hotkey"),

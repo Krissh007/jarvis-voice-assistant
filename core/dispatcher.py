@@ -43,6 +43,22 @@ def _truncate(value: Any) -> Any:
     return value
 
 
+def _plain_step(step: Any) -> dict[str, Any]:
+    """A paused step's details for the views' plan cards: short plain values only (goal, the plan's tool
+    names, which step this is), never results or arbitrary objects."""
+    if not isinstance(step, dict):
+        return {}
+    out: dict[str, Any] = {}
+    for key, value in step.items():
+        if isinstance(value, (bool, int, float)) or value is None:
+            out[key] = value
+        elif isinstance(value, str):
+            out[key] = value[:200]
+        elif isinstance(value, list) and all(isinstance(v, str) for v in value):
+            out[key] = [v[:60] for v in value[:12]]
+    return out
+
+
 def _secret_values() -> set[str]:
     """Values of the keys and tokens in the environment (.env is loaded into it), never to be logged."""
     return {v for k, v in os.environ.items() if _SECRET_ENV_NAME.search(k.upper()) and len(v) >= 8}
@@ -120,6 +136,10 @@ class Dispatcher:
         self.condenser = None  # core.condense.Condenser, set by the runtime: long results are shortened
         # events(kind, **data): tool and confirmation progress for every view (core.bus); set by the runtime
         self.events: Callable[..., Any] | None = None
+        # Tools the user turned off for their current message (the chat's web search: Off), with the reason
+        # the model is told; the runtime sets it for each new message.
+        self.turn_blocked: dict[str, str] = {}
+        self._failed = False  # the last _execute ended in an error or was stopped
 
     # ------------------------------------------------------------------ model side
 
@@ -134,6 +154,9 @@ class Dispatcher:
         if tool is None or tool.statically_blocked:
             self._audit(name, args, "BLOCKED" if tool else "UNKNOWN", "BLOCKED", "refused", "not available")
             return {"status": "refused", "message": f"{name} is not something I can do."}
+        if name in self.turn_blocked:
+            self._audit(name, args, "-", "-", "refused", "turned off for this message")
+            return {"status": "refused", "message": self.turn_blocked[name]}
 
         if name == self._confirmed_running:
             # The model re-issuing the call it just had confirmed would queue a second copy.
@@ -311,7 +334,8 @@ class Dispatcher:
                                           "tainted": self.tainted, "resume": needs.resume,
                                           "on_cancel": needs.on_cancel}
         log.info("pending #%d (step): %s", pending.id, needs.summary)
-        self._emit("confirm_requested", id=pending.id, tool=tool.name, summary=needs.summary)
+        self._emit("confirm_requested", id=pending.id, tool=tool.name, summary=needs.summary,
+                   step=_plain_step(needs.step))
         return pending
 
     async def _confirm(self, outcome: str) -> None:
@@ -370,7 +394,7 @@ class Dispatcher:
         self._emit("tool_started", tool=tool.name, args=self.audit._redact(args), step=step)
         result = await self._execute(tool, args, call_id, resume, condense)
         paused = isinstance(result, NeedsConfirmation)
-        self._emit("tool_finished", tool=tool.name, step=step, paused=paused,
+        self._emit("tool_finished", tool=tool.name, step=step, paused=paused, ok=not self._failed,
                    result=_truncate(result.summary if paused else result))
         return result
 
@@ -387,6 +411,7 @@ class Dispatcher:
         else:
             task = asyncio.ensure_future(asyncio.to_thread(tool.func, **args))
         self._running = (task, call_id)
+        self._failed = False
         try:
             raw = await task
             if isinstance(raw, NeedsConfirmation):
@@ -398,13 +423,13 @@ class Dispatcher:
         except asyncio.CancelledError:
             if asyncio.current_task().cancelling():
                 raise  # we are being shut down, not stopped by the user
-            result = "Stopped."
+            result, self._failed = "Stopped.", True
         except ToolError as exc:
             log.warning("tool %s: %s", tool.name, exc)
-            result = str(exc)
+            result, self._failed = str(exc), True
         except Exception as exc:
             log.exception("tool %s failed", tool.name)
-            result = f"That didn't work ({type(exc).__name__})."
+            result, self._failed = f"That didn't work ({type(exc).__name__}).", True
         finally:
             self._running = None
         if condense and self.condenser is not None and tool.wants_condense(args) and self.condenser.needed(result):

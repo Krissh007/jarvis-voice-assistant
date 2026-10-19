@@ -47,6 +47,7 @@ class Services:
     dispatcher: Any = None  # core.dispatcher.Dispatcher, set by the runtime (agent mode runs steps through it)
     web: Any = None  # actions.web.Web, for the morning briefing
     memory: Any = None  # actions.memory.MemoryStore, for the system instruction
+    conversations: Any = None  # core.conversation_log.ConversationLog: past conversations (None = not kept)
     reminders: Any = None  # actions.reminders.Reminders, started by the runtime
     ducker: Any = None  # core.ducking.Ducker: music-only volume and ducking while JARVIS is awake
     hub: Any = None  # actions.agent_hub.HubClient: the Agent Hub, incl. its tool registry (find_tools)

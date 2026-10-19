@@ -104,6 +104,14 @@ batched at the end (as agreed for this plan).
    about how to talk plus the most-recalled and newest others, 20 at most (schema 2: `facts.uses`).
 4. **Conversation log.** Record finished messages from voice and chat, secret filter, retention,
    pause command, "forget today's conversation". `recall` with `when`.
+   *Done 19 October 2026.* `core/conversation_log.py` listens to the bus (`message` lines; "New chat"
+   starts a new conversation) and drops any line the secret check flags or that says "password/PIN/card
+   number is…". `recall` searches facts and conversations (keywords, plus meaning when the model is
+   loaded; `when`: today, yesterday, this week, last week, this month or a date) and returns past lines
+   wrapped as untrusted. New tools: `pause_conversation_log` (until the next new chat) and
+   `forget_conversation` (this / today / all, always asks). `memory.log_conversations`,
+   `memory.keep_conversations_days` (30). The app's Memory page lists conversations, opens and deletes
+   them (part of step 5, done early); tests never log into the real `data/memory.sqlite`.
 5. **Sharing.** `ask_brain` gets read-only `recall`; the drop recap reads from `messages`; Memory
    page in the chat window.
 6. **Check and docs.** Recall accuracy and latency on the labelled set, full test suite,
