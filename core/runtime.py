@@ -30,7 +30,7 @@ from core.llm import LLM
 from core.secrets import env_key
 from core.prompts import build_system_instruction
 from core.registry import Registry, Tier, Tool, ToolError
-from core.session import LiveSession, RECAP_LINES, build_live_config, build_recap
+from core.session import LiveSession, RECAP_LINES, RECAP_LINES_SAVED, build_live_config, build_recap
 from core.wakeword import WakeState
 
 log = logging.getLogger(__name__)
@@ -679,7 +679,7 @@ class Assistant:
                 end_pause_ms=config["listening"].get("end_pause_ms"),
             ),
             self,
-            recap=self.transcript.recap,  # seeds a fresh session after a drop
+            recap=self._drop_recap,  # seeds a fresh session after a drop
         )
         self.hotkeys = Hotkeys(
             {k: v for k, v in config["hotkeys"].items()
@@ -1416,6 +1416,24 @@ class Assistant:
                               self.services.data_dir / "briefing_state.json")
         except Exception:
             log.exception("morning briefing failed")
+
+    def _drop_recap(self) -> str | None:
+        """Recap for a fresh Live session after a drop: the saved conversation's last lines (up to
+        RECAP_LINES_SAVED) when the conversation log has them, else the transcript's last 8."""
+        recap = self.transcript.recap()  # also flushes a cut-off line, so the log has it too
+        log_ = getattr(self.services, "conversations", None)
+        if log_ is None or log_.paused:  # paused: the log stopped at the pause, the transcript didn't
+            return recap
+        try:
+            lines = log_.current_lines(RECAP_LINES_SAVED)
+        except Exception:
+            log.exception("drop recap: couldn't read the conversation log")
+            return recap
+        if len(lines) <= len(self.transcript.recent):
+            return recap
+        saved = {text for _, text in lines}
+        lines += [(who, text) for who, text in self.transcript.recent if " ".join(text.split()) not in saved]
+        return build_recap(lines, max_lines=RECAP_LINES_SAVED)  # (the just-flushed line may not be saved yet)
 
     def _notify(self, text: str) -> None:
         first = text.splitlines()[0]

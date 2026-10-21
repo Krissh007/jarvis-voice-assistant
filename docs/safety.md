@@ -231,6 +231,11 @@ that says "password / PIN / card number is…", is dropped. Kept `memory.keep_co
 today, all) always asks first. Past lines go back to the model wrapped as untrusted, because JARVIS's
 replies can echo web text. Tests never write to the real `data/memory.sqlite` (`tests/conftest.py`).
 
+`ask_brain` may call `recall` (read-only, `brain.memory`), so the few facts or lines a search returns
+go to the Groq model answering that request, as they already go to Gemini. It is never given
+`remember`, `forget` or `forget_conversation`. After a dropped Live session the recap (up to 16
+saved lines) is sent wrapped as untrusted, as context only, and approves nothing.
+
 ## Audit log
 
 Every tool call is appended to `logs/actions.jsonl` with:

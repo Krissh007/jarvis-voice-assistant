@@ -114,6 +114,13 @@ batched at the end (as agreed for this plan).
    them (part of step 5, done early); tests never log into the real `data/memory.sqlite`.
 5. **Sharing.** `ask_brain` gets read-only `recall`; the drop recap reads from `messages`; Memory
    page in the chat window.
+   *Done 21 October 2026* (the Memory page came with step 4). Every `ask_brain` run is offered
+   `recall`, read-only (`brain.memory`; `remember` and `forget` stay with the voice model and your own
+   words); what it finds goes to the Groq model answering. Live: "based on my taste, suggest an album"
+   recalled the music fact and proposed Led Zeppelin IV (asking first). A conversation search that
+   matches something you said also returns JARVIS's next line in that conversation. After a dropped
+   Live session the recap carries up to 16 saved lines (not 8), falling back to the window's lines
+   while logging is paused.
 6. **Check and docs.** Recall accuracy and latency on the labelled set, full test suite,
    docs/architecture.md, configuration.md, safety.md, user-guide.md. Then your voice tests.
 

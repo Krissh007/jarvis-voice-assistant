@@ -91,6 +91,7 @@ def build_live_config(
 
 
 RECAP_LINES = 8  # finished lines (user + assistant) carried into a fresh session after a drop
+RECAP_LINES_SAVED = 16  # when the conversation log has them (memory step 5)
 RECAP_LINE_CHARS = 300
 RECAP_NOTE = (
     "[App note: the connection to Gemini dropped and could not be resumed, so this is a new session. "

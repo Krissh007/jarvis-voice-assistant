@@ -421,3 +421,12 @@ to its own chat page:
   as where your sister lives for her birthday; not yet checked by voice).
 - The system instruction carries your talk and naming wishes plus the 20 most-recalled and newest
   facts; the rest are found with `recall`. The database upgrades itself (schema 2).
+
+## Memory, step 5: memory for reasoning, and fuller recaps (21 October 2026)
+
+- `ask_brain` can now look things up in your memory (read-only): "based on what I've told you about my
+  taste, suggest an album" recalled your music and proposed Led Zeppelin IV, asking before playing.
+  Off with `brain.memory: false`. It can't remember or forget anything itself.
+- Finding something you said in a past conversation now brings JARVIS's reply with it, so "what did
+  you tell me about Rust or Go?" gets the answer, not only the question.
+- After Gemini drops a session, the new one gets up to 16 saved lines of the conversation (was 8).

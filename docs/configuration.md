@@ -156,6 +156,7 @@ each; they change the orb live, and your choices are kept in `data/orb_look.json
 | `brain.max_steps` | Model calls per request (default `6`); then one last answer without tools |
 | `brain.budget_s` | Time for a whole request (default `45` s), not counting time waiting for your yes |
 | `brain.max_tool_calls_per_step` | Tool calls the model may make at once (default `4`) |
+| `brain.memory` | Offer read-only `recall` on every `ask_brain` run (default `true`); what it finds is sent to the Groq model answering |
 | `brain.result_chars` | Longest tool result the model sees (default `3000` characters) |
 | `reasoning.thinking` | Thinking level for `think_through` calls only (default `high`); the models are the Flash chain |
 | `reasoning.max_tokens` | Longest `think_through` answer before it's cut (default `2000`) |

@@ -219,10 +219,38 @@ class ConversationLog:
                 scored.append((score, r["time"], r))
         scored.sort(key=lambda s: (s[0], s[1]), reverse=True)  # best first; newer wins a tie
         best = [r for _, _, r in scored[:limit]]
+        best += self._replies(best)  # "should I learn Rust or Go?" is no use without the answer
         best.sort(key=lambda r: (r["time"], r["id"]))
         for r in best:
             r.pop("embedding", None)
         return best
+
+    def _replies(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """For each matched line of the user's, JARVIS's next line in that conversation, if it isn't
+        already among the matches."""
+        have = {r["id"] for r in rows}
+        out = []
+        with self.db.connect() as db:
+            for r in rows:
+                if r["role"] != "user":
+                    continue
+                nxt = db.execute("SELECT id, conversation, time, role, channel, text FROM messages "
+                                 "WHERE conversation = ? AND id > ? ORDER BY id LIMIT 1",
+                                 (r["conversation"], r["id"])).fetchone()
+                if nxt is not None and nxt["role"] == "assistant" and nxt["id"] not in have:
+                    have.add(nxt["id"])
+                    out.append(dict(nxt))
+        return out
+
+    def current_lines(self, limit: int) -> list[tuple[str, str]]:
+        """The last `limit` lines of the conversation going on now, as (speaker, text), oldest first;
+        [] after a new chat or while nothing has been kept."""
+        if self._current is None:
+            return []
+        with self.db.connect() as db:
+            rows = db.execute("SELECT role, text FROM messages WHERE conversation = ? ORDER BY id DESC LIMIT ?",
+                              (self._current, limit)).fetchall()
+        return [("User" if r["role"] == "user" else "JARVIS", r["text"]) for r in reversed(rows)]
 
     def _meaning(self, topic: str, rows: list[dict]) -> list[float] | None:
         if self.embedder is None or not rows or not getattr(self.embedder, "available", lambda: False)():

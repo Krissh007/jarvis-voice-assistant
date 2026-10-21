@@ -54,6 +54,8 @@ Rules:
   user by the app automatically when you call them. Just call them. Never ask for confirmation in
   text, and never say something is done unless a tool result says so.
 - If a tool for what's needed isn't available, say so plainly in one sentence.
+- When the request depends on the user's own details, preferences or something said before ("based on
+  what I told you", "like last time"), look it up with jarvis__recall first if you have it.
 - Your final answer is spoken aloud: 1 to 4 short sentences, plain words. No markdown, lists, tables,
   links or emoji. Name the website you relied on for current facts (e.g. "according to Reuters").
 Local time now: {now}."""
@@ -118,6 +120,7 @@ class Brain:
         self.budget_s = float(opts.get("budget_s", 45))
         self.max_calls_per_step = int(opts.get("max_tool_calls_per_step", 4))
         self.result_chars = int(opts.get("result_chars", 3000))
+        self.memory = bool(opts.get("memory", True))  # offer read-only recall on every run (memory step 5)
         self.config = config
         self.services = services
         self.registry = registry
@@ -229,6 +232,14 @@ class Brain:
                 params = await self._hub_schema(pick.id)
                 if params is not None:
                     out[fn] = Target(fn, pick.id, "hub", pick.description, params, pick.access)
+        recall = self.registry.get("recall") if self.memory else None
+        if recall is not None and recall.read_only and "jarvis__recall" not in out:
+            # Memory for every reasoning run: "should I take the job, given what I told you?" needs it, and
+            # the router only picks it when the words say so. Read-only: remember and forget stay with the
+            # voice model and the user's own words.
+            out["jarvis__recall"] = Target("jarvis__recall", "jarvis.recall", "jarvis", recall.description,
+                                           recall.parameters, "read", float(catalog.TIMEOUTS.get("recall", 30)),
+                                           recall)
         return out
 
     async def _hub_schema(self, tool_id: str) -> dict | None:

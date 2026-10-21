@@ -30,6 +30,7 @@ brain:                          # ask_brain (features.brain): route, then reason
   budget_s: 45                  # whole request, not counting time waiting for the user's yes
   max_tool_calls_per_step: 4
   result_chars: 3000            # each tool result the model sees
+  memory: true                  # offer read-only recall every run (what it finds is sent to the Groq model)
 
 reasoning:                      # think_through (features.reasoning): careful answers, web search optional
   thinking: high                # thinking level for these calls only (the Flash chain above, then fallbacks)
