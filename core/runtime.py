@@ -90,6 +90,14 @@ class Transcript:
                 return self._labels[w], self._buf[w]
         return self.last
 
+    def last_user(self) -> str:
+        """What the user is saying now, else their last finished line (empty if JARVIS spoke last)."""
+        if self._buf["user"].strip():
+            return " ".join(self._buf["user"].split())
+        for label, line in reversed(self.recent):
+            return line if label == self._labels["user"] else ""
+        return ""
+
     def recap(self) -> str | None:
         """Text-only recap of the latest finished user/assistant lines (a cut-off line counts too)."""
         self.flush()
@@ -589,6 +597,9 @@ class Assistant:
             self.services.ducker = Ducker(float(duck_cfg.get("level", 0.3)),
                                           state_path=self.services.data_dir / "ducking.json")
         self._last_heard = 0.0
+        self._last_reply_at = 0.0     # Gemini's last sign of life: audio, words or a tool call
+        self._stall_checked = 0.0     # the heard time already looked at, so one silence restarts once
+        self.stall_restart_s = float(config["listening"].get("stall_restart_s", 10) or 0)
         self.registry = load_actions(Registry(), config, self.services)
         if self.wake:
             self.registry.register(Tool(
@@ -1138,6 +1149,29 @@ class Assistant:
         log.info("orb %s", "shown" if self.orb_visible else "hidden")
         self.bus.publish("orb_visibility", visible=self.orb_visible)
 
+    def _check_stall(self) -> None:
+        """Seen live: after a cancelled confirmation Gemini heard every later request but never answered,
+        and JARVIS fell asleep. If the user said something real and Gemini stays silent for
+        `listening.stall_restart_s`, start a fresh session and repeat the request."""
+        heard, now = self._last_heard, time.monotonic()
+        if not self.stall_restart_s or not heard or heard <= self._last_reply_at or heard <= self._stall_checked:
+            return
+        if now - heard < self.stall_restart_s:
+            return
+        self._stall_checked = heard
+        if (self.dispatcher.awaiting_confirmation or self.dispatcher._running is not None or self.gate.muted
+                or (self.wake is not None and not self.wake.awake)):
+            return  # waiting on the user or an action, or not listening: silence is expected
+        said = self.transcript.last_user()
+        if len(said.split()) < 3:
+            return  # a word or two is often noise, which the model may rightly ignore
+        log.warning("no reply from Gemini %.0f s after the user spoke; restarting the session", now - heard)
+        self._status("(no reply from Gemini: reconnecting)")
+        self._last_reply_at = now
+        self.session.restart_stalled(
+            "[system notice] The connection to Gemini stalled and was restarted. The user's last request, "
+            f'which you have not answered yet, was: "{said[:300]}". Answer it now.')
+
     async def _ticker(self) -> None:
         """Housekeeping: confirmation arming/timeouts, quiet utterances, wake-word sleep."""
         while True:
@@ -1146,6 +1180,10 @@ class Assistant:
                 await self.dispatcher.tick()
             except Exception:
                 log.exception("dispatcher tick failed")
+            try:
+                self._check_stall()
+            except Exception:
+                log.exception("stall check failed")
             working = time.monotonic() - self._last_tool_at < WORKING_MAX_S  # a tool call's turn isn't over
             if (self.wake and not self.wake.awake and self.tasks.active and self.dispatcher.awaiting_confirmation):
                 self.wake.wake()  # the task needs a yes or no: listen for it
@@ -1392,6 +1430,7 @@ class Assistant:
         self.dispatcher.flush_utterance()
         if self.wake:
             self.wake.touch()
+        self._last_reply_at = time.monotonic()
         if self.voice and not self._drop_reply and not self._quiet_reply:
             self.player.enqueue(pcm)
             self._out_level = rms_level(pcm, 5000)
@@ -1410,11 +1449,13 @@ class Assistant:
         self.dispatcher.on_input_fragment(text)
 
     def on_output_transcript(self, text: str) -> None:
+        self._last_reply_at = time.monotonic()
         self._turn_open = True
         self.dispatcher.flush_utterance()
         self.transcript.add("jarvis", text, self._reply_channel)
 
     def on_turn_complete(self) -> None:
+        self._last_reply_at = time.monotonic()
         self._drop_reply = False
         self._quiet_reply = False
         self._last_tool_at = 0.0
@@ -1429,6 +1470,7 @@ class Assistant:
             self._schedule_task_round()
 
     async def on_tool_call(self, name: str, args: dict, call_id: str | None) -> dict:
+        self._last_reply_at = time.monotonic()
         self._last_tool_at = time.monotonic()
         self._turn_open = True
         self.tasks.tool_called(name)

@@ -56,7 +56,20 @@ async def test_open_app_launches_only_the_allowlisted_command(h, launched) -> No
 
 async def test_open_regedit_is_refused(h, launched) -> None:
     resp = await h.model_calls("open_app", name="regedit")
-    assert "isn't on my list" in resp["result"] and launched == []
+    assert "isn't an app on this computer that I can open" in resp["result"] and launched == []
+
+
+async def test_an_app_that_isnt_installed_offers_its_website(h, launched) -> None:
+    """Seen live: "Open Figma" got a flat refusal instead of figma.com in the browser."""
+    resp = await h.model_calls("open_app", name="Figma")
+    assert "offer to open figma.com in your browser" in resp["result"] and launched == []
+
+
+def test_website_guess() -> None:
+    assert system.website_guess("Figma") == "figma.com"
+    assert system.website_guess("google docs") == "googledocs.com"
+    assert system.website_guess("canva.com") == "canva.com"
+    assert system.website_guess("") is None and system.website_guess("a very long app name here") is None
 
 
 def test_no_destructive_tools_exist(h) -> None:

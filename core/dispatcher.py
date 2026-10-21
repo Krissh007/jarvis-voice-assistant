@@ -28,7 +28,9 @@ from core.untrusted import wrap
 log = logging.getLogger(__name__)
 
 CONFIRM_INSTRUCTION = (
-    "Read the summary to the user word for word, then ask whether to go ahead. "
+    "Ask the user a short yes-or-no question in their own words that names the action and what it acts on, "
+    "e.g. \"Open Figma?\" or \"Delete notes.txt?\". Don't read web addresses or the whole summary aloud (it's "
+    "on the screen), don't explain, and never make it sound smaller than the summary. "
     "Do not call this tool again, and do not say it is done. "
     "The app will send a [system notice] with the outcome."
 )
@@ -355,8 +357,8 @@ class Dispatcher:
             nxt = self._park(tool, result, pending.call_id)
             self.notify(
                 f'[system notice] The user confirmed "{pending.summary}" and it was done. {result.progress}\n'
-                "The next step also needs confirmation. Read this to the user word for word and ask whether "
-                f'to go ahead: "{nxt.summary}"'
+                "The next step also needs confirmation. Ask the user a short yes-or-no question in their own "
+                f'words that names its action and target (it is on the screen): "{nxt.summary}"'
             )
             return
         self._audit(pending.tool, pending.args, meta.get("tier", "CONFIRM"), meta.get("effective_tier", "CONFIRM"),

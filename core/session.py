@@ -25,6 +25,10 @@ AUDIO_MIME = "audio/pcm;rate=16000"
 OUTGOING_MAX = 25  # ~2 s of mic audio; older chunks are dropped while reconnecting
 
 
+class _Stalled(Exception):
+    """Gemini stopped answering; reconnect fresh (with a recap) and repeat the unanswered request."""
+
+
 class _NewConversation(Exception):
     """Ends the current connection so the next one starts a fresh conversation (no resumption)."""
 
@@ -169,6 +173,11 @@ class LiveSession:
         self._recap = recap
         self._had_conversation = False
         self._carry_context = False
+        # Seen live: after a cancelled confirmation Gemini heard the user but never answered again. The
+        # app notices (core/runtime.py) and asks for a fresh session; `_after_restart` is the notice that
+        # then repeats the unanswered request.
+        self._restart_now: asyncio.Event | None = None
+        self._after_restart: str | None = None
 
     # ---- outbound (non-blocking, safe to call from the event loop) ----
 
@@ -199,6 +208,13 @@ class LiveSession:
         if self.connected.is_set():
             self._outgoing.put_nowait(("new_conversation", None))
 
+    def restart_stalled(self, notice: str | None = None) -> None:
+        """Gemini stopped answering: drop this connection now (even if sending is stuck), start a fresh
+        session seeded with the recent conversation, then send `notice`."""
+        self._after_restart = notice
+        if self._restart_now is not None:
+            self._restart_now.set()
+
     def activity_start(self) -> None:
         self._outgoing.put_nowait(("activity_start", None))
 
@@ -219,6 +235,10 @@ class LiveSession:
                 self.resume_handle = None
                 self._had_conversation = False  # the user asked for a blank slate
                 log.info("starting a new conversation")
+            except _Stalled:
+                self.resume_handle = None       # resuming could bring the stuck state back
+                self._had_conversation = True   # so the fresh session gets the recap
+                log.warning("Gemini stopped answering; starting a fresh session with a recap")
             except Exception as exc:
                 self.connected.clear()
                 self._consecutive_failures += 1
@@ -243,17 +263,27 @@ class LiveSession:
             log.info("connected (resumed=%s)", resumed)
             if carry:
                 await self._send_recap(session)
+            if self._after_restart:
+                notice, self._after_restart = self._after_restart, None
+                await session.send_client_content(
+                    turns=types.Content(role="user", parts=[types.Part(text=notice)]), turn_complete=True)
+            self._restart_now = asyncio.Event()
             sender = asyncio.create_task(self._send_loop(session))
             receiver = asyncio.create_task(self._receive_loop(session))
+            restart = asyncio.create_task(self._restart_now.wait())
             try:
                 # The receiver ends on GoAway (or raises if the socket dies); the sender ends only to start
-                # a new conversation (or raises if sending fails). Either way this connection is over.
-                done, _ = await asyncio.wait({sender, receiver}, return_when=asyncio.FIRST_COMPLETED)
+                # a new conversation (or raises if sending fails); `restart` when Gemini stopped answering.
+                # Any of them means this connection is over.
+                done, _ = await asyncio.wait({sender, receiver, restart}, return_when=asyncio.FIRST_COMPLETED)
             finally:
                 self.connected.clear()
-                for task in (sender, receiver):
+                self._restart_now = None
+                for task in (sender, receiver, restart):
                     task.cancel()
-                await asyncio.gather(sender, receiver, return_exceptions=True)
+                await asyncio.gather(sender, receiver, restart, return_exceptions=True)
+            if restart in done:
+                raise _Stalled()
             for task in done:
                 task.result()  # re-raise what ended it
 

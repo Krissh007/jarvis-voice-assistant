@@ -59,6 +59,7 @@ chat_apps:                       # read_app what=latest and wait_for_app: the ne
 listening:
   mode: wake_word               # always_on | push_to_talk | wake_word
   end_pause_ms: 1000            # quiet this long = you've finished; shorter replies faster, but splits sentences
+  stall_restart_s: 10           # you spoke but Gemini stayed silent this long: reconnect and repeat your request (0 = off)
 
 wake_word:
   model: hey_jarvis

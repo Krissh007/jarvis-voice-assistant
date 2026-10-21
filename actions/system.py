@@ -126,6 +126,16 @@ def media_key(action: str) -> str:
             "previous": "Went back a track.", "stop": "Stopped playback."}[key]
 
 
+def website_guess(name: str) -> str | None:
+    """'Figma' -> 'figma.com': a likely address for an app name that isn't installed (asked, never opened)."""
+    words = re.findall(r"[a-z0-9]+", str(name).lower())
+    if not words or len(words) > 3:
+        return None
+    if "." in str(name) and normalize_url(str(name)):
+        return str(name).strip().lower()
+    return "".join(words) + ".com"
+
+
 def make_open_app(config: dict):
     apps = config.get("apps", {})
     allowlist: dict[str, str] = apps.get("allowlist") or {}
@@ -136,7 +146,10 @@ def make_open_app(config: dict):
         match = resolve_app(name, allowlist, aliases)
         if match is None:
             known = ", ".join(sorted(allowlist))
-            return f"{name!r} isn't on my list of apps, so I won't open it. I can open: {known}."
+            site = website_guess(name)
+            web = (f" If it's a web app or a website, offer to open {site} in your browser instead (browser_open)."
+                   if site else "")
+            return f"{name!r} isn't an app on this computer that I can open (I can open: {known}).{web}"
         friendly, command = match
         _launch(command)
         return f"Opened {friendly}."
@@ -416,7 +429,8 @@ def register(registry: Registry, config: dict, services=None) -> None:
     open_app, app_summary, app_names = make_open_app(config)
     registry.register(Tool(
         name="open_app",
-        description="Open an application. Only these names work: " + ", ".join(app_names) + ".",
+        description=("Open an application installed on this computer. Only these names work: " + ", ".join(app_names)
+                     + ". For web apps and websites (Figma, Canva, Notion...), use browser_open instead."),
         func=open_app,
         tier=Tier.SAFE,
         parameters={

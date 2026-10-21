@@ -349,3 +349,62 @@ def test_a_new_chat_clears_the_lines_a_later_recap_would_carry() -> None:
     t.add("user", "new topic")
     text = t.recap()
     assert "new topic" in text and "old topic" not in text
+
+
+async def test_a_stalled_session_restarts_fresh_and_repeats_the_request() -> None:
+    """Seen live: after a cancelled confirmation Gemini heard every request but never answered."""
+    first = [fl.resumption("h1"), fl.input_transcript("what's the weather"), fl.output_transcript("Sunny."),
+             fl.turn_complete(), fl.input_transcript("add to your memory that I like tea")]
+    client = fl.FakeClient([first, []])
+    events = TranscriptEvents()
+    session = make_recap_session(client, events)
+    task = asyncio.create_task(session.run())
+    await asyncio.wait_for(session.connected.wait(), 1)
+    await asyncio.sleep(0.05)
+    session.restart_stalled('[system notice] ... was: "add to your memory that I like tea". Answer it now.')
+    for _ in range(100):
+        if len(client.sessions) == 2 and len(client.sessions[1].sent) >= 2:
+            break
+        await asyncio.sleep(0.01)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert client.connects[1]["config"].session_resumption.handle is None   # fresh, not resumed
+    recap, notice = recaps(client.sessions[1])
+    assert "Krishna: add to your memory that I like tea" in recap and "JARVIS: Sunny." in recap
+    assert notice.startswith("[system notice]") and "I like tea" in notice
+    sent = client.sessions[1].sent
+    assert sent[0]["turn_complete"] is False and sent[1]["turn_complete"] is True   # only the request asks for a reply
+
+
+def test_the_stall_check_restarts_only_when_gemini_really_went_quiet(monkeypatch) -> None:
+    import time
+
+    import main
+    from core.runtime import Assistant, Options
+
+    cfg = main.load_config()
+    cfg["listening"]["mode"] = "push_to_talk"
+    a = Assistant(cfg, client=None, options=Options())
+    calls = []
+    monkeypatch.setattr(a.session, "restart_stalled", calls.append)
+
+    def heard(text: str, ago: float) -> None:
+        a.transcript.add("user", text)
+        a._last_heard = time.monotonic() - ago
+
+    heard("add to your memory that I like tea", 11)
+    a._check_stall()
+    assert len(calls) == 1 and "I like tea" in calls[0]
+    a._check_stall()
+    assert len(calls) == 1                     # one silence restarts once
+    a.transcript.flush()
+    heard("sí sí", 11)                         # two words: probably noise
+    a._check_stall()
+    heard("what's the time now please", 4)     # not quiet long enough yet
+    a._check_stall()
+    assert len(calls) == 1
+    heard("what is on my calendar", 11)
+    a._last_reply_at = time.monotonic()        # Gemini did answer
+    a._check_stall()
+    assert len(calls) == 1
