@@ -339,8 +339,6 @@ def register(registry: Registry, config: dict, services) -> None:
             embedder = None
     store = MemoryStore(data / "memory.sqlite", int(cfg.get("max_facts", MAX_FACTS)),
                         legacy_json=data / "memory.json", embedder=embedder)
-    if embedder is not None:
-        embedder.warm(then=store.backfill)  # loads in the background; startup isn't slowed
     services.memory = store
     conversations = None
     if cfg.get("log_conversations", True):
@@ -352,6 +350,9 @@ def register(registry: Registry, config: dict, services) -> None:
         if getattr(services, "bus", None) is not None:
             conversations.attach(services.bus)
     services.conversations = conversations
+    if embedder is not None:  # loads in the background (startup isn't slowed), then fills missing vectors
+        log_ = conversations
+        embedder.warm(then=lambda: (store.backfill(), log_.backfill() if log_ is not None else 0))
     memory = Memory(store, registry, conversations)
     memory.bus = getattr(services, "bus", None)  # memory_used events for the chat's context panel
     registry.register(Tool(

@@ -123,6 +123,8 @@ turns the microphone on. **Up** and **Down** bring back earlier messages, and **
 | "Research X, open its official page and tell me the price" | Reads a plan and waits for one "yes" |
 | "Remember that my car is on level 3" | Saves it to memory |
 | "What do you remember about my car?" / "Forget that" | Recalls it / deletes it (asks first) |
+| "What did you tell me yesterday about Rust or Go?" | Finds it in past conversations (30 days), with its answer |
+| "Don't remember this conversation" / "Forget today's conversation" | Stops keeping this one / deletes today's (asks first) |
 | "Remind me in 20 minutes to call Mom" | Speaks it and shows a notification when it's due |
 
 **Music while you talk:** while JARVIS is awake, other apps drop to 30% of their volume and go back

@@ -1,8 +1,8 @@
 # Plan: the memory phase (general-assistant Phase 3)
 
-18 October 2026. Decisions made (see the end); nothing is built yet.
+18 October 2026; all six steps done by 23 October 2026 (each step below says what was built and measured).
 
-## Where memory is today
+## Where memory was before this phase
 
 - `actions/memory.py`: `remember` / `recall` / `forget`, stored in `data/memory.json` (2 facts now,
   100 max). `remember` is safe only when your own words asked for it; `forget` always asks.
@@ -123,6 +123,27 @@ batched at the end (as agreed for this plan).
    while logging is paused.
 6. **Check and docs.** Recall accuracy and latency on the labelled set, full test suite,
    docs/architecture.md, configuration.md, safety.md, user-guide.md. Then your voice tests.
+   *Done 23 October 2026*, on the current code:
+
+   | | Result |
+   |---|---|
+   | Facts, tuning set (26 answerable) | first 24, top 3 25 (keywords: 13 and 13) |
+   | Facts, holdout (12 answerable) | first 12, top 3 12 (keywords: 5 and 8) |
+   | Unanswerable questions that got nothing | 4 of 6 tuning, 0 of 4 holdout (each got a nearby fact) |
+   | Model load (background, at start) | 0.4 s |
+   | Fact search: 22 facts / at the 100 cap | 12 ms / 11 ms median (max 15 ms) |
+   | Conversation search, 30 days x 100 lines | 18 ms median, 41 ms max |
+   | `recall` (facts + conversations) | 40 ms median |
+   | Saving a line, with / without its vector | 12.8 ms / 8.5 ms |
+   | Background backfill of a 3000-line backlog | 14.8 s, off the main loop |
+
+   **Found and fixed in this check:** conversation lines were embedded only during searches, 64 at a
+   time and only among the newest 2000, so a month of conversations was mostly keyword-only and the
+   first searches took ~0.8 s longer. Now a line is saved with its vector (one write), a background
+   backfill fills anything saved before the model loaded, and a search tops up at most 16.
+   Not as planned: facts and conversations are matched by shared words in Python plus meaning, not by
+   FTS5 BM25; the FTS5 indexes are kept up to date but not used yet.
+   Still open (voice tests): whether Gemini says "I don't know" when `recall` only finds a nearby fact.
 
 ## Before starting
 

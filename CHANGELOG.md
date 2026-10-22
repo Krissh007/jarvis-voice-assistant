@@ -430,3 +430,13 @@ to its own chat page:
 - Finding something you said in a past conversation now brings JARVIS's reply with it, so "what did
   you tell me about Rust or Go?" gets the answer, not only the question.
 - After Gemini drops a session, the new one gets up to 16 saved lines of the conversation (was 8).
+
+## Memory, step 6: the check (23 October 2026)
+
+- Re-measured on the current code: the right fact first 24 of 26 times (13 with keywords), 12 of 12
+  on the holdout; `recall` ~40 ms with 30 days of conversations (3000 lines).
+- Fixed: past conversations were searched by meaning only 64 lines at a time, so most of a month was
+  keyword-only and the first searches were ~0.8 s slower. Each line is now saved with its meaning
+  vector, older lines are filled in the background after start-up, and a search never computes more
+  than 16.
+- Docs: a Memory section in docs/architecture.md; README, plan and tool tables brought up to date.

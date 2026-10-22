@@ -17,7 +17,7 @@ powered by Google's Gemini Live API.
 | **Screen and clipboard** | Looks at your screen when you ask; summarises, translates or fixes text you copied |
 | **Your apps** | Reads, types, clicks, presses keys, scrolls and moves windows in any open app ("ask Claude X and read me the answer"); never your browser, password managers or Settings |
 | **Multi-step plans** | "Research X, open its official page and tell me the price", or "open Notepad and write a shopping list": you approve the plan once |
-| **Memory and reminders** | Remembers what you ask it to; reminders that survive a restart, with Windows notifications |
+| **Memory and reminders** | Remembers what you ask it to and finds it by meaning; keeps past conversations for 30 days (pause or forget any time), all on this PC; reminders that survive a restart, with Windows notifications |
 | **Desktop app** | Animated window with the full conversation and a box to type to JARVIS, tray icon, taskbar pin, offline wake word trained on your voice, background-noise suppression |
 
 ## Safe by design

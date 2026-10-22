@@ -30,7 +30,8 @@ KEEP_DAYS = 30
 MAX_LINE = 2000                # longest line kept (a long reply's start)
 SEARCH_LIMIT = 6
 MIN_SCORE = 0.3                # meaning match needed for a line with no shared word
-BACKFILL_BATCH = 64
+BACKFILL_BATCH = 64           # lines embedded per batch by the background backfill
+SEARCH_TOPUP = 16             # at most this many missing vectors computed during a search (~0.2 s)
 PRIVATE = re.compile(r"\b(password|passcode|pin|otp|cvv|one[- ]time code|security code|card number)\s*(is|:|=)",
                      re.IGNORECASE)
 WORD = re.compile(r"[A-Za-z0-9][A-Za-z0-9']*")
@@ -84,6 +85,7 @@ class ConversationLog:
         self._current: int | None = None
         self._lock = threading.Lock()
         self._last_purge: datetime | None = None
+        self._backfilling = False
 
     # ---- the bus
 
@@ -122,6 +124,7 @@ class ConversationLog:
             log.info("conversation log: a line that looked private wasn't stored")
             return False
         now = _iso(_now())
+        vector = self._vector(text)  # before the write: line and vector go in one transaction
         with self._lock, self.db.connect() as db:
             if self._current is None:
                 self._current = db.execute("INSERT INTO conversations(started, channels) VALUES (?, ?)",
@@ -132,10 +135,55 @@ class ConversationLog:
                 if channel and channel not in have:
                     db.execute("UPDATE conversations SET channels = ? WHERE id = ?",
                                (",".join(sorted(have | {channel})), self._current))
-            db.execute("INSERT INTO messages(conversation, time, role, channel, text) VALUES (?, ?, ?, ?, ?)",
-                       (self._current, now, role, channel, text))
+            db.execute("INSERT INTO messages(conversation, time, role, channel, text, embedding) "
+                       "VALUES (?, ?, ?, ?, ?, ?)", (self._current, now, role, channel, text, vector))
         self.purge_if_due()
         return True
+
+    def _vector(self, text: str) -> bytes | None:
+        """A new line's meaning vector, when the model is already loaded (~5 ms); else `backfill` does it."""
+        if self.embedder is None or not getattr(self.embedder, "ready", False) or self._backfilling:
+            return None  # (during a backfill the loop would wait for its batch; the backfill takes this line too)
+        try:
+            from core.embed import to_blob
+
+            return to_blob(self.embedder.encode([text])[0])
+        except Exception:
+            log.exception("conversation log: couldn't embed a line; backfill will")
+            return None
+
+    def backfill(self, batch: int = BACKFILL_BATCH) -> int:
+        """Embed every kept line that has no vector yet, newest first (run in the background at start).
+        Seen in step 6: without it, 30 days of lines were searched by meaning only 64 at a time, and
+        each of those searches took ~0.8 s longer."""
+        if self.embedder is None or not self.embedder.available():
+            return 0
+        from core.embed import to_blob
+
+        done = 0
+        self._backfilling = True
+        try:
+            done = self._backfill(batch, to_blob)
+        finally:
+            self._backfilling = False
+        if done:
+            log.info("conversation log: embedded %d lines", done)
+        return done
+
+    def _backfill(self, batch: int, to_blob) -> int:
+        done = 0
+        while True:
+            with self.db.connect() as db:
+                rows = db.execute("SELECT id, text FROM messages WHERE embedding IS NULL ORDER BY id DESC LIMIT ?",
+                                  (batch,)).fetchall()
+            if not rows:
+                break
+            vectors = self.embedder.encode([r["text"] for r in rows])
+            with self.db.connect() as db:
+                db.executemany("UPDATE messages SET embedding = ? WHERE id = ?",
+                               [(to_blob(v), r["id"]) for v, r in zip(vectors, rows)])
+            done += len(rows)
+        return done
 
     def pause(self) -> str:
         self.paused = True
@@ -258,7 +306,7 @@ class ConversationLog:
         try:
             from core.embed import from_blob, to_blob
 
-            missing = [r for r in rows if not r.get("embedding")][:BACKFILL_BATCH]
+            missing = [r for r in rows if not r.get("embedding")][:SEARCH_TOPUP]
             if missing:
                 vectors = self.embedder.encode([r["text"] for r in missing])
                 with self.db.connect() as db:

@@ -141,7 +141,7 @@ The action modules (`actions/`), in load order:
 | `app_ui` | Older planned UI Automation steps for allowlisted apps (off by default) |
 | `desktop` | read, type, click, press keys, scroll and move windows in any open app that isn't off-limits |
 | `screen`, `clipboard` | look at the screen, active window, clipboard summarise, translate, explain and fix |
-| `memory`, `reminders` | remember, recall, forget, and set, list and cancel reminders |
+| `memory`, `reminders` | remember, recall, forget, pause_conversation_log, forget_conversation, and set, list and cancel reminders |
 | `agent_hub` | `agent_hub_request`, `agent_hub_status`: hand work to the Agent Hub over MCP, and announce its results |
 | `agent_mode` | `run_plan`, loaded last because it plans over every tool registered before it |
 
@@ -369,6 +369,27 @@ The page sets every text with `textContent`, never as HTML, and runs under a str
 Content-Security-Policy with no inline scripts and no outside connections. Text from web pages can't
 run as code there. Confirm is the user's click in JARVIS's own window, the same as the confirm hotkey.
 
+## Memory (actions/memory.py, core/memory_db.py, core/conversation_log.py, core/embed.py)
+
+One SQLite file, `data/memory.sqlite`, shared by voice, chat and `ask_brain`:
+
+- **Facts** you asked JARVIS to remember (`remember` is safe only when your own words asked; `forget`
+  always asks). Every fact about how to talk or what to call you, plus the most-recalled and newest
+  others (20 at most), go into the Live system instruction; the rest are a `recall` away.
+- **Conversations**: finished lines from the bus's `message` events, one conversation per new chat,
+  secret-looking lines dropped, deleted after `memory.keep_conversations_days`.
+- **Meaning vectors** from all-MiniLM-L6-v2 (`--setup-memory`, ONNX on this PC, loaded in a background
+  thread at start). Facts and lines get theirs when saved once the model is loaded; anything saved
+  before that is filled by a background backfill after warm-up. A search tops up at most 16 missing
+  vectors. Without the model, search is by shared words.
+- **`recall`** returns up to 3 facts (meaning score 0.25 or more, within 0.20 of the best, a small bonus
+  per shared word) and the matching conversation lines (each of your lines with JARVIS's reply after
+  it), lines wrapped as untrusted. `ask_brain` is offered `recall` on every run (`brain.memory`),
+  read-only. After a dropped Live session the recap carries up to 16 saved lines.
+
+Measured 23 October 2026 (`docs/memory-plan.md`, step 6): facts first-hit 24 of 26 (keywords 13),
+holdout 12 of 12; a fact search ~12 ms, a conversation search over 3000 lines ~18 ms, `recall` ~40 ms.
+
 ## Threads
 
 | Thread | Does |
@@ -414,7 +435,7 @@ Handled in `core/app_mode.py` and `core/taskbar.py`.
 | `.env` | API keys | never |
 | `config.yaml` | settings | yes |
 | `data/models/` | the on-device embedding model from `--setup-memory` (`core/embed.py`) | no |
-| `data/memory.sqlite` | long-term memory: remembered facts (and, later, past conversations); an old `memory.json` is imported once and kept as `memory.json.imported` | no |
+| `data/memory.sqlite` | long-term memory: remembered facts and past conversations (30 days), with their meaning vectors; an old `memory.json` is imported once and kept as `memory.json.imported` | no |
 | `data/reminders.sqlite` | pending reminders (APScheduler job store) | no |
 | `data/browser_profile/` | JARVIS's Chrome profile | no |
 | `data/wake/` | your wake-word clips and personal verifier | no |
