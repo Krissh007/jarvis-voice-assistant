@@ -636,3 +636,35 @@ def test_window_settings_default_from_config_and_read_the_old_announce_file(tmp_
     assert load_prefs({}, missing) == {"announce": False, "voice": True}
     missing.write_text("not json", encoding="utf-8")
     assert load_prefs({}, missing) == {"announce": False, "voice": True}             # falls back to the old file
+
+
+async def test_voice_replies_can_be_switched_by_voice_and_gemini_is_told(assistant, tmp_path) -> None:
+    """Seen live: with Voice off, "I can't hear you" got "I'm not on mute, check your speakers"."""
+    from core.runtime import VOICE_OFF_NOTE
+
+    a = assistant
+    a._loop = asyncio.get_running_loop()
+    a.prefs_path = tmp_path / "prefs.json"
+    a.voice = True
+    told = []
+    a.session.send_context = told.append
+    tool = a.registry.get("set_voice_replies")
+    assert tool is not None and tool.read_only
+
+    assert "now off" in await tool.func(on=False)
+    assert a.voice is False and told[-1] == VOICE_OFF_NOTE
+    assert "already off" in await tool.func(on=False) and len(told) == 1
+    assert "on again" in await tool.func(on="true")
+    assert a.voice is True and "back ON" in told[-1]
+
+
+def test_the_system_instruction_says_when_voice_replies_are_off(assistant) -> None:
+    from core.runtime import VOICE_OFF_NOTE
+
+    a = assistant
+    config = a.session._config_factory(None)
+    text = lambda c: str(c.system_instruction)
+    a.voice = True
+    assert VOICE_OFF_NOTE not in text(a.session._config_factory(None))
+    a.voice = False
+    assert VOICE_OFF_NOTE in text(a.session._config_factory(None))

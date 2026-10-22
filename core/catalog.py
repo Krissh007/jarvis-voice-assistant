@@ -45,6 +45,7 @@ CATEGORIES: dict[str, str] = {
 EXCLUDED = {
     "run_plan", "think_through", "ask_brain", "go_to_sleep", "start_task", "finish_task", "stop_task", "task_status",
     "agent_hub_request", "agent_hub_status", "test_write_note", "test_fetch_untrusted", "show_on_screen",
+    "set_voice_replies",
 }
 
 # name -> (category, keywords). Categories are the Hub's (hub/tools/schema.py CATEGORIES).

@@ -59,6 +59,15 @@ class Options:
     early_window: bool = False  # show the window ("Starting up…") before the slow model loading
 
 
+# Added to the system instruction (and sent when it changes) while the Voice button is off. Seen live: with
+# voice replies off, "I can't hear you" got "I'm not on mute, check your speakers".
+VOICE_OFF_NOTE = (
+    "[app note] Voice replies are switched OFF right now (the user turned off Voice): nothing you say is heard, "
+    "the user only reads your replies on screen. If they say they can't hear you, tell them voice replies are "
+    "off and offer to turn them on with set_voice_replies."
+)
+
+
 class Transcript:
     """Collects streamed transcript fragments and publishes whole lines (the console prints them)."""
 
@@ -609,6 +618,15 @@ class Assistant:
                 tier=Tier.SAFE,
                 read_only=True,  # changes nothing outside JARVIS
             ))
+        self.registry.register(Tool(
+            name="set_voice_replies",
+            description=("Turn your spoken replies on or off ('turn your voice on/off', 'unmute yourself', 'text "
+                         "only'). Off: nothing you say is heard; the user reads your replies on screen."),
+            func=self._set_voice_replies,
+            tier=Tier.SAFE,
+            read_only=True,  # changes nothing outside JARVIS
+            parameters={"type": "object", "properties": {"on": {"type": "boolean"}}, "required": ["on"]},
+        ))
         from core.task import TaskMode, register as register_task_tools
 
         editor = self.services.file_editor
@@ -661,7 +679,8 @@ class Assistant:
             memory = prompt_section(store) if store is not None else ""
             default = config["user"].get("name")
             name = address_as(store, default) if store is not None else default
-            return build_system_instruction(name or None, self.registry.summaries(), memory, avoid_names=not name)
+            text = build_system_instruction(name or None, self.registry.summaries(), memory, avoid_names=not name)
+            return text if self.voice else text + "\n\n" + VOICE_OFF_NOTE
 
         declarations = self.registry.declarations()
         self.session = LiveSession(
@@ -973,6 +992,10 @@ class Assistant:
         save_prefs(self.prefs_path, {"announce": self.announce, "voice": self.voice})
         log.info("voice replies %s", "on" if self.voice else "off")
         self.bus.publish("voice", on=self.voice)
+        session = getattr(self, "session", None)
+        if session is not None:   # tell Gemini, so "I can't hear you" gets the real answer
+            session.send_context(VOICE_OFF_NOTE if not self.voice else
+                                 "[app note] Voice replies are back ON: the user hears you again.")
         self._status("(voice replies on)" if self.voice else "(voice replies off: text only)")
 
     def toggle_voice(self) -> None:
@@ -1374,6 +1397,16 @@ class Assistant:
             return
         if notice := self.tasks.next_notice():
             self._notify(notice)
+
+    async def _set_voice_replies(self, on: bool) -> str:
+        """Rung 2 (app state). Tier SAFE. The Voice button, by voice."""
+        on = on if isinstance(on, bool) else str(on).strip().lower() in {"true", "on", "yes", "1"}
+        if on == self.voice:
+            return f"Voice replies were already {'on' if on else 'off'}."
+        self.set_voice(on)
+        if on:
+            return "Voice replies are on again. Say a very short confirmation."
+        return "Voice replies are now off: the user reads your replies on screen. Confirm in a few words."
 
     async def _go_to_sleep(self) -> str:
         """Rung 2 (app state). Tier SAFE. Ends the wake window; the reply still finishes playing."""
