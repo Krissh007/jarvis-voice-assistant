@@ -51,7 +51,7 @@ Values that are left as comments or blank are ignored.
 | `wake_word.threshold` | `0.25` | Stock-model score needed to wake (lower wakes more easily) |
 | `wake_word.personal_verifier` | `true` | Use `data/wake/…_verifier.pkl` from `--train-wake` when it exists |
 | `wake_word.verifier_threshold` | `0.5` | Score needed when the personal verifier is in use |
-| `wake_word.strict_margin` | `0.10` | Extra score the voice model needs when the stock model barely reacts (under 0.05): with `0.10` it needs 0.60. Lower wakes on more first tries but wakes more often on other speech; see the table below |
+| `wake_word.strict_margin` | `0.15` | Extra score the voice model needs when the stock model barely reacts (under 0.05): with `0.15` it needs 0.65 (raised from 0.10 on 23 October 2026, after normal speech scored 0.63–0.66 and woke JARVIS). Lower wakes on more first tries but wakes more often on other speech; see the table below |
 | `wake_word.gain` | `1.0` | Boosts the mic for wake detection only (`--mic-test` suggests a value) |
 | `wake_word.active_window_s` | `15` | Seconds of quiet before JARVIS goes back to sleep |
 | `wake_word.chime_volume` | `0.06` | Wake beep loudness (`0` is silent) |

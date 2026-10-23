@@ -478,6 +478,44 @@ def test_echoing_the_action_counts_as_yes(text, summary, ok) -> None:
     assert (answer_kind(text, ["confirm", "yes", "yeah"], summary) == "yes") is ok
 
 
+PHRASES = ["confirm", "yes", "yeah", "okay", "go ahead"]
+TYPE_ONLY = "type 'add this to the plan' into Claude"
+TYPE_AND_SEND = TYPE_ONLY + " and press Enter"
+
+
+@pytest.mark.parametrize("text, summary, kind", [
+    ("Yes, and don't send it.", TYPE_ONLY, "yes"),          # seen live: this cancelled the typing
+    ("yeah but do not send it yet", TYPE_ONLY, "yes"),
+    ("okay, just don't submit it", TYPE_ONLY, "yes"),
+    ("Yes, and don't send it.", TYPE_AND_SEND, "no"),       # sending is part of the action: not a yes
+    ("yes but don't open it", "Open www.figma.com in the JARVIS browser", "no"),
+    ("don't send it", TYPE_ONLY, "no"),                     # no yes in front
+    ("yes don't", TYPE_ONLY, "no"),                         # nothing said not to do: taken as a no
+    ("yes but don't send it to the whole team please", TYPE_ONLY, "no"),   # too long: a new request
+    ("yes and don't stop", TYPE_ONLY, "no"),
+])
+def test_yes_but_dont_do_something_else_is_still_yes(text, summary, kind) -> None:
+    from core.confirm import answer_kind
+
+    assert answer_kind(text, PHRASES, summary) == kind
+
+
+async def test_a_cancel_by_answer_tells_jarvis_to_call_again_if_wanted(h) -> None:
+    """Seen live: after a cancel JARVIS said "One moment" and never asked again."""
+    await h.model_calls("test_write_note", text="buy milk")
+    await h.speak_summary()
+    await h.user_says("no, write buy bread instead of that")
+    assert h.notes == [] and h.pending is None
+    assert "call the tool again with that change" in h.notices[-1] and "One moment" in h.notices[-1]
+
+
+def test_jarvis_sends_to_claude_only_when_told_to_send() -> None:
+    from core.prompts import PERSONA, CONFIRMATION_RULES
+
+    assert "send=true only when the user says send, ask or submit" in PERSONA
+    assert "call the tool again with the change" in CONFIRMATION_RULES
+
+
 async def test_context_is_sent_without_asking_for_a_reply() -> None:
     events = fl.RecordingEvents()
     client = fl.FakeClient([[]])

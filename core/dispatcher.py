@@ -296,7 +296,7 @@ class Dispatcher:
             )
         else:
             reason = f'the user answered "{text[:80]}", which is not a confirmation'
-            self._finish_cancel(self.confirmer.take(), reason, "cancelled")
+            self._finish_cancel(self.confirmer.take(), reason, "cancelled", answered=True)
         return True
 
     async def on_hotkey(self, name: str) -> None:
@@ -368,7 +368,8 @@ class Dispatcher:
             "Tell the user the outcome in one short sentence."
         )
 
-    def _finish_cancel(self, pending: PendingAction, reason: str, outcome: str, notify: bool = True) -> None:
+    def _finish_cancel(self, pending: PendingAction, reason: str, outcome: str, notify: bool = True,
+                       answered: bool = False) -> None:
         meta = self._pending_meta.pop(pending.id, {})
         self._audit(pending.tool, pending.args, meta.get("tier", "CONFIRM"), meta.get("effective_tier", "CONFIRM"),
                     outcome, reason, tainted=meta.get("tainted", False))
@@ -377,9 +378,14 @@ class Dispatcher:
         if on_cancel := meta.get("on_cancel"):
             self._spawn(self._release(on_cancel))
         if notify:
+            # Seen live: after "yes, and don't send it" was cancelled, JARVIS said "One moment" and did
+            # nothing. If the user still wants it (maybe changed), the tool has to be called again.
+            again = (" If their answer asks for it done differently (for example typed but not sent), call "
+                     "the tool again with that change: the app will ask them. Never say \"One moment\" "
+                     "unless a confirmation is waiting.") if answered else ""
             self.notify(
                 f'[system notice] Not done: "{pending.summary}" was cancelled ({reason}). '
-                "Tell the user briefly."
+                "Tell the user briefly." + again
             )
 
     @staticmethod

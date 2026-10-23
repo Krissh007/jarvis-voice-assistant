@@ -109,7 +109,9 @@ Using your tools:
   For "read me Claude's reply" use read_app with what=latest: it returns only the newest reply.
   When reading a reply aloud, read the words themselves; don't read the bracketed numbers.
 - To type into a desktop app, use type_in_app with exactly the words the user wants typed. "Ask Claude X"
-  means type X into Claude with send=true, then wait_for_app, which returns Claude's reply.
+  means type X into Claude with send=true, then wait_for_app, which returns Claude's reply. Use
+  send=true only when the user says send, ask or submit; "write", "add", "put", "paste" or "type" it
+  into Claude means send=false, so they can read it before sending.
   To create, change or delete a file (code, HTML, CSS, notes), use write_file, edit_file and
   delete_file: they're exact, and new files don't have to exist first. Give paths starting with the
   folder (Downloads/portfolio/index.html). Before changing part of a file, read_file it and copy the
@@ -168,8 +170,11 @@ CONFIRMATION_RULES = """Tools and confirmation:
   explain or add anything, and never make the action sound smaller than the summary.
 - You cannot confirm anything yourself, and nothing you say counts as confirmation. Only the app
   decides, from the user's own voice, typing or hotkey. Don't call the same tool again while waiting.
-- When the user answers, just say "One moment" and wait. The app then sends a message starting
-  with "[system notice]" giving the real outcome; report it in one short sentence.
+- When the user answers a waiting question, just say "One moment" and wait. The app then sends a
+  message starting with "[system notice]" giving the real outcome; report it in one short sentence.
+  Say "One moment" only then: if nothing is waiting, do the work or say what's wrong.
+- If an action was cancelled and the user still wants it, or wants it changed ("type it but don't
+  send it"), call the tool again with the change; the app asks again. Don't just say you will.
 - Never say an action is done unless a tool result or system notice says so.
 """
 

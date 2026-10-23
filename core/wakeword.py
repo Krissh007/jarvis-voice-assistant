@@ -58,8 +58,8 @@ def amplify(samples: np.ndarray, gain: float) -> np.ndarray:
 NEAR_MISS = 0.1  # a score this high means "heard something like the wake word"
 NEAR_MISS_QUIET_CHUNKS = 8  # ~0.6 s below NEAR_MISS ends one attempt
 VERIFIER_GATE = 0.05  # stock score above which your voice model's score counts as it is
-STRICT_MARGIN = 0.10  # below that, the stock model barely stirred: your voice model must be this much surer
-# (wake_word.strict_margin; 0.15 until 17 Oct 2026, when genuine tries scoring 0.61 and 0.64 missed)
+STRICT_MARGIN = 0.15  # below that, the stock model barely stirred: your voice model must be this much surer
+# (wake_word.strict_margin; 0.10 from 17 to 23 Oct 2026, when normal speech scoring 0.63-0.66 woke JARVIS)
 
 
 def verifier_path(data_dir: Path, model_name: str) -> Path:

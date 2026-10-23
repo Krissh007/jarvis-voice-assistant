@@ -950,7 +950,8 @@ def register(registry: Registry, config: dict, services) -> None:
     registry.register(Tool(
         name="type_in_app",
         description=("Type text into an open desktop app, e.g. 'type hello in Notepad', 'ask Claude what a "
-                     "monad is' (send=true presses Enter to send it). Types where the cursor is, else into the "
+                     "monad is' (send=true presses Enter to send it; only when the user says send, ask or "
+                     "submit, never for 'write', 'add', 'put' or 'type'). Types where the cursor is, else into the "
                      "field named or numbered by field (numbers from read_app). app empty = the current app. "
                      "In a code editor (VS Code, Cursor...), field must be the file name, e.g. index.html: it "
                      "types only if that file is open. Up to 10000 characters into a code editor (a whole file "
@@ -966,7 +967,8 @@ def register(registry: Registry, config: dict, services) -> None:
                 "app": {"type": "string", "description": "App name; empty = the current app."},
                 "field": {"type": "string", "description": ("Field name or read_app number; empty = cursor. "
                                                             "In a code editor: the file name.")},
-                "send": {"type": "boolean", "description": "Press Enter afterwards (sends a chat message)."},
+                "send": {"type": "boolean", "description": ("Press Enter afterwards (sends a chat message). "
+                                                           "Only if the user said send, ask or submit.")},
             },
             "required": ["text"],
         },

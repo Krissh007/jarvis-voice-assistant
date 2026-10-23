@@ -41,12 +41,46 @@ def summary_phrases(summary: str) -> list[str]:
     return [f"{words[0]} {w}" for w in ("it", "that", "this", "please")]
 
 
+# "Yes, and don't send it": a yes followed by one thing not to do. Seen live, that cancelled the action
+# because of the "don't". It is still a yes when the thing not to do isn't part of the action.
+NEGATIONS = {"don", "dont", "not", "never"}
+JOINERS = {"and", "but", "just", "do"}
+# Words that name the same step: the summary says "press Enter" where the user says "send".
+SAME_STEP = {"send": {"send", "enter", "submit"}, "submit": {"send", "enter", "submit"},
+             "enter": {"send", "enter", "submit"}, "press": {"press", "enter"}}
+MAX_NEGATED_WORDS = 4   # "don't send it yet"
+
+
+def yes_but_not(text: str, phrases: list[str], summary: str) -> str:
+    """For "yes, but don't X": 'yes' if X isn't a step of the action, 'no' if it is, else ''."""
+    words = normalize(text).split()
+    at = next((i for i, w in enumerate(words) if w in NEGATIONS), -1)
+    if at <= 0:
+        return ""
+    head = words[:at]
+    while head and head[-1] in JOINERS:
+        head.pop()
+    tail = words[at + 1:]
+    if tail[:1] == ["t"]:            # "don't" normalises to "don t"
+        tail = tail[1:]
+    if not head or not tail or len(tail) > MAX_NEGATED_WORDS or any(w in NEGATIVE_WORDS for w in tail):
+        return ""
+    if not is_accept(" ".join(head), phrases):
+        return ""
+    verb = tail[0]
+    steps = set(normalize(summary).split())
+    return "no" if SAME_STEP.get(verb, {verb}) & steps else "yes"
+
+
 def answer_kind(text: str, phrases: list[str], summary: str = "") -> str:
     """'yes', 'no' or 'unclear' for a reply to a pending action. Only a clear yes confirms; a clear
     no or a longer sentence (a new request) cancels; a short reply that is neither (often a
-    mis-transcribed "yeah") is asked again."""
+    mis-transcribed "yeah") is asked again. "Yes, and don't send it" is a yes unless sending is part
+    of the action."""
     if is_accept(text, phrases + summary_phrases(summary)):
         return "yes"
+    if kind := yes_but_not(text, phrases, summary):
+        return kind
     words = normalize(text).split()
     if not words or any(w in NEGATIVE_WORDS for w in words) or len(text.split()) > UNCLEAR_MAX_WORDS:
         return "no"   # (length counts the words as said: normalising splits Hindi words at their vowel marks)
