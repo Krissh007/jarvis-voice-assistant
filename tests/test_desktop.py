@@ -772,3 +772,24 @@ def test_the_open_file_comes_from_the_editors_title() -> None:
     assert desktop.open_file(win("code.exe", "\u25cf index.html - portfolio - Visual Studio Code")) == "index.html"
     assert desktop.open_file(win("code.exe", "Visual Studio Code")) == ""
     assert desktop.open_file(win("notepad.exe", "a.txt - Notepad")) == ""
+
+
+def test_after_reading_a_window_a_click_on_what_the_user_named_does_not_ask(screen, hands) -> None:
+    """Seen live: after reading Claude's window, "go to JP dashboard" asked "Open the JP Dashboard?"."""
+    screen["windows"] = [win("claude.exe", "Claude", 7)]
+    screen["controls"][7] = [Control(1, "button", "JP Dashboard", (0, 0, 90, 20)),
+                             Control(2, "button", "JARVIS architecture dev", (0, 30, 90, 50)),
+                             Control(3, "button", "Code, working", (0, 60, 90, 80)),
+                             Control(4, "button", "Delete chat", (0, 90, 90, 110))]
+    registry = type("R", (), {"last_user_text": "Can you go to JP dashboard in pinned section?"})()
+    services = Services()
+    services.dispatcher = type("D", (), {"tainted": True, "registry": registry})()
+    d = Desktop(CONFIG, services)
+    assert isinstance(run(d.click_in_app("JP Dashboard", app="claude")), str)
+    assert isinstance(run(d.click_in_app("JARVIS architecture dev", app="claude")), NeedsConfirmation)  # not named
+    registry.last_user_text = "Okay, go to Jarvis architecture tab again."
+    assert isinstance(run(d.click_in_app("JARVIS architecture dev", app="claude")), str)
+    registry.last_user_text = "No, go to code code"
+    assert isinstance(run(d.click_in_app("Code, working", app="claude")), str)
+    registry.last_user_text = "delete this chat"
+    assert isinstance(run(d.click_in_app("Delete chat", app="claude")), NeedsConfirmation)   # risky still asks

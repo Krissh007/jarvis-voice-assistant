@@ -345,15 +345,30 @@ def make_focus_app(config: dict):
     return focus_app
 
 
-def make_close_app(config: dict):
+BROWSER_EXES = {"chrome.exe", "msedge.exe", "brave.exe", "firefox.exe"}
+
+
+def _jarvis_browser(services):
+    """JARVIS's own browser tools when its window is open, else None."""
+    tools = getattr(services, "browser", None)
+    session = getattr(tools, "session", None)
+    return tools if getattr(session, "context", None) is not None else None
+
+
+def make_close_app(config: dict, services=None):
     apps = config.get("apps", {})
     allowlist: dict[str, str] = apps.get("allowlist") or {}
     aliases: dict[str, str] = apps.get("aliases") or {}
 
-    def close_app(name: str, discard_unsaved: bool = False) -> str:
+    def only_jarvis_browser(command: str) -> bool:
+        """Seen live: "close Chrome" found no Chrome, while the Chrome window on screen was JARVIS's own."""
+        return (process_name(command) in BROWSER_EXES and _jarvis_browser(services) is not None
+                and not windows_to_close(command))
+
+    async def close_app(name: str, discard_unsaved: bool = False) -> str:
         """Close an allowlisted app's windows politely (like clicking X, so it can ask to save).
         With discard_unsaved, also press "Don't save". Rung 2 (WM_CLOSE) / 4 (UIA). Tier CONFIRM.
-        Never force-kills; never touches JARVIS's browser."""
+        Never force-kills. JARVIS's browser is closed only when it's the one browser open."""
         import ctypes
 
         match = resolve_app(name, allowlist, aliases)
@@ -363,6 +378,9 @@ def make_close_app(config: dict):
         if "://" in command:
             return f"{friendly} is a website, not an app. Say 'close the browser' to close JARVIS's browser."
         hwnds = windows_to_close(command)
+        if not hwnds and only_jarvis_browser(command):
+            await _jarvis_browser(services).browser_close()
+            return f"Your own {friendly} wasn't open; the browser window was JARVIS's, so I closed that."
         if not hwnds:
             return f"{friendly} isn't open."
         for hwnd in hwnds:
@@ -380,6 +398,8 @@ def make_close_app(config: dict):
     def summarize(args: dict[str, Any]) -> str:
         match = resolve_app(str(args.get("name", "")), allowlist, aliases)
         name = match[0] if match else repr(args.get("name"))
+        if match and only_jarvis_browser(match[1]):
+            return "Close the JARVIS browser window"
         if args.get("discard_unsaved"):
             return f"Close all {name} windows and throw away any unsaved changes"
         return f"Close all {name} windows"
@@ -440,10 +460,11 @@ def register(registry: Registry, config: dict, services=None) -> None:
         },
         summarize=app_summary,
     ))
-    close_app, close_summary = make_close_app(config)
+    close_app, close_summary = make_close_app(config, services)
     registry.register(Tool(
         name="close_app",
-        description="Close an app on the list (like clicking X; it may ask to save). Needs confirmation.",
+        description=("Close an app on the list (like clicking X; it may ask to save). Needs confirmation. "
+                     "'Close Chrome' also closes JARVIS's browser when that's the only browser open."),
         func=close_app,
         tier=Tier.CONFIRM,
         parameters={

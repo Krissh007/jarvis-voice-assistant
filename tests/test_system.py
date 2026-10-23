@@ -341,3 +341,33 @@ def test_a_minimised_window_is_restored_and_brought_forward(monkeypatch) -> None
     fake = FakeUser32(front=42, iconic=True)  # minimised windows can still be "foreground"
     focus_with(monkeypatch, fake)
     assert ("show", 9) in fake.calls
+
+
+class FakeJarvisBrowser:
+    def __init__(self, open_: bool) -> None:
+        self.session = type("S", (), {"context": object() if open_ else None})()
+        self.closed = 0
+
+    async def browser_close(self) -> str:
+        self.closed += 1
+        return "Closed the JARVIS browser window."
+
+
+async def test_close_chrome_closes_jarvis_browser_when_it_is_the_only_one(monkeypatch) -> None:
+    """Seen live: "close Chrome" said Chrome wasn't open while JARVIS's own Chrome window showed Netflix."""
+    import main
+
+    services = type("Services", (), {"browser": FakeJarvisBrowser(True)})()
+    close_app, summarize = system.make_close_app(main.load_config(), services)
+    monkeypatch.setattr(system, "windows_to_close", lambda command: [])
+    assert summarize({"name": "chrome"}) == "Close the JARVIS browser window"
+    assert "was JARVIS's, so I closed that" in await close_app("chrome") and services.browser.closed == 1
+    monkeypatch.setattr(system, "windows_to_close", lambda command: [104])   # the user's own Chrome is open
+    monkeypatch.setattr("ctypes.windll", type("W", (), {"user32": type("U", (), {
+        "PostMessageW": staticmethod(lambda *a: None)})()})(), raising=False)
+    assert summarize({"name": "chrome"}) == "Close all chrome windows"
+    assert (await close_app("chrome")).startswith("Asked chrome to close") and services.browser.closed == 1
+    services.browser = FakeJarvisBrowser(False)
+    monkeypatch.setattr(system, "windows_to_close", lambda command: [])
+    assert await close_app("chrome") == "chrome isn't open."
+    assert await close_app("notepad") == "notepad isn't open." and services.browser.closed == 0

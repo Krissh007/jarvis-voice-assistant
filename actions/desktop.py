@@ -127,6 +127,17 @@ def typed_words(text: str, limit: int = 150) -> str:
     first = lines[0].strip() if lines else flat
     first = first[:60] + ("..." if len(first) > 60 else "")
     return f'{len(lines)} line{"s" if len(lines) != 1 else ""} ({len(text)} characters) starting "{first}"'
+# Words that don't identify a control: "go to the JP dashboard tab", "Code, working".
+NAMING_FILLER = {"go", "to", "the", "a", "an", "in", "on", "of", "and", "open", "click", "tap", "press", "select",
+                 "switch", "show", "me", "my", "please", "again", "tab", "button", "section", "page", "link",
+                 "item", "working", "jarvis", "can", "you", "now", "there", "that", "this", "it", "pinned"}
+
+
+def control_words(text: str) -> list[str]:
+    """The words that identify a control or what the user asked for, lower case."""
+    return [w for w in re.findall(r"[a-z0-9]+", text.lower()) if w not in NAMING_FILLER]
+
+
 RISKY = re.compile(
     r"\b(delete|remove|erase|discard|save|print|close|exit|quit|send|submit|post|publish|share|pay|purchase|buy|order|checkout|transfer|"
     r"confirm|accept|agree|allow|install|uninstall|update now|restart|shut ?down|reset|format|empty|clear all|"
@@ -491,6 +502,15 @@ class Desktop:
 
     # ------------------------------------------------------------- typing
 
+    def _user_named(self, name: str) -> bool:
+        """True if the user's own latest words name this control ("go to JP dashboard" -> "JP Dashboard").
+        Seen live: after JARVIS read Claude's window, every sidebar click asked first, because text it
+        had read might have steered it. A control the user named themselves wasn't steered."""
+        registry = getattr(getattr(self.services, "dispatcher", None), "registry", None)
+        said = set(control_words(getattr(registry, "last_user_text", "") or ""))
+        wanted = control_words(name)
+        return bool(wanted) and 2 * sum(w in said for w in wanted) >= len(wanted)
+
     def _tainted(self) -> bool:
         if APPROVED_STEP.get():
             return False  # a plan step the user approved word for word
@@ -714,7 +734,7 @@ class Desktop:
                                                          re.IGNORECASE)
         what = ("double-click" if double else "right-click" if right else "click") + f" {control.kind} \"{name}\""
         summary = f"{what} in {redact(win.label)}"[:300]
-        if (risky and not chat_send) or self._tainted():
+        if (risky and not chat_send) or (self._tainted() and not self._user_named(control.name)):
             async def resume() -> str:
                 return await self._click(win, control, double, right)
             return NeedsConfirmation(summary=summary, resume=resume, step={"app": win.exe, "target": control.name})
