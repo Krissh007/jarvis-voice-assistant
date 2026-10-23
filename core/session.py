@@ -179,6 +179,7 @@ class LiveSession:
         # then repeats the unanswered request.
         self._restart_now: asyncio.Event | None = None
         self._after_restart: str | None = None
+        self._restart_reason = ""
 
     # ---- outbound (non-blocking, safe to call from the event loop) ----
 
@@ -212,7 +213,13 @@ class LiveSession:
     def restart_stalled(self, notice: str | None = None) -> None:
         """Gemini stopped answering: drop this connection now (even if sending is stuck), start a fresh
         session seeded with the recent conversation, then send `notice`."""
+        self.restart_fresh(notice, "Gemini stopped answering")
+
+    def restart_fresh(self, notice: str | None = None, reason: str = "asked for") -> None:
+        """Start a fresh session now, seeded with the recent conversation, then send `notice`: after a
+        stall, or for a setting fixed when the session starts (the reply voice)."""
         self._after_restart = notice
+        self._restart_reason = reason
         if self._restart_now is not None:
             self._restart_now.set()
 
@@ -239,7 +246,7 @@ class LiveSession:
             except _Stalled:
                 self.resume_handle = None       # resuming could bring the stuck state back
                 self._had_conversation = True   # so the fresh session gets the recap
-                log.warning("Gemini stopped answering; starting a fresh session with a recap")
+                log.warning("%s; starting a fresh session with a recap", self._restart_reason or "restart")
             except Exception as exc:
                 self.connected.clear()
                 self._consecutive_failures += 1

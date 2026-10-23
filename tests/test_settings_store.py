@@ -62,15 +62,17 @@ def test_a_clash_counts_saved_but_not_yet_applied_keys(config) -> None:
 
 def test_changes_are_kept_and_marked_for_restart(config, tmp_path) -> None:
     store = SettingsStore(config, tmp_path / "settings.json")
-    assert store.change("voice.name", "Puck") == "Puck"
+    assert store.change("listening.mode", "always_on") == "always_on"
     assert store.change("hotkeys.mute", "ctrl+alt+k") == "ctrl+alt+k"
     assert json.loads((tmp_path / "settings.json").read_text(encoding="utf-8")) == \
-        {"hotkeys.mute": "ctrl+alt+k", "voice.name": "Puck"}
-    assert store.pending_restart() == ["hotkeys.mute", "voice.name"]
+        {"hotkeys.mute": "ctrl+alt+k", "listening.mode": "always_on"}
+    assert store.pending_restart() == ["hotkeys.mute", "listening.mode"]
     voice = next(c for c in store.view({})["categories"] if c["id"] == "voice")
-    item = next(i for i in voice["items"] if i["key"] == "voice.name")
-    assert item["value"] == "Puck" and item["restart"] is True
-    store.change("voice.name", config["voice"]["name"])           # back to what's running: nothing to apply
+    item = next(i for i in voice["items"] if i["key"] == "listening.mode")
+    assert item["value"] == "always_on" and item["restart"] is True
+    reply_voice = next(i for i in voice["items"] if i["key"] == "voice.name")
+    assert reply_voice["applies"] == "now"                         # the voice changes without a restart
+    store.change("listening.mode", config["listening"]["mode"])           # back to what's running: nothing to apply
     assert store.pending_restart() == ["hotkeys.mute"]
     with pytest.raises(ValueError):
         store.change("features.test_tools", True)                 # not a setting the page offers

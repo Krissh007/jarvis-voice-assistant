@@ -30,7 +30,7 @@ Values that are left as comments or blank are ignored.
 | Setting | Default | Meaning |
 |---|---|---|
 | `user.name` | `Sir` | How JARVIS addresses you. A remembered "call me …" fact overrides it. |
-| `voice.name` | `Charon` | Gemini prebuilt voice (e.g. Puck, Kore, Charon) |
+| `voice.name` | `Charon` | JARVIS's speaking voice, one of Gemini Live's 30 voices. Change it in Settings (with a Preview button) or by voice ("switch to Kore", "let me hear Puck"): it applies at once, the conversation carries on, and it's kept for the next start. Previews are cached in `data/voice_previews/` |
 
 ### Models
 

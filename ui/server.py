@@ -243,6 +243,10 @@ def _handle(bridge: Bridge, text: str) -> dict[str, Any] | None:
                 "data": bridge.delete_conversation(msg.get("conversation"))}
     elif kind == "setting" and isinstance(msg.get("key"), str) and "value" in msg:
         return {"kind": "reply", "id": rid, "what": "setting", "data": bridge.change_setting(msg["key"], msg["value"])}
+    elif kind == "preview_voice" and isinstance(msg.get("name"), str):
+        async def preview_reply() -> dict[str, Any]:  # the first preview of a voice takes a few seconds
+            return {"kind": "reply", "id": rid, "what": "preview_voice", "data": await bridge.preview_voice(msg["name"])}
+        return preview_reply()
     elif kind == "forget":
         return {"kind": "reply", "id": rid, "what": "forget", "data": bridge.forget_fact(msg.get("fact"))}
     else:

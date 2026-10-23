@@ -31,6 +31,7 @@ from core.secrets import env_key
 from core.prompts import build_system_instruction
 from core.registry import Registry, Tier, Tool, ToolError
 from core.session import LiveSession, RECAP_LINES, RECAP_LINES_SAVED, build_live_config, build_recap
+from core.settings_store import LIVE_VOICES, VOICE_STYLE
 from core.wakeword import WakeState
 
 log = logging.getLogger(__name__)
@@ -460,6 +461,11 @@ class WebBridge:
                 on = check(setting, value)
                 (a.set_voice if key == "prefs.voice" else a.set_announce)(on)
                 message = f"{setting.label} {'on' if on else 'off'}."
+            elif key == "voice.name":
+                voice = check(setting, value, a.config, {})
+                result = a.set_reply_voice(voice)   # its words are for Gemini; the page gets its own
+                message = (f"Now using {voice}. JARVIS switches as soon as it's done talking; the conversation "
+                           "carries on." if result.startswith("Switching") else result)
             elif key.startswith("look."):
                 self.set_look({key[5:]: check(setting, value)})
                 self.bus.publish("look", look=orb_look(a.config, self.look_path))
@@ -472,6 +478,16 @@ class WebBridge:
             ok, message = False, str(exc)
         log.info("web: setting %s %s", key, "changed" if ok else "refused")
         return {"ok": ok, "key": key, "message": message, "settings": self._settings_view()}
+
+    async def preview_voice(self, name) -> dict:
+        """The Settings page's Preview button: plays a sample of that voice; changes nothing."""
+        from core.voice_preview import find_voice
+
+        voice = find_voice(str(name or ""))
+        if voice is None:
+            return {"ok": False, "message": "That isn't one of the voices."}
+        message = await self._a.preview_voice(voice)
+        return {"ok": message.startswith("Played"), "message": message.split(". Ask")[0] + "."}
 
     def forget_fact(self, fact_id) -> dict:
         """The Memory settings' Forget button (the page asks "are you sure" first; the click is the user's)."""
@@ -605,6 +621,11 @@ class Assistant:
 
             self.services.ducker = Ducker(float(duck_cfg.get("level", 0.3)),
                                           state_path=self.services.data_dir / "ducking.json")
+        from core.voice_preview import VoicePreviews
+
+        self.previews = (VoicePreviews(client, config["models"]["live"], Services().data_dir / "voice_previews")
+                         if client is not None else None)
+        self._voice_change: str | None = None   # a new reply voice, applied when JARVIS isn't busy
         self._last_heard = 0.0
         self._last_reply_at = 0.0     # Gemini's last sign of life: audio, words or a tool call
         self._stall_checked = 0.0     # the heard time already looked at, so one silence restarts once
@@ -618,6 +639,26 @@ class Assistant:
                 tier=Tier.SAFE,
                 read_only=True,  # changes nothing outside JARVIS
             ))
+        self.registry.register(Tool(
+            name="set_reply_voice",
+            description=("Change your speaking voice to another of Gemini Live's voices, e.g. 'switch to Kore' or "
+                         "'a warmer voice'. Voices and their style: "
+                         + ", ".join(f"{v} ({VOICE_STYLE[v].lower()})" for v in LIVE_VOICES)
+                         + ". The conversation carries on."),
+            func=self.set_reply_voice,
+            tier=Tier.SAFE,
+            read_only=True,  # changes nothing outside JARVIS
+            parameters={"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
+        ))
+        self.registry.register(Tool(
+            name="preview_voice",
+            description=("Play a short sample of one of your voices so the user can hear it before choosing "
+                         "('let me hear Puck'). Doesn't change your voice."),
+            func=self.preview_voice,
+            tier=Tier.SAFE,
+            read_only=True,
+            parameters={"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
+        ))
         self.registry.register(Tool(
             name="set_voice_replies",
             description=("Turn your spoken replies on or off ('turn your voice on/off', 'unmute yourself', 'text "
@@ -1205,6 +1246,7 @@ class Assistant:
                 log.exception("dispatcher tick failed")
             try:
                 self._check_stall()
+                self._apply_voice_change()
             except Exception:
                 log.exception("stall check failed")
             working = time.monotonic() - self._last_tool_at < WORKING_MAX_S  # a tool call's turn isn't over
@@ -1397,6 +1439,52 @@ class Assistant:
             return
         if notice := self.tasks.next_notice():
             self._notify(notice)
+
+    def set_reply_voice(self, name: str) -> str:
+        """Rung 2 (app state). Tier SAFE. Settings page or voice. The voice is fixed when a Live session
+        starts, so the change starts a fresh session (seeded with the recent conversation) as soon as JARVIS
+        has finished what it's saying or doing; it's also kept for the next start."""
+        from core.voice_preview import find_voice
+
+        voice = find_voice(name)
+        if voice is None:
+            return f"{name!r} isn't one of my voices. I have: {', '.join(LIVE_VOICES)}."
+        if voice == (self.config.get("voice") or {}).get("name") and self._voice_change is None:
+            return f"I'm already using {voice}."
+        self.config.setdefault("voice", {})["name"] = voice
+        self.settings.change("voice.name", voice)
+        self.settings.started["voice.name"] = voice     # it's in use now: no "restart to apply"
+        self._voice_change = voice
+        log.info("reply voice -> %s", voice)
+        self.bus.publish("voice_name", name=voice)
+        return f"Switching to {voice} as soon as you've finished this reply. Say a few words of goodbye in this voice."
+
+    def _apply_voice_change(self) -> None:
+        if self._voice_change is None or self._busy() or self._turn_open:
+            return
+        voice, self._voice_change = self._voice_change, None
+        self._status(f"(voice: {voice})")
+        self.session.restart_fresh(
+            f"[system notice] Your speaking voice is now {voice}. Say one short sentence so the user hears it.",
+            f"new reply voice {voice}")
+
+    async def preview_voice(self, name: str) -> str:
+        """Rung 2. Tier SAFE. Plays a short sample of a voice (cached in data/voice_previews); changes nothing."""
+        from core.voice_preview import find_voice
+
+        voice = find_voice(name)
+        if voice is None:
+            return f"{name!r} isn't one of my voices. I have: {', '.join(LIVE_VOICES)}."
+        if self.previews is None:
+            return "Voice previews need the connection to Gemini."
+        try:
+            pcm = await self.previews.sample(voice)
+        except Exception as exc:
+            log.warning("voice preview of %s failed: %s", voice, exc)
+            return f"I couldn't get a sample of {voice} just now ({type(exc).__name__}). Try again in a moment."
+        self.player.clear("voice preview")
+        self.player.enqueue(pcm)        # played even with voice replies off: the user asked to hear it
+        return f"Played a {len(pcm) / 48_000:.0f}-second sample of {voice}. Ask in a few words whether to switch to it."
 
     async def _set_voice_replies(self, on: bool) -> str:
         """Rung 2 (app state). Tier SAFE. The Voice button, by voice."""

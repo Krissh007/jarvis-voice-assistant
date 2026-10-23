@@ -38,6 +38,16 @@ LIVE_VOICES = ("Achernar", "Achird", "Algenib", "Algieba", "Alnilam", "Aoede", "
                "Despina", "Enceladus", "Erinome", "Fenrir", "Gacrux", "Iapetus", "Kore", "Laomedeia", "Leda", "Orus",
                "Puck", "Pulcherrima", "Rasalgethi", "Sadachbia", "Sadaltager", "Schedar", "Sulafat", "Umbriel",
                "Vindemiatrix", "Zephyr", "Zubenelgenubi")
+# Google's own one-word description of each voice (Gemini speech docs), shown next to its name.
+VOICE_STYLE = {
+    "Achernar": "Soft", "Achird": "Friendly", "Algenib": "Gravelly", "Algieba": "Smooth", "Alnilam": "Firm",
+    "Aoede": "Breezy", "Autonoe": "Bright", "Callirrhoe": "Easy-going", "Charon": "Informative",
+    "Despina": "Smooth", "Enceladus": "Breathy", "Erinome": "Clear", "Fenrir": "Excitable", "Gacrux": "Mature",
+    "Iapetus": "Clear", "Kore": "Firm", "Laomedeia": "Upbeat", "Leda": "Youthful", "Orus": "Firm",
+    "Puck": "Upbeat", "Pulcherrima": "Forward", "Rasalgethi": "Informative", "Sadachbia": "Lively",
+    "Sadaltager": "Knowledgeable", "Schedar": "Even", "Sulafat": "Warm", "Umbriel": "Easy-going",
+    "Vindemiatrix": "Gentle", "Zephyr": "Bright", "Zubenelgenubi": "Casual",
+}
 MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/\-]{0,79}$")
 MAX_LIST = 6
 
@@ -62,7 +72,9 @@ SETTINGS: tuple[Setting, ...] = (
     Setting("prefs.voice", "voice", "Voice replies", "bool", "Off: JARVIS answers in text only and never speaks.", "now"),
     Setting("prefs.announce", "voice", "Announce", "bool",
             "Speak agent results, reminders and the morning briefing. Off: shown here and as a notification.", "now"),
-    Setting("voice.name", "voice", "Reply voice", "choice", "One of Gemini Live's voices.", choices=LIVE_VOICES),
+    Setting("voice.name", "voice", "Reply voice", "choice",
+            "One of Gemini Live's voices. Preview one first; it changes at once and the conversation carries on.",
+            "now", choices=LIVE_VOICES),
     Setting("listening.mode", "voice", "Listening", "choice",
             "Wake word: say \"hey Jarvis\". Push to talk: hold the key. Always on: everything you say.",
             choices=("wake_word", "push_to_talk", "always_on")),
@@ -256,6 +268,7 @@ class SettingsStore:
                     "key": s.key, "label": s.label, "kind": s.kind, "help": s.help, "applies": s.applies,
                     "editable": s.editable, "choices": list(s.choices), "low": s.low, "high": s.high,
                     "step": s.step, "value": value,
+                    "labels": VOICE_STYLE if s.key == "voice.name" else {},
                     "restart": s.applies == "restart" and s.key in saved and saved[s.key] != self.started.get(s.key),
                 })
             cats.append({"id": cid, "label": label, "icon": icon, "items": items})

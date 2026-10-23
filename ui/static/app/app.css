@@ -67,6 +67,9 @@ h3 { font-size: 13px; font-weight: 600; margin: 18px 0 6px; color: var(--dim); t
 .range input { width: 180px; }
 .range output { min-width: 52px; text-align: right; color: var(--dim); font-variant-numeric: tabular-nums; }
 .text-value { display: flex; gap: 8px; }
+.voice-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: flex-end; max-width: 520px; }
+.voice-picker select { min-width: 190px; }
+.voice-picker .btn { display: inline-flex; align-items: center; gap: 6px; }
 .text-value input { width: 260px; font-family: var(--mono); font-size: 13px; }
 .hotkey { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .swatch { width: 18px; height: 18px; border-radius: 5px; background: var(--accent); box-shadow: 0 0 10px rgba(56, 198, 244, 0.5); }

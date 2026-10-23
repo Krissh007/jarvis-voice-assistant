@@ -50,6 +50,32 @@ function Choice({ item, save }) {
   </select>`;
 }
 
+// The reply voice: pick one, hear it (Preview), then Use it. Choosing in the list changes nothing by
+// itself; "Use this voice" switches JARVIS at once and the conversation carries on.
+function VoicePicker({ item, save }) {
+  const [pick, setPick] = useState(item.value);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  useEffect(() => setPick(item.value), [item.value]);
+  const label = (v) => (item.labels && item.labels[v] ? `${v} · ${item.labels[v]}` : v);
+  async function preview() {
+    setBusy(true); setNote("");
+    const d = await ask({ type: "preview_voice", name: pick }, 30000);   // the first sample takes a few seconds
+    setBusy(false);
+    setNote(d ? d.message : "JARVIS didn't answer. Try again.");
+  }
+  return html`<div class="voice-picker">
+    <select aria-label=${item.label} value=${pick} onChange=${(e) => { setPick(e.target.value); setNote(""); }}>
+      ${item.choices.map((c) => html`<option value=${c} selected=${c === pick}>${label(c)}${c === item.value ? " (current)" : ""}</option>`)}
+    </select>
+    <button class="btn" onClick=${preview} disabled=${busy} title="Hear a short sample of this voice">
+      <${Icon} name=${busy ? "loader" : "volume-2"} size=${15} /> ${busy ? "Getting sample…" : "Preview"}</button>
+    <button class="btn primary" onClick=${() => save(item.key, pick)} disabled=${pick === item.value}
+      title="JARVIS switches at once; the conversation carries on"><${Icon} name="check" size=${15} /> Use this voice</button>
+    ${note && html`<span class="dim small" role="status">${note}</span>`}
+  </div>`;
+}
+
 function TextValue({ item, save }) {
   const list = item.kind === "models";
   const initial = list ? (item.value || []).join(", ") : item.value || "";
@@ -105,7 +131,8 @@ function Control({ item, save }) {
   switch (item.kind) {
     case "bool": return html`<${Toggle} item=${item} save=${save} />`;
     case "int": case "float": return html`<${Range} item=${item} save=${save} />`;
-    case "choice": return html`<${Choice} item=${item} save=${save} />`;
+    case "choice": return item.key === "voice.name" ? html`<${VoicePicker} item=${item} save=${save} />`
+                                                     : html`<${Choice} item=${item} save=${save} />`;
     case "hotkey": return html`<${Hotkey} item=${item} save=${save} />`;
     case "model": case "models": return html`<${TextValue} item=${item} save=${save} />`;
     default: return html`<span class="value">${show(item, item.value)}</span>`;
@@ -156,7 +183,7 @@ export function SettingsSection() {
   const load = () => ask({ type: "request", what: "settings" }).then((d) => d && setView(d));
   useEffect(() => { if (s.connected) load(); }, [s.connected]);
   // Voice, Announce or the orb's look changed elsewhere (a button, the orb's sliders): show it.
-  useEffect(() => onEvent((ev) => { if (["voice", "announce", "look"].includes(ev.kind)) load(); }), []);
+  useEffect(() => onEvent((ev) => { if (["voice", "announce", "look", "voice_name"].includes(ev.kind)) load(); }), []);
 
   async function save(key, value) {
     const d = await ask({ type: "setting", key, value });
