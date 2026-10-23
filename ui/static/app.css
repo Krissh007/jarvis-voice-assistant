@@ -111,6 +111,12 @@ body.menu #panel { display: none !important; }
 #status { text-align: center; font-size: 11px; min-height: 15px; text-shadow: 0 0 6px #000; }
 #status:empty { display: none; }
 
+/* ---------------------------------------------------------------- the status line ("Searching the web…") */
+.card.status { display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 12px; color: var(--title); }
+.card.status h2 { display: none; }
+.status-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+body.voice .card.status { padding: 5px 12px; }
+
 /* ---------------------------------------------------------------- the voice view: only the sections, the answer as a caption */
 body.voice #controls, body.voice #composer, body.voice #quick, body.voice #status, body.voice #look { display: none; }
 body.voice #sections { align-items: center; }

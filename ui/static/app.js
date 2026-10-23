@@ -111,7 +111,7 @@ function captionSoon() {
   if (view !== "voice") return;
   captionTimer = setTimeout(() => {
     if (view !== "voice") return;
-    if (pendingId || state === "speaking" || state === "working") return captionSoon();
+    if (pendingId || activityText || state === "speaking" || state === "working") return captionSoon();
     const panel = $("panel"), started = performance.now();
     animate(300, 0, (e) => { panel.style.opacity = 1 - e; }, () => {
       panel.style.opacity = "";
@@ -137,6 +137,7 @@ function setExpanded(expanded) {
 function handle(ev) {
   switch (ev.kind) {
     case "hello": return hello(ev);
+    case "activity": return activity(ev.text);
     case "level": setProblem(ev.problem); setState(ev.state); orbState.levelTarget = ev.level || 0; return;
     case "orb_visibility": toWindow(ev.visible ? "show" : "hide"); return;
     case "state": return setState(ev.state);
@@ -157,6 +158,7 @@ function handle(ev) {
 
 function hello(ev) {
   const snap = ev.snapshot || {};
+  activity(snap.activity || "");
   setProblem(snap.problem);
   if (snap.orb_visible === false) toWindow("hide");
   setSpeak((snap.voice ?? snap.speak) !== false);
@@ -342,6 +344,32 @@ function shownText(ev) {               // a list or text JARVIS put on screen in
     card.append(ol);
   }
   if (ev.text) { const p = document.createElement("p"); p.className = "text"; p.textContent = String(ev.text); card.append(p); }
+  captionSoon();
+  sendShapeSoon();
+}
+
+// What JARVIS is doing right now ("Searching the web…"): a small line at the top of the sections, so a pause
+// never looks like nothing is happening. The dot pulses on animation frames (the see-through window doesn't
+// run CSS animations).
+let activityText = "", activityDot = null;
+function activity(text) {
+  activityText = text || "";
+  if (!activityText) { activityDot = null; removeSection("status"); return; }
+  const card = section("status", "", "status");
+  if (card.parentElement && card.parentElement.firstChild !== card) card.parentElement.prepend(card);
+  card.replaceChildren(card.firstChild);
+  const dot = document.createElement("span");
+  dot.className = "status-dot";
+  const words = document.createElement("span");
+  words.textContent = activityText;                        // written by JARVIS's code, still set as text
+  card.append(dot, words);
+  card.setAttribute("role", "status");
+  if (!activityDot) requestAnimationFrame(function pulse(now) {
+    if (activityDot !== dot || !dot.isConnected) return;
+    dot.style.opacity = String(0.35 + 0.65 * (0.5 + 0.5 * Math.sin(now / 220)));
+    requestAnimationFrame(pulse);
+  });
+  activityDot = dot;
   captionSoon();
   sendShapeSoon();
 }

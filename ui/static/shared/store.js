@@ -10,6 +10,7 @@ const state = {
   voice: true,           // the Voice button: false = text-only replies
   announce: true,        // the Announce button
   status: "",            // the latest status line
+  activity: "",          // what JARVIS is doing right now ("Searching the web…"); "" = nothing
 };
 const subscribers = new Set();
 let version = 0;   // bumped on every change, so a view that subscribes late still catches up
@@ -40,12 +41,13 @@ export function useStore() {
   return state;
 }
 
-// The events every page shares: hello (snapshot), state, voice, announce, status.
+// The events every page shares: hello (snapshot), state, voice, announce, status, activity.
 export function applyEvent(ev) {
   switch (ev.kind) {
     case "hello": {
       const s = ev.snapshot || {};
-      setState({ jarvis: s.state || "starting", voice: (s.voice ?? s.speak) !== false, announce: s.announce !== false });
+      setState({ jarvis: s.state || "starting", voice: (s.voice ?? s.speak) !== false, announce: s.announce !== false,
+                 activity: s.activity || "" });
       return;
     }
     case "level":
@@ -53,5 +55,6 @@ export function applyEvent(ev) {
     case "voice": setState({ voice: !!ev.on }); return;
     case "announce": setState({ announce: !!ev.on }); return;
     case "status": setState({ status: ev.text || "" }); return;
+    case "activity": setState({ activity: ev.text || "" }); return;
   }
 }

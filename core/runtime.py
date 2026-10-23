@@ -303,6 +303,7 @@ class WebBridge:
             "user": a.transcript._labels["user"],
             "speak": a.voice,  # the typing box's speaker toggle is the Voice setting
             "voice": a.voice,
+            "activity": a.activity.text,
             "announce": a.announce,
             "pending": {"id": pending.id, "summary": pending.summary} if pending else None,
             "quick_actions": [str(q)[:80] for q in (web.get("quick_actions") or [])][:8],
@@ -694,7 +695,17 @@ class Assistant:
             accept_phrases=confirm_cfg["accept_phrases"],
             dry_run=options.dry_run,
         )
-        self.dispatcher.events = lambda kind, **data: self.bus.publish(kind, channel=self._reply_channel, **data)
+        from core.activity import Activity
+
+        # The status line under the orb and in the chat ("Searching the web…"), so a pause never looks dead.
+        self.activity = Activity(lambda **data: self.bus.publish("activity", **data))
+
+        def dispatch_event(kind: str, **data) -> None:
+            self.bus.publish(kind, channel=self._reply_channel, **data)
+            self._activity_from(kind, data)
+
+        self.dispatcher.events = dispatch_event
+        self.bus.subscribe(self._watch_bus)
         self.gate.confirmation_pending = lambda: self.dispatcher.awaiting_confirmation
         if self.services.memory is not None:
             from actions.memory import preferred_name
@@ -1152,6 +1163,9 @@ class Assistant:
     async def _on_typed(self, text: str, model_text: str | None = None) -> None:
         if not await self.dispatcher.on_user_input(text, "text"):
             self.session.send_text(model_text or text)
+            from core.activity import THINKING
+
+            self.activity.set(THINKING, "thinking")
 
     async def _with_pictures(self, text: str, notes: list[str], pictures: list) -> None:
         """Look at the attached pictures with the vision model, then send the message with what it saw,
@@ -1160,6 +1174,7 @@ class Assistant:
 
         llm = self.services.llm
         seen = ""
+        self.activity.set("Looking at your pictures…", "tool")
         if llm is not None:
             prompt = ("The user attached these pictures to a message for their assistant"
                       + (f": {text!r}" if text else "") + ". Describe what's in them that matters for that "
@@ -1213,6 +1228,40 @@ class Assistant:
         log.info("orb %s", "shown" if self.orb_visible else "hidden")
         self.bus.publish("orb_visibility", visible=self.orb_visible)
 
+    def _activity_from(self, kind: str, data: dict) -> None:
+        """A tool started or finished: say what JARVIS is doing (texts from core.activity, never from results)."""
+        from core.activity import COMPOSING, describe
+
+        if kind == "tool_started":
+            if text := describe(str(data.get("tool") or ""), data.get("args")):
+                self.activity.set(text, "tool")
+        elif kind == "tool_finished":
+            if data.get("tool") == "agent_hub_request" and "started" in str(data.get("result") or "").lower():
+                self.activity.background_jobs += 1   # a run that reports back later
+            if data.get("paused"):
+                self.activity.clear()                # waiting for the user's yes: nothing is running
+            elif self.activity.kind == "tool":
+                self.activity.set(COMPOSING, "composing")
+
+    def _watch_bus(self, event) -> None:
+        if event.kind == "agent_update" and self.activity.background_jobs > 0:
+            self.activity.background_jobs -= 1      # a background run reported back
+
+    def _update_activity(self) -> None:
+        """Every tick: "Thinking…" while Gemini hasn't answered yet, long-step notes, background work."""
+        from core.activity import BACKGROUND_AGENTS, BACKGROUND_TASK, THINKING
+
+        a, now = self.activity, time.monotonic()
+        listening = (self.wake is None or self.wake.awake) and not self.gate.muted
+        waiting = (self._last_heard > self._last_reply_at and now - self._last_heard >= 1.0
+                   and not self.dispatcher.awaiting_confirmation)
+        if listening and waiting and a.kind in {"", "background"} and len(self.transcript.last_user().split()) >= 2:
+            a.set(THINKING, "thinking")
+        elif a.kind in {"thinking", "composing"} and (now - a.since > 25 or not listening):
+            a.clear()                                # no answer came (noise, a stall): don't leave it up
+        background = BACKGROUND_TASK if self.tasks.active else BACKGROUND_AGENTS if a.background_jobs else ""
+        a.tick(background)
+
     def _check_stall(self) -> None:
         """Seen live: after a cancelled confirmation Gemini heard every later request but never answered,
         and JARVIS fell asleep. If the user said something real and Gemini stays silent for
@@ -1247,6 +1296,7 @@ class Assistant:
             try:
                 self._check_stall()
                 self._apply_voice_change()
+                self._update_activity()
             except Exception:
                 log.exception("stall check failed")
             working = time.monotonic() - self._last_tool_at < WORKING_MAX_S  # a tool call's turn isn't over
@@ -1570,6 +1620,7 @@ class Assistant:
         if self.wake:
             self.wake.touch()
         self._last_reply_at = time.monotonic()
+        self._reply_started()
         if self.voice and not self._drop_reply and not self._quiet_reply:
             self.player.enqueue(pcm)
             self._out_level = rms_level(pcm, 5000)
@@ -1587,14 +1638,21 @@ class Assistant:
         self.transcript.add("user", text, "voice")
         self.dispatcher.on_input_fragment(text)
 
+    def _reply_started(self) -> None:
+        if self.activity.kind in {"thinking", "composing"}:
+            self.activity.clear()
+
     def on_output_transcript(self, text: str) -> None:
         self._last_reply_at = time.monotonic()
+        self._reply_started()
         self._turn_open = True
         self.dispatcher.flush_utterance()
         self.transcript.add("jarvis", text, self._reply_channel)
 
     def on_turn_complete(self) -> None:
         self._last_reply_at = time.monotonic()
+        if self.activity.kind != "background":
+            self.activity.clear()
         self._drop_reply = False
         self._quiet_reply = False
         self._last_tool_at = 0.0

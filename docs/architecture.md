@@ -294,6 +294,13 @@ receives can confirm an action.
       playing), in the order they came;
     - the typing box;
     - quick-action chips (`web_ui.quick_actions`).
+  - Status line (`core/activity.py`): while JARVIS works, a few words say what it's doing, at the top of
+    the sections under the orb, at the bottom of the chat and in the app's header: "Thinking…" from a
+    second after the user stops until Gemini answers (or at once for a typed message), one line per
+    tool ("Searching the web…", "Looking at your screen…", "Reading Claude…"), "Putting the answer
+    together…" after a tool, " This can take a moment." after 8 s, and background work when nothing else
+    is going on ("Your agents are working in the background…", task mode). The words are JARVIS's own,
+    never taken from tool output; the event is `activity` {text, what}.
   - Voice mode: if the orb was closed, a reply shows only its sections (the answer as a short caption,
     a confirmation, a picture, what's playing) under the orb, with no controls, typing box or chips.
     They fade after `web_ui.caption_seconds` (8 s) once JARVIS has finished; a confirmation stays until

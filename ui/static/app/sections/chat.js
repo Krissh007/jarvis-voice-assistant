@@ -207,6 +207,7 @@ export function ChatSection({ compact }) {
           select=${setSelected} voice=${s.voice} />`)}
         ${live.user && html`<div class="msg user live"><div class="bubble">${live.user}</div><div class="faint small">listening…</div></div>`}
         ${live.jarvis && html`<div class="msg jarvis live"><div class="bubble">${live.jarvis}</div></div>`}
+        ${s.activity && html`<div class="msg jarvis activity" role="status"><div class="bubble"><span class="pulse"></span>${s.activity}</div></div>`}
       </div>
       <${Composer} compact=${compact} />
     </div>

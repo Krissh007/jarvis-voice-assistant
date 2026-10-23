@@ -56,7 +56,7 @@ function Header({ title }) {
     <h1>${title}</h1>
     <div class="grow"></div>
     <span class="pill" title="What JARVIS is doing"><span class=${"dot " + (s.jarvis === "muted" ? "warn" : s.connected ? "ok" : "bad")}></span>
-      ${s.connected ? STATE_LABEL[s.jarvis] || s.jarvis : "Not connected"}</span>
+      ${s.connected ? s.activity || STATE_LABEL[s.jarvis] || s.jarvis : "Not connected"}</span>
     ${!s.voice && html`<span class="pill" title="Voice replies are off: JARVIS answers in text only">
       <${Icon} name="volume-x" size=${14} /> Text only</span>`}
     ${!s.announce && html`<span class="pill" title="Announcements are off"><${Icon} name="bell-off" size=${14} /> Quiet</span>`}

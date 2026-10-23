@@ -47,7 +47,7 @@ LEVEL_FPS = 15  # orb updates
 HISTORY_KINDS = {"message", "tool_started", "tool_finished", "confirm_requested", "confirm_resolved",
                  "sources", "memory_used", "agent_update", "route"}
 HISTORY_MAX = 150
-STREAM_KINDS = HISTORY_KINDS | {"partial", "state", "status", "focus", "media", "conversation", "announce", "voice",
+STREAM_KINDS = HISTORY_KINDS | {"partial", "state", "status", "focus", "media", "conversation", "announce", "voice", "activity",
                                 "look", "orb_visibility"}
 
 
