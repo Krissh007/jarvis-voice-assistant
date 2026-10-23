@@ -69,7 +69,7 @@ wake_word:
   verifier_threshold: 0.5       # wake threshold when the personal verifier is in use
   strict_margin: 0.15           # extra the voice model needs when the stock model scores ~0: 0.65 (0.10 wakes on more speech)
   gain: 1.0                     # boosts your voice for wake detection only; --mic-test suggests a value
-  active_window_s: 15
+  active_window_s: 60
   chime_volume: 0.06            # wake beep loudness, 0 = silent, 0.25 = the old level
   skip_after_wake_ms: 500       # mic audio not sent to Gemini right after waking: the end of "hey jarvis"
 

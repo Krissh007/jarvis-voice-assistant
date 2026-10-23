@@ -53,7 +53,7 @@ Values that are left as comments or blank are ignored.
 | `wake_word.verifier_threshold` | `0.5` | Score needed when the personal verifier is in use |
 | `wake_word.strict_margin` | `0.15` | Extra score the voice model needs when the stock model barely reacts (under 0.05): with `0.15` it needs 0.65 (raised from 0.10 on 23 October 2026, after normal speech scored 0.63–0.66 and woke JARVIS). Lower wakes on more first tries but wakes more often on other speech; see the table below |
 | `wake_word.gain` | `1.0` | Boosts the mic for wake detection only (`--mic-test` suggests a value) |
-| `wake_word.active_window_s` | `15` | Seconds of quiet before JARVIS goes back to sleep |
+| `wake_word.active_window_s` | `60` | After waking, JARVIS keeps listening until this many seconds pass with nothing from you (speech or typing; the count waits while JARVIS is still talking). "Go to sleep", "stop listening", "that's all" or "goodbye" end it at once, and so does a bare "stop" when JARVIS isn't talking or working. Also in Settings, applied at once |
 | `wake_word.chime_volume` | `0.06` | Wake beep loudness (`0` is silent) |
 | `listening.stall_restart_s` | `10` | You said something (3+ words) but Gemini stayed silent this long, with no action running or waiting for your yes: JARVIS reconnects with a recap and repeats your request. `0` turns it off |
 | `browser.step_timeout_s` | `20` | One step in JARVIS's browser (scroll, click, read) gives up after this many seconds |

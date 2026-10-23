@@ -1,13 +1,15 @@
 """Optional openWakeWord listener (feature flag). Detection runs fully offline.
 
-In wake_word mode no mic audio reaches Gemini until "hey jarvis" is heard. After that,
-audio streams until `active_window_s` passes with no activity (speech in either
-direction), then it goes back to sleep.
+In wake_word mode no mic audio reaches Gemini until "hey jarvis" is heard. After that, JARVIS
+stays awake and listening until `active_window_s` (60 s) passes with no input from the user, or
+the user tells it to sleep. The minute starts again whenever the user speaks or types, and is
+held while JARVIS is still talking, so it always counts from when the user could answer.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -22,7 +24,7 @@ log = logging.getLogger(__name__)
 class WakeState:
     """Asleep/awake state machine, clock injectable for tests."""
 
-    active_window_s: float = 15.0
+    active_window_s: float = 60.0
     clock: Callable[[], float] = time.monotonic
     awake: bool = False
     _last_activity: float = field(default=0.0)
@@ -32,7 +34,7 @@ class WakeState:
         self.touch()
 
     def touch(self) -> None:
-        """Record activity (user or model speech) that keeps the window open."""
+        """Record activity that keeps the window open: the user's input, or JARVIS finishing a reply."""
         self._last_activity = self.clock()
 
     def check_sleep(self, playing: bool) -> bool:
@@ -60,6 +62,33 @@ NEAR_MISS_QUIET_CHUNKS = 8  # ~0.6 s below NEAR_MISS ends one attempt
 VERIFIER_GATE = 0.05  # stock score above which your voice model's score counts as it is
 STRICT_MARGIN = 0.15  # below that, the stock model barely stirred: your voice model must be this much surer
 # (wake_word.strict_margin; 0.10 from 17 to 23 Oct 2026, when normal speech scoring 0.63-0.66 woke JARVIS)
+
+
+# Asking JARVIS to sleep: the whole utterance, so "stop the music" or "go to sleep in an hour" don't.
+SLEEP_PHRASES = {"go to sleep", "go back to sleep", "you can sleep", "you can go to sleep", "sleep", "sleep now",
+                 "stop listening", "you can stop listening", "that's all", "that's it", "that's all for now",
+                 "that's it for now", "goodbye", "bye", "bye bye", "good night", "goodnight"}
+BARE_STOP = {"stop", "stop it", "stop now"}   # only when JARVIS isn't talking or working: then it means "stop speaking"
+SLEEP_FILLER = {"jarvis", "hey", "ok", "okay", "please", "now", "thanks", "thank", "you", "alright", "right"}
+
+
+def sleep_request(text: str) -> str:
+    """'sleep' for an explicit go-to-sleep, 'stop' for a bare "stop", else ''."""
+    words = re.sub(r"[^\w\s']", " ", text.lower().replace("\u2019", "'")).split()
+    # Filler only comes off the ends, a word at a time: "okay, go to sleep", "that's all for now, thanks".
+    while words:
+        said = " ".join(words)
+        if said in SLEEP_PHRASES:
+            return "sleep"
+        if said in BARE_STOP:
+            return "stop"
+        if words[0] in SLEEP_FILLER:
+            words = words[1:]
+        elif words[-1] in SLEEP_FILLER:
+            words = words[:-1]
+        else:
+            break
+    return ""
 
 
 def verifier_path(data_dir: Path, model_name: str) -> Path:

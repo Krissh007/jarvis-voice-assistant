@@ -467,6 +467,13 @@ class WebBridge:
                 result = a.set_reply_voice(voice)   # its words are for Gemini; the page gets its own
                 message = (f"Now using {voice}. JARVIS switches as soon as it's done talking; the conversation "
                            "carries on." if result.startswith("Switching") else result)
+            elif key == "wake_word.active_window_s":
+                seconds = check(setting, value)
+                a.settings.change(key, seconds)
+                a.config["wake_word"]["active_window_s"] = seconds
+                if a.wake is not None:
+                    a.wake.active_window_s = float(seconds)
+                message = f"JARVIS now stays awake until {seconds} seconds pass with nothing from you."
             elif key.startswith("look."):
                 self.set_look({key[5:]: check(setting, value)})
                 self.bus.publish("look", look=orb_look(a.config, self.look_path))
@@ -628,6 +635,7 @@ class Assistant:
                          if client is not None else None)
         self._voice_change: str | None = None   # a new reply voice, applied when JARVIS isn't busy
         self._last_heard = 0.0
+        self._sleep_heard_at = 0.0   # when words came that may be "go to sleep" (checked once the sentence ends)
         self._last_reply_at = 0.0     # Gemini's last sign of life: audio, words or a tool call
         self._stall_checked = 0.0     # the heard time already looked at, so one silence restarts once
         self.stall_restart_s = float(config["listening"].get("stall_restart_s", 10) or 0)
@@ -635,7 +643,9 @@ class Assistant:
         if self.wake:
             self.registry.register(Tool(
                 name="go_to_sleep",
-                description="Stop listening until the user says the wake word again (e.g. 'go to sleep').",
+                description=("Stop listening until the user says the wake word again (e.g. 'go to sleep', 'stop "
+                             "listening', 'that's all'). Otherwise you stay awake until a minute passes with "
+                             "nothing from the user."),
                 func=self._go_to_sleep,
                 tier=Tier.SAFE,
                 read_only=True,  # changes nothing outside JARVIS
@@ -1303,6 +1313,8 @@ class Assistant:
             if (self.wake and not self.wake.awake and self.tasks.active and self.dispatcher.awaiting_confirmation):
                 self.wake.wake()  # the task needs a yes or no: listen for it
                 self._status("(awake)")
+            if self.wake and self.wake.awake:
+                self._check_sleep_request(working)
             if self.wake and self.wake.check_sleep(self.playback.playing or self.dispatcher.awaiting_confirmation
                                                    or working):
                 self.transcript.flush()
@@ -1546,6 +1558,30 @@ class Assistant:
             return "Voice replies are on again. Say a very short confirmation."
         return "Voice replies are now off: the user reads your replies on screen. Confirm in a few words."
 
+    SLEEP_SETTLE_S = 1.0   # no more words for this long: the sentence is finished
+
+    def _check_sleep_request(self, working: bool) -> None:
+        """"Go to sleep" / "stop listening" ends the awake window at once, without waiting for Gemini.
+        A bare "stop" does too, but only when JARVIS isn't talking, working or waiting for a yes: then
+        it already means "stop talking" or "stop that task"."""
+        from core.wakeword import sleep_request
+
+        heard = self._sleep_heard_at
+        if not heard or time.monotonic() - heard < self.SLEEP_SETTLE_S:
+            return
+        self._sleep_heard_at = 0.0
+        kind = sleep_request(self.transcript.last_user())
+        if not kind:
+            return
+        busy = (self.playback.playing or self._turn_open or working or self.tasks.active
+                or self.dispatcher.awaiting_confirmation or time.monotonic() - self._last_reply_at < 3.0)
+        if kind == "stop" and busy:
+            return
+        log.info("asked to sleep (%s)", kind)
+        self.wake.awake = False
+        self.transcript.flush()
+        self._status("(sleeping)")
+
     async def _go_to_sleep(self) -> str:
         """Rung 2 (app state). Tier SAFE. Ends the wake window; the reply still finishes playing."""
         self.wake.awake = False
@@ -1637,6 +1673,8 @@ class Assistant:
         self.dispatcher.turn_blocked = {}  # the chat's "web search off" was for its own message only
         self.transcript.add("user", text, "voice")
         self.dispatcher.on_input_fragment(text)
+        if self.wake is not None and self.wake.awake:
+            self._sleep_heard_at = self._last_heard
 
     def _reply_started(self) -> None:
         if self.activity.kind in {"thinking", "composing"}:

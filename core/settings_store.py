@@ -82,6 +82,9 @@ SETTINGS: tuple[Setting, ...] = (
             "How long a quiet moment means you've finished. Shorter replies faster but can cut you off.",
             low=400, high=3000, step=100),
     Setting("wake_word.chime_volume", "voice", "Wake chime volume", "float", "0 = silent.", low=0, high=0.25, step=0.01),
+    Setting("wake_word.active_window_s", "voice", "Stay awake for (seconds)", "int",
+            "After you last spoke or typed. Saying \"go to sleep\" or \"stop listening\" ends it sooner.",
+            applies="now", low=15, high=600, step=5),
     # Models
     Setting("models.live", "models", "Voice model (Gemini Live)", "model", "Talks with you and calls tools."),
     Setting("models.flash", "models", "Text model (Gemini Flash)", "model",
