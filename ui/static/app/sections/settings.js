@@ -8,8 +8,12 @@
 import { useEffect, useState } from "/static/vendor/preact/hooks.module.js";
 import { html, Icon } from "/static/shared/ui.js";
 import { useStore } from "/static/shared/store.js";
-import { ask, onEvent } from "/static/shared/ws.js";
+import { ask, onEvent, phone } from "/static/shared/ws.js";
 import { FactsList } from "/static/app/sections/facts.js";
+import { PhonePanel } from "/static/app/sections/phone.js";
+
+// Pairing phones is the PC's job (a phone can't pair others or see the list), so only the PC shows it.
+const PHONE = { id: "phone", label: "Phone", icon: "smartphone", items: [] };
 
 const PERCENT = new Set(["look.core_size", "look.orb_brightness", "look.cloud_brightness", "look.ribbon_brightness"]);
 const CHOICE_LABEL = { wake_word: "Wake word", push_to_talk: "Push to talk", always_on: "Always on" };
@@ -193,11 +197,12 @@ export function SettingsSection() {
   }
 
   if (!view) return html`<div class="page"><p class="dim">${s.connected ? "Loading settings…" : "Not connected to JARVIS."}</p></div>`;
-  const cat = view.categories.find((c) => c.id === category) || view.categories[0];
+  const categories = phone ? view.categories : [...view.categories, PHONE];
+  const cat = categories.find((c) => c.id === category) || categories[0];
   const restart = view.status.restart || [];
   return html`<div class="settings">
     <nav class="cats" aria-label="Settings categories">
-      ${view.categories.map((c) => html`<button key=${c.id} class=${"cat" + (c.id === cat.id ? " active" : "")}
+      ${categories.map((c) => html`<button key=${c.id} class=${"cat" + (c.id === cat.id ? " active" : "")}
           aria-current=${c.id === cat.id ? "page" : undefined} onClick=${() => setCategory(c.id)}>
           <${Icon} name=${c.icon} size=${17} /> <span>${c.label}</span><${Icon} name="chevron-right" size=${15} /></button>`)}
     </nav>
@@ -206,7 +211,8 @@ export function SettingsSection() {
         ${restart.length === 1 ? "1 change applies" : `${restart.length} changes apply`} after you restart JARVIS.</div>`}
       <h2>${cat.label}</h2>
       ${cat.id === "connections" && html`<${Connections} status=${view.status} />`}
-      <div class="rows">${cat.items.map((item) => html`<${Row} item=${item} save=${save} note=${notes[item.key]} />`)}</div>
+      ${cat.id === "phone" && html`<${PhonePanel} />`}
+      ${cat.items.length > 0 && html`<div class="rows">${cat.items.map((item) => html`<${Row} item=${item} save=${save} note=${notes[item.key]} />`)}</div>`}
       ${cat.id === "hotkeys" && html`<p class="dim small">While you choose a key, JARVIS's current keys still work, so
         pressing one (say Ctrl+Alt+M) also does what it does now.</p>`}
       ${cat.id === "memory" && html`<p class="dim small">Say "don't remember this conversation" to stop keeping the current

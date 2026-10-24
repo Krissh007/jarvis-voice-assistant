@@ -440,3 +440,15 @@ to its own chat page:
   vector, older lines are filled in the background after start-up, and a search never computes more
   than 16.
 - Docs: a Memory section in docs/architecture.md; README, plan and tool tables brought up to date.
+
+## Phone app, phase 1: access, pairing, chat (24 October 2026)
+
+- JARVIS's app page doubles as an iPhone app (installable, home-screen icon) reached through Tailscale:
+  `web_ui.remote` (off by default) names the PC's Tailscale host and a fixed local port that
+  `tailscale serve` forwards HTTPS to. The server still listens on 127.0.0.1 only; requests through
+  Funnel are refused. Setup and pairing: docs/mobile.md.
+- Pairing: Settings, Phone shows a QR code with a one-time code (5 minutes, 5 tries); the phone trades it
+  for a device token, kept hashed in data/devices.json and sent only in headers. Remove disconnects a
+  phone at once. Phones can't pair others, see devices, snap the PC's screen or open PC windows.
+- Phone layout: tab bar at the bottom, live status line, Yes and No on confirmations, big input, safe
+  areas; a service worker keeps only the app's own files.

@@ -11,6 +11,7 @@ const state = {
   announce: true,        // the Announce button
   status: "",            // the latest status line
   activity: "",          // what JARVIS is doing right now ("Searching the web…"); "" = nothing
+  paired: true,          // the phone app: false until the phone is paired (the PC's pages always are)
 };
 const subscribers = new Set();
 let version = 0;   // bumped on every change, so a view that subscribes late still catches up

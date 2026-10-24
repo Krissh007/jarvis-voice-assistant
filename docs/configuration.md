@@ -105,6 +105,9 @@ each; they change the orb live, and your choices are kept in `data/orb_look.json
 | `web_ui.caption_seconds` | `8` | Voice mode: a reply's caption under the orb fades after this many seconds (2–60) |
 | `web_ui.quick_actions` | 4 examples | Buttons in the control centre; each sends its text to JARVIS (up to 8, 80 characters) |
 | `web_ui.chat_width` / `web_ui.chat_height` | `1100` / `760` | The chat page's window the first time; then it remembers |
+| `web_ui.remote.enabled` | `false` | The phone app through Tailscale ([mobile.md](mobile.md)). On = the server uses `web_ui.remote.port` and accepts `web_ui.remote.host` |
+| `web_ui.remote.host` | `""` | This PC's Tailscale name (MagicDNS + HTTPS on), e.g. `mypc.tail1234.ts.net`; a plain host name, no scheme, port or path |
+| `web_ui.remote.port` | `47821` | The fixed local port `tailscale serve` forwards HTTPS to (still 127.0.0.1 only) |
 | `web_ui.app_width` / `web_ui.app_height` | `1240` / `800` | The app's window (sidebar: Chat, Command centre, Memory, Settings) the first time; then it remembers |
 | `web_ui.voice_replies` | `true` | Starting value of the **Voice** button (off = text-only replies); the button's choice is kept in `data/prefs.json` |
 | `web_ui.announce` | `true` | Starting value of the **Announce** button (off = agent results and reminders shown, not spoken); kept in `data/prefs.json` |
