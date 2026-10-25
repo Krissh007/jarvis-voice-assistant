@@ -806,7 +806,7 @@ def test_claude_gets_a_draft_until_the_user_says_send(screen, hands) -> None:
     assert "didn't send it" in out and d.drafts == {7: "Could we stick to my titles?"}
     registry.last_user_text = "also say titles relevant to mine are fine"
     out = run(d.type_in_app("Could we stick to my titles, and ones relevant to them?", app="claude"))
-    assert out.startswith("Replaced the unsent draft") and (7, "ctrl+a", 1) in hands["keys"]
+    assert out.startswith('Replaced the unsent draft "Could we stick to my titles?" with') and         (7, "ctrl+a", 1) in hands["keys"]
     registry.last_user_text = "okay send it"
     assert run(d.type_in_app("", app="claude", send=True)) == "Sent the draft in claude." and d.drafts == {}
     registry.last_user_text = "ask Claude what a monad is"

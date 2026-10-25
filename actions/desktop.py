@@ -571,8 +571,8 @@ class Desktop:
         self.current = win
         held_back = ""
         if send and win.exe in AI_CHATS and not self._user_said_send():
-            send, held_back = False, (" I didn't send it, because the user didn't say send: tell them it's waiting "
-                                      "in the box and they can say \"send it\".")
+            send, held_back = False, (" I didn't send it, because the user didn't say send. Tell them it's typed in the "
+                                      "box and will go when they say \"send it\" (it isn't a confirmation question).")
         if not text.strip():
             if not (send and self.drafts.get(win.hwnd)):
                 raise ToolError("There's nothing to type, and no draft of mine waiting to be sent.")
@@ -638,6 +638,7 @@ class Desktop:
                          + (" and press Enter" if send else "") + " (pasting into a terminal can run commands)")[:300],
                 resume=resume, step={"app": win.exe, "field": "terminal", "send": send, "why": ["terminal"]})
         replaced = bool(text) and win.exe in AI_CHATS and bool(self.drafts.get(win.hwnd)) and not field
+        old_draft = self.drafts.get(win.hwnd, "") if replaced else ""
         try:
             if replaced:   # one message: a new version replaces the draft JARVIS typed and didn't send
                 await uia.call(textinput.send_combo, win.hwnd, "ctrl+a")
@@ -666,7 +667,10 @@ class Desktop:
         log.info("%s %d characters into %s (%s)%s", how, len(text), win.exe, label, " and sent" if send else "")
         if not text:
             return f"Sent the draft in {safe_label(win)}."
-        return ((f"Replaced the unsent draft with {typed_words(text)}" if replaced else f"Typed {typed_words(text)}")
+        # Seen live: a new question replaced the earlier one, and only the new one was sent. Naming the old draft
+        # lets the model put both back if both were wanted.
+        return ((f"Replaced the unsent draft {typed_words(old_draft)} with {typed_words(text)} (if the user wanted "
+                 "both, type the whole message again)" if replaced else f"Typed {typed_words(text)}")
                 + f" into {label} in {safe_label(win)}" + (" and pressed Enter." if send else "."))
 
     def _focus_field(self, win: uia.Window, field: str) -> tuple[str, bool]:
