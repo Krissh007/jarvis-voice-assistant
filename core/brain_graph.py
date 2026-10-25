@@ -14,6 +14,7 @@ they go through privacy.redact as well (emails, long numbers). The page shows th
 
 from __future__ import annotations
 
+import bisect
 import json
 import logging
 import os
@@ -187,9 +188,10 @@ def build(*, store=None, conversations=None, registry=None, hub_status: dict | N
     if conversations is not None:
         try:
             with conversations.db.connect() as db:
+                # (the first thing the user said comes from the lines read below: a subquery per
+                # conversation was the slowest part of a long history)
                 rows = db.execute(
-                    "SELECT c.id, c.started, c.ended, c.channels, COUNT(m.id) AS lines, "
-                    "(SELECT text FROM messages WHERE conversation = c.id AND role = 'user' ORDER BY id LIMIT 1) AS first "
+                    "SELECT c.id, c.started, c.ended, c.channels, COUNT(m.id) AS lines "
                     "FROM conversations c JOIN messages m ON m.conversation = c.id WHERE c.started >= ? "
                     "GROUP BY c.id ORDER BY c.started DESC LIMIT ?", (since.isoformat(timespec="seconds"),
                                                                      MAX_CONVERSATIONS + 1)).fetchall()
@@ -203,7 +205,7 @@ def build(*, store=None, conversations=None, registry=None, hub_status: dict | N
                 if ids:
                     q = ",".join("?" * len(ids))
                     for r in db.execute(f"SELECT conversation, text, embedding FROM messages WHERE role = 'user' "
-                                        f"AND conversation IN ({q})", ids):
+                                        f"AND conversation IN ({q}) ORDER BY id", ids):
                         texts[r["conversation"]].append(r["text"])
                         v = _vector(r["embedding"])
                         if v is not None:
@@ -212,6 +214,7 @@ def build(*, store=None, conversations=None, registry=None, hub_status: dict | N
             log.exception("brain: conversations unreadable")
             convs = []
         for c in convs:
+            c["first"] = (texts.get(c["id"]) or [None])[0]
             c["words"] = _words(" ".join(texts.get(c["id"], [])))
             c["said"] = vecs.get(c["id"], [])   # (meaning vector, text) of each line the user said
     for c in convs:
@@ -223,18 +226,23 @@ def build(*, store=None, conversations=None, registry=None, hub_status: dict | N
         g.link(nid, "hub:conversation", "kept conversation", "structure")
 
     # ---- facts <-> conversations: close in meaning, or sharing words
+    import numpy as np
+
     fact_words = {f["id"]: _words(f["text"]) for f in facts}
     fact_vecs = {f["id"]: _vector(f.get("embedding")) for f in facts}
+    with_vec = [f for f in facts if fact_vecs[f["id"]] is not None]
+    fact_matrix = np.stack([fact_vecs[f["id"]] for f in with_vec]) if with_vec else None
     for c in convs:
+        best: dict[int, tuple[float, str]] = {}   # fact id -> (closest line's cosine, that line)
+        if fact_matrix is not None and c["said"]:
+            sims = fact_matrix @ np.stack([v for v, _ in c["said"]]).T     # facts x lines, all at once
+            top = sims.argmax(axis=1)
+            for f, j, row in zip(with_vec, top, sims):
+                best[f["id"]] = (float(row[j]), c["said"][j][1])
         scored = []
         for f in facts:
             fv = fact_vecs.get(f["id"])
-            sim, line = 0.0, ""
-            if fv is not None:
-                for v, text in c["said"]:
-                    s = float(fv @ v)
-                    if s > sim:
-                        sim, line = s, text
+            sim, line = best.get(f["id"], (0.0, ""))
             shared = sorted(fact_words[f["id"]] & c["words"])
             if sim >= MEANING_MIN:
                 scored.append((sim + 0.01 * len(shared), f["id"],
@@ -292,8 +300,13 @@ def build(*, store=None, conversations=None, registry=None, hub_status: dict | N
             spans.append((start, end, c["id"]))
     spans = [(s, e or (spans[i + 1][0] if i + 1 < len(spans) else now), cid) for i, (s, e, cid) in enumerate(spans)]
 
+    starts = [s - timedelta(seconds=5) for s, _, _ in spans]
+
     def conv_at(at: datetime) -> int | None:
-        for s, e, cid in spans:
+        """The conversation a call happened in: the latest one started by then (binary search), if the
+        call came before it ended (+60 s for the last reply's tools)."""
+        i = bisect.bisect_right(starts, at) - 1
+        for s, e, cid in reversed(spans[max(0, i - 2): i + 1]):   # one that ended late may overlap the next
             if s - timedelta(seconds=5) <= at <= e + timedelta(seconds=60):
                 return cid
         return None

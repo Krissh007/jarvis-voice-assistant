@@ -132,3 +132,17 @@ Later, separately: the Face HUD mode, Eyes (webcam) and Watch (screen) capabilit
   pulse on the graph.
 - A narrow window turns the HUD, switches and legend into one strip above the graph.
 - Not done: a reminders button on the command bar (the composer's buttons are reused as they are).
+
+## Phase 4 result (done)
+
+- Inspector actions: Forget a fact (a second click confirms), Read the conversation (its lines, in the
+  inspector), Show in folder for a file (`show_file`: the path comes from the audit log, never the page),
+  Command centre for an agent.
+- Speed: `brain_graph.build` on a made-up history (300 facts, 200 conversations of 60 lines, 8,000 audit
+  lines) went from 13 s to 0.7 s: the first line no longer comes from a subquery per conversation, the
+  fact-to-line scores are one matrix product per conversation, and tool calls find their conversation
+  by binary search. That also fixed calls in a new conversation's first minute being counted in the
+  previous one.
+- The page with 2,000 nodes and 4,000 links (headless Chromium): a new layout settles in 3.7 s at 53 fps;
+  settled frames take about 17 ms with any labels; nothing is drawn while nothing changes.
+- Docs: user guide (the Brain), architecture (how it's built, `data/brain_layout.json`).

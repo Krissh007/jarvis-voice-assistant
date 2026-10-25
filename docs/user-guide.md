@@ -158,15 +158,36 @@ the clipboard, running a plan, forgetting a memory) is read to you first:
 
 **The orb** floats above your other windows (drag it anywhere; it stays where you leave it).
 
-- **Tap** it for its menu: **Chat**, **Talk** and **Command centre**.
+- **Tap** it for its menu: **Brain**, **Talk** and **Command centre**.
 - **Hold** it to talk. **Double-tap** it to mute or unmute the microphone.
 - **Ctrl+Alt+Space** hides or shows it. Talking without the wake word is **Ctrl+Alt+T** now.
 - Its colour: blue listening, amber working, grey muted, and **red when something JARVIS needs isn't
   working**: the reason shows under it when you tap (the voice session not connected, or the Agent Hub
   not reachable).
 
-**The app** opens from the orb's menu (or New chat). Its icon sidebar has four sections; the button
-under them shows Chat and the Command centre side by side.
+**The app** opens from the orb's menu on the **Brain** (New chat opens Chat). Its icon sidebar has five
+sections; the button under them shows Chat and the Command centre side by side.
+
+- **Brain**: everything JARVIS knows and has done, as one graph: remembered facts (amber), conversations
+  from the last 30 days (violet), its tools by category (blue), the Agent Hub's agents and actions (green),
+  pending reminders (pink) and the files JARVIS used (grey). Every line has a reason ("called 2 times in
+  this conversation", "close in meaning to what you said", "a file JARVIS used").
+  - **Click** a dot to focus it: only it and its links light up, and the **Inspector** on the left says
+    what it is and why each link is there. Click a linked item to move to it. Its buttons: **Forget** a
+    fact (click twice), **Read the conversation**, **Show in folder** for a file, **Command centre** for
+    an agent. **Shift-click** a second dot to trace the path between the two.
+  - **Drag** the background to move around, drag a dot to move it, **scroll** to zoom, double-click to
+    zoom in. **Search the brain** finds dots by name. **Top hubs** lists the busiest. **Layout** spreads
+    the dots out or pulls them in, shows labels on hubs, all or none, and hides the lines.
+  - The list on the right (**Show**) hides or shows a kind of dot. The brain opens the way you left it
+    and updates by itself as you talk.
+  - Top right, JARVIS's **HUD**: a ring (or the 3D orb) in the orb's colours, what it's doing, the voice
+    model and language, and five switches: **Mic** (mute), **Voice** (spoken replies), **Announce**
+    (spoken news), **Memory** (keep this conversation; off stops keeping it until you switch it back on
+    or start a new chat) and **Agents** (whether the Agent Hub answers; click for the Command centre).
+  - Under the graph, the **command bar**: type or talk to JARVIS (the same box as Chat). What JARVIS says
+    shows above it as it speaks; actions that need your yes appear there with Approve and Cancel. What
+    JARVIS uses lights up on the graph while it works.
 
 - **Chat**: everything you said and typed, and JARVIS's replies. Point at a reply to copy it, ask for it
   again differently (the last one), or pin it to memory (select part of it to pin just that). Actions

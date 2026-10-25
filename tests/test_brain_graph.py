@@ -135,6 +135,20 @@ def test_tool_calls_land_in_the_conversation_they_happened_in(tmp_path) -> None:
     assert "tool:not_a_tool_here" not in by_id(g)
 
 
+def test_a_call_just_after_a_new_conversation_starts_belongs_to_it(tmp_path) -> None:
+    """Conversations without an end run until the next one starts; a call in the new one's first minute is
+    the new one's, not the old one's (they overlap by the minute allowed for a last reply's tools)."""
+    db, store = make_db(tmp_path)
+    old = add_conversation(db, NOW - timedelta(hours=2), [("user", "Earlier", None)])
+    new = add_conversation(db, NOW - timedelta(hours=1), [("user", "Later", None)])
+    audit = tmp_path / "actions.jsonl"
+    write_audit(audit, {"timestamp": utc(NOW - timedelta(hours=1) + timedelta(seconds=20)), "tool": "search_web"},
+                {"timestamp": utc(NOW - timedelta(hours=1, minutes=30)), "tool": "search_web"})
+    g = brain_graph.build(conversations=store, registry=Registry("search_web"), audit_path=audit, now=NOW)
+    assert link(g, f"conv:{new}", "tool:search_web")["reason"] == "called 1 time in this conversation"
+    assert link(g, f"conv:{old}", "tool:search_web")["reason"] == "called 1 time in this conversation"
+
+
 def test_old_conversations_and_calls_are_left_out(tmp_path) -> None:
     db, store = make_db(tmp_path)
     old = add_conversation(db, NOW - timedelta(days=brain_graph.DAYS + 1), [("user", "Long ago", None)])
@@ -413,3 +427,55 @@ def test_the_app_opens_on_the_brain() -> None:
 
     assert Assistant.APP_SECTIONS[0] == "brain"
     assert {"keep_memory", "open_brain"} <= ACTIONS and "memory_keep" in STREAM_KINDS
+
+
+# ---- phase 4: Show in folder
+
+
+async def test_show_file_opens_only_files_from_the_audit_log(assistant, tmp_path, monkeypatch) -> None:  # noqa: F811
+    from actions import files
+    from core.runtime import WebBridge
+
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
+    used = tmp_path / "home" / "Documents" / "notes.md"
+    used.parent.mkdir(parents=True)
+    used.write_text("x", encoding="utf-8")
+    gone = tmp_path / "home" / "Documents" / "old.md"                   # the folder is there, the file isn't
+    t = utc(datetime.now() - timedelta(minutes=5))
+    write_audit(assistant.options.log_dir / "actions.jsonl",
+                {"timestamp": t, "tool": "read_file", "args": {"path": str(used)}},
+                {"timestamp": t, "tool": "write_file", "args": {"path": str(gone)}},
+                {"timestamp": t, "tool": "search_web", "args": {"path": str(tmp_path / "secret.txt")}})
+    revealed = []
+    monkeypatch.setattr(files, "_reveal", revealed.append)
+    bridge = WebBridge(assistant, look_path=tmp_path / "orb_look.json")
+    ok = await bridge.show_file("file:Documents/notes.md")
+    assert ok["ok"] and revealed == [used]
+    moved = await bridge.show_file("file:Documents/old.md")
+    assert moved["ok"] and "folder" in moved["message"] and revealed[-1] == gone.parent
+    for bad in ("file:secret.txt", f"file:{tmp_path / 'secret.txt'}", "fact:1", "C:/Windows", 7, None):
+        refused = await bridge.show_file(bad)
+        assert refused["ok"] is False, bad
+    assert len(revealed) == 2
+
+
+def test_show_file_requests_get_a_reply(assistant) -> None:  # noqa: F811
+    from fastapi.testclient import TestClient
+
+    from core.runtime import WebBridge
+    from tests.test_web_ui import PORT, TOKEN, connect
+    from ui.server import create_app
+
+    bridge = WebBridge(assistant)
+
+    async def show_file(node_id):
+        return {"ok": True, "message": f"shown {node_id}"}
+
+    bridge.show_file = show_file
+    client = TestClient(create_app(bridge, TOKEN, PORT), base_url=f"http://127.0.0.1:{PORT}")
+    with connect(client) as ws:
+        json.loads(ws.receive_text())       # hello
+        ws.send_text(json.dumps({"type": "show_file", "node": "file:a.txt", "id": 4}))
+        while (msg := json.loads(ws.receive_text()))["kind"] != "reply":
+            pass
+    assert msg["id"] == 4 and msg["data"]["message"] == "shown file:a.txt"

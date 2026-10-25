@@ -12,7 +12,7 @@
 import { useEffect, useMemo, useRef, useState } from "/static/vendor/preact/hooks.module.js";
 import { html, Icon } from "/static/shared/ui.js";
 import { useStore } from "/static/shared/store.js";
-import { ask, onEvent, send } from "/static/shared/ws.js";
+import { ask, control, onEvent, send } from "/static/shared/ws.js";
 import { BrainCanvas } from "/static/app/sections/brain-canvas.js";
 import { AskBar } from "/static/app/sections/brain-ask.js";
 import { Hud } from "/static/app/sections/brain-hud.js";
@@ -21,6 +21,7 @@ import { TYPES, colorOf, details, layoutChunks, linkBetween, neighbours, path, p
 
 const SAVE_AFTER_MS = 1500;   // after the layout settles or a node is dragged
 const MAX_NEIGHBOURS = 40;    // listed in the inspector
+const MAX_LINES = 80;         // of a conversation, read in the inspector
 
 function Dot({ color }) { return html`<span class="dot" style=${{ background: color }}></span>`; }
 
@@ -45,7 +46,7 @@ function Search({ graph, hidden, onPick }) {
   </div>`;
 }
 
-function Inspector({ focused, trail, onPick, onClear }) {
+function Inspector({ focused, trail, onPick, onClear, onForgotten }) {
   if (trail.length > 1) {
     return html`<section class="brain-card" aria-label="Path">
       <div class="brain-card-head"><${Icon} name="route" size=${15} /> Path · ${trail.length - 1} step${trail.length > 2 ? "s" : ""}
@@ -70,11 +71,64 @@ function Inspector({ focused, trail, onPick, onClear }) {
     ${d.description && html`<p class="dim small brain-desc">${d.description}</p>`}
     ${d.day && html`<p class="faint small">${d.day}</p>`}
     <dl class="brain-facts">${details(focused).map(([k, v]) => html`<dt>${k}</dt><dd>${v}</dd>`)}</dl>
+    <${Actions} key=${focused.id} node=${focused} onForgotten=${onForgotten} />
     <h3>Linked to · ${near.length}</h3>
     <ul class="brain-list">${near.slice(0, MAX_NEIGHBOURS).map(({ node, reason }) => html`<li key=${node.id}>
       <${NodeButton} node=${node} onPick=${onPick} /><div class="brain-why small">${reason}</div></li>`)}
       ${near.length > MAX_NEIGHBOURS && html`<li class="faint small brain-none">and ${near.length - MAX_NEIGHBOURS} more</li>`}</ul>
   </section>`;
+}
+
+// What you can do with the focused node: forget a fact (a second click confirms), read a conversation,
+// show a file JARVIS used in Explorer, open the Command centre for an agent. Each is the user's own click.
+function Actions({ node, onForgotten }) {
+  const [armed, setArmed] = useState(false);
+  const [note, setNote] = useState("");
+  const [lines, setLines] = useState(null);
+  const id = node.id;
+  const fact = node.type === "memory" && !node.hub && id.startsWith("fact:");
+  const conv = node.type === "conversation" && !node.hub && id.startsWith("conv:");
+  const file = node.type === "file" && !node.hub && id.startsWith("file:");
+  const agent = node.type === "agent";
+  if (!fact && !conv && !file && !agent) return null;
+
+  async function forget() {
+    if (!armed) { setArmed(true); return; }
+    setArmed(false);
+    const d = await ask({ type: "forget", fact: Number(id.slice(5)) });
+    setNote(d ? d.message : "Not connected.");
+    if (d && d.ok) onForgotten(node);
+  }
+  async function read() {
+    if (lines) { setLines(null); return; }
+    const d = await ask({ type: "request", what: "conversation", arg: Number(id.slice(5)) });
+    setLines(d ? d.lines || [] : []);
+    if (!d) setNote("Not connected.");
+  }
+  async function show() {
+    setNote("Opening…");
+    const d = await ask({ type: "show_file", node: id }, 12000);
+    setNote(d ? d.message : "Not connected.");
+  }
+  return html`<div class="brain-actions">
+    <div class="brain-action-row">
+      ${fact && html`<button class=${"btn danger small-btn" + (armed ? " armed" : "")} onClick=${forget} onBlur=${() => setArmed(false)}
+        title="Forget this fact (asks once more)"><${Icon} name="trash-2" size=${13} /> ${armed ? "Sure? Forget" : "Forget"}</button>`}
+      ${conv && html`<button class="btn small-btn" onClick=${read} aria-expanded=${lines ? "true" : "false"}>
+        <${Icon} name="message-square" size=${13} /> ${lines ? "Hide the conversation" : "Read the conversation"}</button>`}
+      ${file && html`<button class="btn small-btn" onClick=${show} title="Open File Explorer at this file">
+        <${Icon} name="search" size=${13} /> Show in folder</button>`}
+      ${agent && html`<button class="btn small-btn" onClick=${() => control("open_command")}>
+        <${Icon} name="activity" size=${13} /> Command centre</button>`}
+    </div>
+    ${note && html`<p class="small dim brain-note" role="status">${note}</p>`}
+    ${lines && html`<ol class="conv-lines brain-lines" aria-label="The conversation">
+      ${lines.length === 0 && html`<li class="faint small">No lines kept.</li>`}
+      ${lines.slice(0, MAX_LINES).map((l) => html`<li key=${l.id} class=${l.role}>
+        <span class="who">${l.role === "assistant" ? "JARVIS" : "You"}</span><span class="said">${l.text}</span></li>`)}
+      ${lines.length > MAX_LINES && html`<li class="faint small">and ${lines.length - MAX_LINES} more lines (Memory section)</li>`}
+    </ol>`}
+  </div>`;
 }
 
 function Hubs({ graph, hidden, onPick }) {
@@ -250,7 +304,7 @@ export function BrainSection() {
   return html`<div class="brain">
     <div class="brain-left">
       <${Search} graph=${graph} hidden=${hidden} onPick=${pickFromList} />
-      <${Inspector} focused=${focused} trail=${trail} onPick=${pickFromList} onClear=${clear} />
+      <${Inspector} focused=${focused} trail=${trail} onPick=${pickFromList} onClear=${clear} onForgotten=${() => setTimeout(clear, 1200)} />
       <${Hubs} graph=${graph} hidden=${hidden} onPick=${pickFromList} />
       <${Controls} forces=${forces} setForces=${setForces} labels=${labels} setLabels=${setLabels}
         showLinks=${showLinks} setShowLinks=${setShowLinks} view=${view} />

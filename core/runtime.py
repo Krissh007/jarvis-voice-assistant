@@ -347,6 +347,34 @@ class WebBridge:
             return False
         return True
 
+    async def show_file(self, node_id) -> dict:
+        """The Brain inspector's Show in folder: Explorer at a file JARVIS used, selected. The page names the
+        node only; the path comes from JARVIS's own audit log, so a page can't open anything else."""
+        from datetime import datetime, timedelta
+
+        from actions import files
+        from core import brain_graph
+
+        if not isinstance(node_id, str) or not node_id.startswith("file:"):
+            return {"ok": False, "message": "That isn't a file."}
+        since = datetime.now() - timedelta(days=brain_graph.DAYS)
+        calls = brain_graph.read_audit(self._a.options.log_dir / "actions.jsonl", since)
+        found = [c["path"] for c in calls if c["tool"] in brain_graph.FILE_TOOLS and c["path"]
+                 and brain_graph._short_path(c["path"]) == node_id[5:]]
+        if not found:
+            return {"ok": False, "message": "JARVIS hasn't used that file lately."}
+        path = Path(found[-1])
+        target = path if path.exists() else path.parent if path.parent.exists() else None
+        if target is None:
+            return {"ok": False, "message": "That file and its folder aren't there any more."}
+        try:
+            await asyncio.to_thread(files._reveal, target)
+        except (ToolError, OSError) as exc:
+            return {"ok": False, "message": str(exc) or "Windows couldn't open that folder."}
+        log.info("web: showed a file JARVIS used in Explorer")
+        return {"ok": True, "message": "Opened in File Explorer." if target == path
+                else "The file isn't there any more: opened its folder."}
+
     def _keep_hub_report(self, report: dict) -> None:
         self._hub_report, self._hub_report_at = report, time.monotonic()
 

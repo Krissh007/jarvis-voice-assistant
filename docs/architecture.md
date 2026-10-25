@@ -310,13 +310,31 @@ receives can confirm an action.
     doesn't advance them, so fades stopped halfway and left cards half see-through. Fades and slides
     run on animation frames in `app.js` instead.
 - **The app** (`/app`, `ui/static/app/`) is the complete interface, in its own normal window; it
-  replaced the older chat page (`/chat` is still served but nothing opens it). The orb's Chat and
-  Command centre, New chat and the old Settings button open it on a section (`#s=chat|command|memory|settings`;
+  replaced the older chat page (`/chat` is still served but nothing opens it). The orb's Brain and
+  Command centre, New chat and the old Settings button open it on a section (`#s=brain|chat|command|memory|settings`,
+  the Brain by default;
   a `focus` event with `target: "app"` switches section when it's already open). Preact 10.29.8 + htm
-  3.1.1 as plain modules (no build step; `ui/static/vendor`), Lucide icons from a 48-icon sprite,
+  3.1.1 as plain modules (no build step; `ui/static/vendor`), Lucide icons from a 55-icon sprite,
   `ui/static/shared/` for the connection (`ws.js`: events, and requests that get one reply), a small
   store and the dark cyan theme. Sections, from an icon sidebar (split view puts Chat and the Command
   centre side by side):
+  - **Brain** (`app/sections/brain*.js`; docs/brain-ui-plan.md): `core/brain_graph.build()` turns JARVIS's
+    own data into nodes and links, each link with a reason: facts and kept conversations
+    (`data/memory.sqlite`; a fact links to a conversation by the cosine to its closest user line, ≥ 0.55,
+    or by shared words when there are no vectors), tools by `core/catalog.py` category, the Hub's agents
+    and actions (`agent_status` lists them), pending reminders, and files from the audit log's path
+    arguments only. Tool calls are placed in conversations by time (UTC log vs local conversations). The
+    page asks with `request: brain` (built off the loop); `WebBridge` publishes one `brain_update` at most
+    every 2 s after messages, tool calls, recalls, agent results, pins, forgets and deletes. The page draws
+    with d3-force 3.0.0 (`ui/static/vendor/d3`, ISC) on a canvas that redraws only when something moves;
+    node positions are kept in `data/brain_layout.json` (`brain_layout` messages in 6 KB chunks, since the
+    page's port, and so its storage, changes each start). The inspector's actions are the user's clicks:
+    `forget`, `request: conversation`, and `show_file` (the page names a node; the path comes from the audit
+    log, so nothing else can be opened). The HUD's switches are the existing controls plus `keep_memory`
+    (`Assistant.toggle_keep`: `ConversationLog.pause` / `resume`, published as `memory_keep`); the command
+    bar reuses Chat's composer and plan cards; `tool_started`, `memory_used` and `agent_update` make nodes
+    pulse. Measured: 2,000 nodes settle in about 4 s at 50+ fps; a 30-day history of 200 conversations
+    builds in under a second.
   - **Chat**: the conversation as turns (what you said, then JARVIS's replies, tool chips, plan cards
     with Approve / Cancel, pictures), reply actions (copy, regenerate the last, pin to memory), and a
     context panel per answer: tools with their status (`tool_finished.ok`), web sources (`sources`:
@@ -449,6 +467,7 @@ Handled in `core/app_mode.py` and `core/taskbar.py`.
 | `data/cache/` | page summaries (24 h) | no |
 | `data/window.json` | Tk window size and position | no |
 | `data/orb_window.json`, `data/chat_window.json` | where the orb and the chat window were left | no |
+| `data/brain_layout.json` | where the Brain view's nodes sit | no |
 | `data/ducking.json` | saved volumes, only while ducked | no |
 | `logs/` | `app.log`, `console.txt`, `actions.jsonl`, `window.log` (the web window's own errors) | no |
 | `%USERPROFILE%\Documents\jarvis\` | saved research notes | outside the repo |

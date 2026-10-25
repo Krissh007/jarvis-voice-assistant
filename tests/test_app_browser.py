@@ -33,6 +33,9 @@ class BrowserBridge:
                                   "links": [], "counts": {}, "capped": [], "layout": {}}
         self.brain_requests = 0
         self.layouts: list[tuple[dict, bool]] = []
+        self.forgotten: list = []
+        self.shown: list = []
+        self.read: list = []
 
     def snapshot(self) -> dict:
         return {"state": "listening", "level": 0.0, "user": "Krishna", "speak": True, "voice": True, "announce": True,
@@ -61,13 +64,22 @@ class BrowserBridge:
             return {"facts": [{"id": 1, "text": "Krishna's friend is Sanjay.", "added": "2026-10-19T10:00:00", "uses": 2}]}
         if what == "conversations":
             return {"kept": True, "paused": False, "conversations": []}
+        if what == "conversation":
+            self.read.append(arg)
+            return {"lines": [{"id": 1, "role": "user", "text": "Call Sanjay tomorrow", "time": "", "channel": "voice"},
+                              {"id": 2, "role": "assistant", "text": "Reminder set for 9.", "time": "", "channel": "voice"}]}
         return None
 
     def change_setting(self, key, value) -> dict:
         return {"ok": True, "key": key, "message": "saved", "settings": self.request("settings")}
 
     def forget_fact(self, fact_id) -> dict:
+        self.forgotten.append(fact_id)
         return {"ok": True, "message": "Forgotten.", "facts": []}
+
+    async def show_file(self, node_id) -> dict:
+        self.shown.append(node_id)
+        return {"ok": True, "message": "Opened in File Explorer."}
 
     def delete_conversation(self, conversation_id) -> dict:
         return {"ok": True, "message": "Deleted.", "conversations": []}

@@ -265,3 +265,51 @@ async def test_what_jarvis_uses_lights_up(served, page) -> None:  # noqa: F811
                        conversation_lines=0)
     await page.wait_for_function(f"({pulses})().length === 2")
     assert await page.evaluate(pulses) == ["fact:1", "tool:search_web"]
+
+
+# ---- phase 4: the inspector's actions
+
+
+async def focus(page, name):
+    await page.get_by_label("Search the brain").fill(name)
+    await page.get_by_label("Search results").get_by_role("button", name=name).first.click()
+    await page.get_by_role("region", name="Inspector").wait_for()
+
+
+async def test_the_inspector_actions(served, page) -> None:  # noqa: F811
+    bridge, url = served
+    graph = json.loads(json.dumps(GRAPH))
+    graph["nodes"].append(node("agent:jobpilot", "agent", "jobpilot", True, description="Jobs", reachable=True))
+    graph["links"].append(link("agent:jobpilot", "jarvis", "an agent of the Agent Hub"))
+    bridge.brain_graph = graph
+    await page.goto(url + "&s=brain")
+    await page.get_by_text("11 nodes · 12 links").wait_for()
+    inspector = page.get_by_role("region", name="Inspector")
+
+    await focus(page, "Krishna's friend is called Sanjay.")
+    forget = inspector.get_by_role("button", name="Forget")
+    await forget.click()
+    assert bridge.forgotten == []                                       # the first click only asks
+    await inspector.get_by_role("button", name="Sure? Forget").click()
+    assert await until(lambda: bridge.forgotten == [1])
+    await inspector.get_by_text("Forgotten.").wait_for()
+
+    await focus(page, "Call Sanjay tomorrow and search the web")
+    await inspector.get_by_role("button", name="Read the conversation").click()
+    lines = inspector.get_by_label("The conversation")
+    await lines.get_by_text("Reminder set for 9.").wait_for()
+    assert bridge.read == [5] and "You" in await lines.inner_text()
+    await inspector.get_by_role("button", name="Hide the conversation").click()
+    assert await inspector.get_by_label("The conversation").count() == 0
+
+    await focus(page, "notes.md")
+    await inspector.get_by_role("button", name="Show in folder").click()
+    await inspector.get_by_text("Opened in File Explorer.").wait_for()
+    assert bridge.shown == ["file:Documents/notes.md"]                  # the node, never a path
+
+    await focus(page, "jobpilot")
+    await inspector.get_by_role("button", name="Command centre").click()
+    assert await until(lambda: "open_command" in bridge.controls)
+
+    await focus(page, "search_web")                                     # a tool: nothing to do with it
+    assert await inspector.get_by_role("button", name="Forget").count() == 0
