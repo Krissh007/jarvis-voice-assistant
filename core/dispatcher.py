@@ -141,6 +141,7 @@ class Dispatcher:
         # Tools the user turned off for their current message (the chat's web search: Off), with the reason
         # the model is told; the runtime sets it for each new message.
         self.turn_blocked: dict[str, str] = {}
+        self.hold = ""   # set while the user's words stop mid-sentence: no tool runs on half a request
         self._failed = False  # the last _execute ended in an error or was stopped
 
     # ------------------------------------------------------------------ model side
@@ -156,6 +157,9 @@ class Dispatcher:
         if tool is None or tool.statically_blocked:
             self._audit(name, args, "BLOCKED" if tool else "UNKNOWN", "BLOCKED", "refused", "not available")
             return {"status": "refused", "message": f"{name} is not something I can do."}
+        if self.hold:
+            self._audit(name, args, "-", "-", "refused", "the user hadn't finished speaking")
+            return {"status": "waiting", "message": self.hold}
         if name in self.turn_blocked:
             self._audit(name, args, "-", "-", "refused", "turned off for this message")
             return {"status": "refused", "message": self.turn_blocked[name]}

@@ -69,6 +69,11 @@ TERMINALS = {"windowsterminal.exe", "cmd.exe", "powershell.exe", "pwsh.exe", "co
              "bash.exe", "mintty.exe", "alacritty.exe", "wezterm-gui.exe", "openconsole.exe"}
 # AI chat apps: pressing Enter sends a prompt, which is what the user asked for, so it doesn't ask.
 AI_CHATS = {"claude.exe", "chatgpt.exe", "copilot.exe", "perplexity.exe"}
+# Plain text editors: Enter only starts a new line.
+TEXT_EDITORS = {"notepad.exe", "wordpad.exe", "notepad++.exe"}
+# The user's own words that mean "send it" to an AI chat. Seen live: JARVIS sent Claude nine messages in
+# one conversation, including the user's remarks to JARVIS, though the prompt said to send only when asked.
+SEND_WORDS = re.compile(r"\b(send|sent|ask|tell|submit|post)\b", re.IGNORECASE)
 CHAT_BOX = re.compile(r"prompt|message|reply|chat|ask|write|type|compose", re.IGNORECASE)
 MAX_TYPED = 2000
 MAX_TYPED_EDITOR = 10000  # into a code editor: a whole file goes in one paste, so no part gets lost
@@ -214,12 +219,17 @@ def key_rule(combo: str, exe: str) -> tuple[str, str]:
     if combo in ASK_KEYS:
         return "ask", ASK_KEYS[combo]
     if combo == "enter":
-        return ("ok", "") if exe in AI_CHATS else ("ask", "Enter can send or submit")
+        return ("ok", "") if exe in AI_CHATS | TEXT_EDITORS else ("ask", "Enter can send or submit")
     if combo == "delete" and exe == "explorer.exe":
         return "ask", "it deletes files"
     if combo in PLAIN_KEYS or combo in SAFE_COMBOS or (len(combo) == 1 and combo.isalnum()):
         return "ok", ""
     return "no", f"{combo} isn't one of the keys I press"
+
+
+def _with_note(out, note: str):
+    """A tool result plus a note for the model; a confirmation question is returned as it is."""
+    return out + note if isinstance(out, str) else out
 
 
 def match_controls(name: str, controls: list[uia.Control]) -> tuple[list[uia.Control], list[str]]:
@@ -333,6 +343,7 @@ class Desktop:
         self.max_typed = int(opts.get("max_typed", MAX_TYPED))
         self.max_typed_editor = int(opts.get("max_typed_editor", MAX_TYPED_EDITOR))
         self.recent_typing: dict[tuple, float] = {}  # (window, text, field, send) -> when it was typed
+        self.drafts: dict[int, str] = {}  # AI chat window -> what JARVIS typed there and hasn't sent
 
     # ------------------------------------------------------------- finding the app
 
@@ -511,6 +522,15 @@ class Desktop:
         wanted = control_words(name)
         return bool(wanted) and 2 * sum(w in said for w in wanted) >= len(wanted)
 
+    def _user_said_send(self) -> bool:
+        """The user's own latest words ask to send. Without a conversation (plans, tests) the caller decides."""
+        if APPROVED_STEP.get():
+            return True
+        registry = getattr(getattr(self.services, "dispatcher", None), "registry", None)
+        if registry is None:
+            return True
+        return bool(SEND_WORDS.search(getattr(registry, "last_user_text", "") or ""))
+
     def _tainted(self) -> bool:
         if APPROVED_STEP.get():
             return False  # a plan step the user approved word for word
@@ -525,12 +545,20 @@ class Desktop:
                           ) -> str | NeedsConfirmation:
         """Type text into a field of an open app; with send, press Enter afterwards."""
         text = text.strip("\r\n") if send else text
-        if not text.strip():
+        if not text.strip() and not send:
             raise ToolError("There's nothing to type.")
         if kind := secret_in_text(text):
             raise ToolError(f"That text looks like it contains {kind}, so I won't type it anywhere.")
         win = await uia.call(self.target, app, "type into")
         self.current = win
+        held_back = ""
+        if send and win.exe in AI_CHATS and not self._user_said_send():
+            send, held_back = False, (" I didn't send it, because the user didn't say send: tell them it's waiting "
+                                      "in the box and they can say \"send it\".")
+        if not text.strip():
+            if not (send and self.drafts.get(win.hwnd)):
+                raise ToolError("There's nothing to type, and no draft of mine waiting to be sent.")
+            return await self._type(win, "", field, True)
         limit = self.max_typed_editor if win.exe in IDES else self.max_typed
         if len(text) > limit:
             raise ToolError(f"That's too long to type in one go (over {limit} characters). Type it in parts, in "
@@ -543,7 +571,7 @@ class Desktop:
         reasons = []
         if win.exe in TERMINALS:
             reasons.append("terminal")
-        if send and win.exe not in AI_CHATS:
+        if send and win.exe not in AI_CHATS | TEXT_EDITORS:
             reasons.append("enter")
         if self._tainted():
             reasons.append("untrusted")
@@ -551,11 +579,11 @@ class Desktop:
         summary = (f"type {typed_words(text)} into{field_label} {redact(win.label)}"
                    + (" and press Enter" if send else ""))
         if reasons:
-            async def resume() -> str:
-                return await self._type(win, text, field, send)
+            async def resume() -> str | NeedsConfirmation:
+                return _with_note(await self._type(win, text, field, send), held_back)
             return NeedsConfirmation(summary=summary[:300], resume=resume,
                                      step={"app": win.exe, "field": field, "send": send, "why": reasons})
-        return await self._type(win, text, field, send)
+        return _with_note(await self._type(win, text, field, send), held_back)
 
     async def _type(self, win: uia.Window, text: str, field: str, send: bool,
                     allow_terminal: bool = False) -> str | NeedsConfirmation:
@@ -578,8 +606,12 @@ class Desktop:
                 summary=(f"type {typed_words(text)} into the terminal in {safe_label(win)}"
                          + (" and press Enter" if send else "") + " (pasting into a terminal can run commands)")[:300],
                 resume=resume, step={"app": win.exe, "field": "terminal", "send": send, "why": ["terminal"]})
+        replaced = bool(text) and win.exe in AI_CHATS and bool(self.drafts.get(win.hwnd)) and not field
         try:
-            how = await uia.call(textinput.type_text, win.hwnd, text)
+            if replaced:   # one message: a new version replaces the draft JARVIS typed and didn't send
+                await uia.call(textinput.send_combo, win.hwnd, "ctrl+a")
+                await uia.call(textinput.send_combo, win.hwnd, "backspace")
+            how = await uia.call(textinput.type_text, win.hwnd, text) if text else "kept"
             if send:
                 await asyncio.sleep(0.2)
                 try:
@@ -595,9 +627,16 @@ class Desktop:
             self.recent_typing.pop(key, None)  # it didn't go through: asking again must work
             raise ToolError(f"I stopped typing: {exc}.") from exc
         self.recent_typing[key] = _now()
+        if win.exe in AI_CHATS:
+            if send:
+                self.drafts.pop(win.hwnd, None)
+            elif text:
+                self.drafts[win.hwnd] = text
         log.info("%s %d characters into %s (%s)%s", how, len(text), win.exe, label, " and sent" if send else "")
-        return (f"Typed {typed_words(text)} into {label} in {safe_label(win)}"
-                + (" and pressed Enter." if send else "."))
+        if not text:
+            return f"Sent the draft in {safe_label(win)}."
+        return ((f"Replaced the unsent draft with {typed_words(text)}" if replaced else f"Typed {typed_words(text)}")
+                + f" into {label} in {safe_label(win)}" + (" and pressed Enter." if send else "."))
 
     def _focus_field(self, win: uia.Window, field: str) -> tuple[str, bool]:
         """Bring the app to the front and put the cursor in the right field. Runs on the UIA thread.
@@ -971,7 +1010,9 @@ def register(registry: Registry, config: dict, services) -> None:
         name="type_in_app",
         description=("Type text into an open desktop app, e.g. 'type hello in Notepad', 'ask Claude what a "
                      "monad is' (send=true presses Enter to send it; only when the user says send, ask or "
-                     "submit, never for 'write', 'add', 'put' or 'type'). Types where the cursor is, else into the "
+                     "tell, never for 'write', 'add', 'put' or 'type'; otherwise it stays in the box unsent). In "
+                     "Claude, typing again before sending replaces that unsent draft, so give the whole message; "
+                     "for 'send it', call with empty text and send=true. Types where the cursor is, else into the "
                      "field named or numbered by field (numbers from read_app). app empty = the current app. "
                      "In a code editor (VS Code, Cursor...), field must be the file name, e.g. index.html: it "
                      "types only if that file is open. Up to 10000 characters into a code editor (a whole file "

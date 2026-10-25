@@ -512,7 +512,7 @@ async def test_a_cancel_by_answer_tells_jarvis_to_call_again_if_wanted(h) -> Non
 def test_jarvis_sends_to_claude_only_when_told_to_send() -> None:
     from core.prompts import PERSONA, CONFIRMATION_RULES
 
-    assert "send=true only when the user says send, ask or submit" in PERSONA
+    assert "send=true only when the user says send, ask or tell" in PERSONA
     assert "call the tool again with the change" in CONFIRMATION_RULES
 
 

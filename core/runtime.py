@@ -589,6 +589,7 @@ class Assistant:
         self._apply_echo_mode(default_output_name())
         self._audio_state: tuple[str, frozenset[str]] | None = None  # Windows devices at last check
         self._drop_reply = False  # set by the stop key: discard the rest of the current reply
+        self._held = False        # this reply answered half a sentence: not played, not shown
         self._quiet_reply = False  # a typed message asked for a silent (text-only) answer
         self.player = Player(self.playback)
         self.transcript = Transcript(config["user"].get("name") or "You", self.bus)
@@ -755,7 +756,8 @@ class Assistant:
                 resume_handle=handle,
                 tools=declarations,
                 languages=audio_cfg.get("transcription_languages"),
-                vocabulary=["Jarvis", "hey Jarvis", "Claude", "Claude Code", *confirm_cfg["accept_phrases"],
+                vocabulary=["Jarvis", "hey Jarvis", "Claude", "Claude Code", "ask Claude", "JobPilot",
+                            "auto apply", "Agent Hub", *confirm_cfg["accept_phrases"],
                             *(config.get("apps", {}).get("allowlist") or {})],  # app names, e.g. "Claude"
                 end_pause_ms=config["listening"].get("end_pause_ms"),
             ),
@@ -1650,7 +1652,19 @@ class Assistant:
 
     # ---- SessionEvents ----
 
+    HOLD_NOTE = ("The user hasn't finished their sentence: their words stop mid-way. Don't act and don't "
+                 "answer; wait for the rest.")
+
+    def _hold_if_unfinished(self) -> None:
+        """A reply starting while the user's words stop mid-sentence is dropped: they're still talking."""
+        if self._reply_channel == "voice" and self.dispatcher.hold and not self._held:
+            self._held = True
+            self._drop_reply = True
+            log.info("the user hadn't finished (%r): not answering yet", self.transcript.last_user()[-40:])
+
     def on_audio(self, pcm: bytes) -> None:
+        if not self._turn_open:
+            self._hold_if_unfinished()
         self._turn_open = True
         self.dispatcher.flush_utterance()
         if self.wake:
@@ -1673,6 +1687,11 @@ class Assistant:
         self.dispatcher.turn_blocked = {}  # the chat's "web search off" was for its own message only
         self.transcript.add("user", text, "voice")
         self.dispatcher.on_input_fragment(text)
+        from core.utterance import unfinished
+
+        self.dispatcher.hold = self.HOLD_NOTE if unfinished(self.transcript.last_user()) else ""
+        if self._turn_open:
+            self._hold_if_unfinished()
         if self.wake is not None and self.wake.awake:
             self._sleep_heard_at = self._last_heard
 
@@ -1683,9 +1702,12 @@ class Assistant:
     def on_output_transcript(self, text: str) -> None:
         self._last_reply_at = time.monotonic()
         self._reply_started()
+        if not self._turn_open:
+            self._hold_if_unfinished()
         self._turn_open = True
         self.dispatcher.flush_utterance()
-        self.transcript.add("jarvis", text, self._reply_channel)
+        if not self._held:
+            self.transcript.add("jarvis", text, self._reply_channel)
 
     def on_turn_complete(self) -> None:
         self._last_reply_at = time.monotonic()
@@ -1699,7 +1721,12 @@ class Assistant:
             self.wake.touch()
         self.dispatcher.flush_utterance()
         self.dispatcher.on_turn_complete()
-        self.transcript.flush()
+        self.dispatcher.hold = ""
+        if self._held:
+            self._held = False
+            self.transcript.flush("jarvis")   # the user's half-sentence stays open for the rest of it
+        else:
+            self.transcript.flush()
         self._turn_open = False
         if self.tasks.active:
             self._schedule_task_round()
@@ -1707,9 +1734,12 @@ class Assistant:
     async def on_tool_call(self, name: str, args: dict, call_id: str | None) -> dict:
         self._last_reply_at = time.monotonic()
         self._last_tool_at = time.monotonic()
+        if not self._turn_open:
+            self._hold_if_unfinished()
         self._turn_open = True
         self.tasks.tool_called(name)
-        self.transcript.flush()
+        if not self._held:
+            self.transcript.flush()
         self._status(f"  [tool] {name}({', '.join(f'{k}={v!r}' for k, v in args.items())})")
         result = await self.dispatcher.handle_call(name, args, call_id)
         self._last_tool_at = time.monotonic()  # the model still has to answer with the result

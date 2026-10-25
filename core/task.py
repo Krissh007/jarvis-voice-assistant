@@ -280,7 +280,8 @@ def register(registry: Registry, tasks: TaskMode) -> None:
     ))
     registry.register(Tool(
         name="stop_task",
-        description="Stop the running task now (the user said stop, cancel or 'that's enough').",
+        description=("Stop your own running task now (the user said stop, cancel or 'that's enough'). It only "
+                     "stops task mode: it doesn't stop JobPilot searches or agent runs."),
         func=tasks.stop_task,
         tier=Tier.SAFE,
         read_only=True,

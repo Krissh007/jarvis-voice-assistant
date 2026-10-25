@@ -226,11 +226,11 @@ def test_named_field_and_numbered_field(screen, keyboard) -> None:
 
 
 def test_enter_outside_chat_apps_asks_first_then_types(screen, keyboard) -> None:
-    screen["windows"] = [win("notepad.exe", "a.txt - Notepad", 3)]
+    screen["windows"] = [win("winword.exe", "a.docx - Word", 3)]   # Notepad's Enter is only a new line
     screen["controls"][3] = [Control(1, "document", "Text editor", (0, 0, 900, 700))]
-    out = run(Desktop(CONFIG, Services()).type_in_app("hello", app="notepad", send=True))
+    out = run(Desktop(CONFIG, Services()).type_in_app("hello", app="winword", send=True))
     assert isinstance(out, NeedsConfirmation) and keyboard["typed"] == []
-    assert out.summary == 'type "hello" into a.txt - Notepad and press Enter'
+    assert out.summary == 'type "hello" into a.docx - Word and press Enter'
     run(out.resume())
     assert keyboard["typed"] == [(3, "hello")] and keyboard["enter"] == 1
 
@@ -382,7 +382,7 @@ def test_normalize_keys(keys, expect) -> None:
 
 @pytest.mark.parametrize("combo,exe,rule", [
     ("ctrl+n", "notepad.exe", "ok"), ("escape", "notepad.exe", "ok"), ("a", "notepad.exe", "ok"),
-    ("enter", "claude.exe", "ok"), ("enter", "notepad.exe", "ask"), ("ctrl+s", "notepad.exe", "ask"),
+    ("enter", "claude.exe", "ok"), ("enter", "notepad.exe", "ok"), ("enter", "winword.exe", "ask"), ("ctrl+s", "notepad.exe", "ask"),
     ("alt+f4", "notepad.exe", "ask"), ("ctrl+w", "notepad.exe", "ask"), ("delete", "explorer.exe", "ask"),
     ("delete", "notepad.exe", "ok"), ("ctrl+c", "windowsterminal.exe", "ask"),
     ("shift+delete", "explorer.exe", "no"), ("win+r", "notepad.exe", "no"), ("alt+tab", "notepad.exe", "no"),
@@ -673,10 +673,10 @@ def test_long_or_multi_line_text_is_described_not_read_out(text, expect) -> None
 
 
 def test_confirmations_and_plan_lines_describe_code_instead_of_reading_it(screen, keyboard) -> None:
-    screen["windows"] = [win("notepad.exe", "a.txt - Notepad", 3)]
+    screen["windows"] = [win("winword.exe", "a.docx - Word", 3)]
     keyboard["focused"] = uia.Focused("document", "Text editor", False, True)
-    out = run(Desktop(CONFIG, Services()).type_in_app(CODE, app="notepad", send=True))
-    assert out.summary == (f'type 6 lines ({len(CODE)} characters) starting "<!DOCTYPE html>" into a.txt - Notepad '
+    out = run(Desktop(CONFIG, Services()).type_in_app(CODE, app="winword", send=True))
+    assert out.summary == (f'type 6 lines ({len(CODE)} characters) starting "<!DOCTYPE html>" into a.docx - Word '
                            'and press Enter')
     reg = Registry()
     desktop.register(reg, CONFIG, Services())
@@ -793,3 +793,23 @@ def test_after_reading_a_window_a_click_on_what_the_user_named_does_not_ask(scre
     assert isinstance(run(d.click_in_app("Code, working", app="claude")), str)
     registry.last_user_text = "delete this chat"
     assert isinstance(run(d.click_in_app("Delete chat", app="claude")), NeedsConfirmation)   # risky still asks
+
+
+def test_claude_gets_a_draft_until_the_user_says_send(screen, hands) -> None:
+    """Seen live: JARVIS sent Claude nine messages in one conversation, including remarks meant for JARVIS."""
+    chat_app(screen)
+    registry = type("R", (), {"last_user_text": "Instead, why can't we just stick to my titles?"})()
+    services = Services()
+    services.dispatcher = type("D", (), {"tainted": False, "registry": registry})()
+    d = Desktop(CONFIG, services)
+    out = run(d.type_in_app("Could we stick to my titles?", app="claude", send=True))
+    assert "didn't send it" in out and d.drafts == {7: "Could we stick to my titles?"}
+    registry.last_user_text = "also say titles relevant to mine are fine"
+    out = run(d.type_in_app("Could we stick to my titles, and ones relevant to them?", app="claude"))
+    assert out.startswith("Replaced the unsent draft") and (7, "ctrl+a", 1) in hands["keys"]
+    registry.last_user_text = "okay send it"
+    assert run(d.type_in_app("", app="claude", send=True)) == "Sent the draft in claude." and d.drafts == {}
+    registry.last_user_text = "ask Claude what a monad is"
+    assert run(d.type_in_app("What is a monad?", app="claude", send=True)).endswith("pressed Enter.")
+    with pytest.raises(ToolError, match="no draft"):
+        run(d.type_in_app("", app="claude", send=True))
