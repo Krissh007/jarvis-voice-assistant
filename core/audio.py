@@ -227,6 +227,54 @@ def refresh_portaudio() -> None:
     sd._initialize()
 
 
+def _inside(name: str) -> str:
+    """The device part of a Windows endpoint name: "Headset (OnePlus Nord Buds 3 Pro)" -> "oneplus nord buds 3 pro"."""
+    name = name.strip()
+    if "(" not in name:
+        return ""
+    return name[name.index("(") + 1:].rstrip(")").strip().lower()
+
+
+def is_headset_mic_of(input_name: str, output_name: str) -> bool:
+    """True when the mic is the hands-free microphone of the same Bluetooth earbuds JARVIS plays to.
+    Listening on it switches them into call mode, and their stereo "Headphones" output goes silent:
+    JARVIS talks and nothing is heard. MME cuts names at 31 characters, so the names are compared by
+    prefix."""
+    i, o = input_name.lower(), output_name.lower()
+    if not (i.startswith(("headset", "hands-free", "handsfree")) or "hands-free" in i) or not is_headphones(output_name):
+        return False
+    a, b = _inside(input_name), _inside(output_name)
+    return len(a) >= 6 and len(b) >= 6 and (a.startswith(b) or b.startswith(a))
+
+
+def mic_beside_earbuds(output_name: str) -> tuple[int | None, str]:
+    """For `audio.input_device: null`: Windows' default mic, unless it's the hands-free mic of the earbuds
+    JARVIS plays to; then another microphone (the laptop's), so the earbuds keep playing in stereo.
+    Returns (device index or None for the default, its name)."""
+    import sounddevice as sd
+
+    try:
+        default = sd.query_devices(kind="input")
+    except Exception:
+        return None, ""
+    name = str(default["name"])
+    if not is_headset_mic_of(name, output_name):
+        return None, name
+    choices = []
+    for i, d in enumerate(sd.query_devices()):
+        api = sd.query_hostapis(d["hostapi"])["name"]
+        dname = str(d["name"])
+        if (d["max_input_channels"] > 0 and api == "MME" and "sound mapper" not in dname.lower()
+                and not is_headset_mic_of(dname, output_name) and not dname.lower().startswith(("headset", "hands-free"))):
+            choices.append((0 if ("microphone" in dname.lower() or "array" in dname.lower()) else 1, i, dname))
+    if not choices:
+        return None, name
+    _, index, dname = min(choices)
+    log.warning("audio: Windows' default mic is %s, the earbuds' own hands-free mic: listening on it would "
+                "silence their stereo sound, so JARVIS listens on %s instead", name, dname)
+    return index, dname
+
+
 def resolve_input_device(spec: int | str | None) -> int | None:
     """config `audio.input_device`: None = Windows default, an index, or part of a device name."""
     if spec is None or isinstance(spec, int):

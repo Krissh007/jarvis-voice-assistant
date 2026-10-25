@@ -21,7 +21,7 @@ from core.bus import ConsoleSink, EventBus
 from core.channels import ChatChannel
 from core.audio import (
     Mic, MicGate, PlaybackState, Player, chime, default_output_name, refresh_portaudio, resolve_echo_mode,
-    resolve_input_device, windows_audio_state,
+    mic_beside_earbuds, resolve_input_device, windows_audio_state,
 )
 from core.confirm import Confirmer, UtteranceTracker
 from core.dispatcher import AuditLog, Dispatcher
@@ -1593,7 +1593,14 @@ class Assistant:
         self.gate.mute_while_speaking = bool(audio_cfg["mute_mic_while_speaking"]) or speakers_gate
 
     def _make_mic(self) -> Mic:
-        device = resolve_input_device(self.config["audio"].get("input_device"))
+        spec = self.config["audio"].get("input_device")
+        device = resolve_input_device(spec)
+        if spec is None:   # Windows' default, unless that's the hands-free mic of the earbuds JARVIS plays to
+            device, mic_name = mic_beside_earbuds(self.output_name)
+        else:
+            mic_name = spec if isinstance(spec, str) else f"device {spec}"
+        log.info("audio: speaker %s, mic %s (%s)", self.output_name or "the default", mic_name or "the default",
+                 self.echo_mode)
         return Mic(self._loop, self._on_mic_chunk, device)
 
     async def _audio_watchdog(self, interval_s: float = 2.0) -> None:

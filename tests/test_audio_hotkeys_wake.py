@@ -576,3 +576,76 @@ def test_player_clear_logs_what_it_cut_off(caplog) -> None:
     with caplog.at_level(logging.INFO, logger="core.audio"):
         player.clear("stop key")
     assert "playback stopped (stop key): dropped 1.0 s of queued speech" in caplog.text
+
+
+# ---- the earbuds' hands-free mic (Bluetooth): never picked by default while playing to the same earbuds
+
+BUDS_OUT = "Headphones (OnePlus Nord Buds 3 Pro)"
+
+
+@pytest.mark.parametrize("mic, out, conflict", [
+    ("Headset (OnePlus Nord Buds 3 Pr", BUDS_OUT, True),                # MME cuts names at 31 characters
+    ("Headset (OnePlus Nord Buds 3 Pro)", BUDS_OUT, True),
+    ("Headset Microphone (OnePlus Nord Buds 3 Pro Hands-Free)", BUDS_OUT, True),
+    ("Microphone Array (AMD Audio Dev", BUDS_OUT, False),
+    ("Headset (Jabra Evolve 65)", BUDS_OUT, False),                     # other earbuds: not the same device
+    ("Headset (OnePlus Nord Buds 3 Pr", "Speaker (Realtek(R) Audio)", False),
+    ("Headset ()", "Headphones ()", False),
+])
+def test_the_earbuds_own_mic_is_recognised(mic, out, conflict) -> None:
+    from core.audio import is_headset_mic_of
+
+    assert is_headset_mic_of(mic, out) is conflict
+
+
+class FakeSD:
+    """sounddevice's device list as this PC shows it (MME and WASAPI)."""
+
+    def __init__(self, default_input: int) -> None:
+        self.devices = [
+            {"name": "Microsoft Sound Mapper - Input", "hostapi": 0, "max_input_channels": 2},
+            {"name": "Microphone Array (AMD Audio Dev", "hostapi": 0, "max_input_channels": 2},
+            {"name": "Headset (OnePlus Nord Buds 3 Pr", "hostapi": 0, "max_input_channels": 1},
+            {"name": "Headphones (OnePlus Nord Buds 3", "hostapi": 0, "max_input_channels": 0},
+            {"name": "Headset (OnePlus Nord Buds 3 Pro)", "hostapi": 1, "max_input_channels": 1},
+        ]
+        self.default_input = default_input
+
+    def query_devices(self, device=None, kind=None):
+        if kind == "input":
+            return self.devices[self.default_input]
+        return self.devices if device is None else self.devices[device]
+
+    def query_hostapis(self, index):
+        return {"name": ["MME", "Windows WASAPI"][index]}
+
+
+def test_jarvis_listens_beside_the_earbuds_not_on_them(monkeypatch, caplog) -> None:
+    import sys
+
+    from core.audio import mic_beside_earbuds
+
+    monkeypatch.setitem(sys.modules, "sounddevice", FakeSD(default_input=2))   # Windows made the buds' mic default
+    with caplog.at_level("WARNING"):
+        assert mic_beside_earbuds(BUDS_OUT) == (1, "Microphone Array (AMD Audio Dev")
+    assert "silence their stereo sound" in caplog.text
+    assert mic_beside_earbuds("Speaker (Realtek(R) Audio)") == (None, "Headset (OnePlus Nord Buds 3 Pr")  # no clash
+    monkeypatch.setitem(sys.modules, "sounddevice", FakeSD(default_input=1))
+    assert mic_beside_earbuds(BUDS_OUT) == (None, "Microphone Array (AMD Audio Dev")   # the default is fine
+    only_buds = FakeSD(default_input=2)
+    only_buds.devices[1]["max_input_channels"] = 0                      # no other mic: the default it is
+    monkeypatch.setitem(sys.modules, "sounddevice", only_buds)
+    assert mic_beside_earbuds(BUDS_OUT) == (None, "Headset (OnePlus Nord Buds 3 Pr")
+
+
+def test_the_mic_jarvis_opens_avoids_the_earbuds_and_is_logged(monkeypatch, caplog) -> None:
+    import sys
+
+    a = make_assistant(monkeypatch, "wake_word", BUDS_OUT)
+    monkeypatch.setitem(sys.modules, "sounddevice", FakeSD(default_input=2))
+    with caplog.at_level("INFO"):
+        mic = a._make_mic()
+    assert mic._device == 1
+    assert "audio: speaker Headphones (OnePlus Nord Buds 3 Pro), mic Microphone Array (AMD Audio Dev (headphones)" in caplog.text
+    a.config["audio"]["input_device"] = 2                               # chosen in config: respected
+    assert a._make_mic()._device == 2
