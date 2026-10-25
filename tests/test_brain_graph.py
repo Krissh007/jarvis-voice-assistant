@@ -358,3 +358,58 @@ def test_layout_messages_reach_the_bridge(assistant) -> None:  # noqa: F811
         while json.loads(ws.receive_text())["kind"] != "reply":
             pass
     assert got == [({"jarvis": [1, 2]}, True), ({"fact:1": [3, 4]}, False)]
+
+
+# ---- phase 3: the HUD's facts and the Memory switch
+
+
+def test_the_memory_switch_pauses_and_resumes_the_conversation_log(tmp_path) -> None:
+    from core.bus import EventBus
+    from core.conversation_log import ConversationLog
+
+    bus = EventBus()
+    seen = []
+    bus.subscribe(lambda e: seen.append(e.data) if e.kind == "memory_keep" else None)
+    log = ConversationLog(MemoryDB(tmp_path / "m.sqlite"))
+    log.attach(bus)
+    log.pause()
+    assert log.paused and seen[-1] == {"on": False, "enabled": True}
+    assert log.add("user", "this isn't kept") is False
+    log.resume()
+    assert not log.paused and seen[-1] == {"on": True, "enabled": True}
+    assert log.add("user", "this is kept") is True
+    log.pause()
+    log.new_conversation()                       # a new chat keeps again, and says so
+    assert seen[-1] == {"on": True, "enabled": True} and len(seen) == 4
+    log.new_conversation()                       # nothing changed: nothing said
+    assert len(seen) == 4
+
+
+def test_the_hud_facts_and_the_memory_control(assistant, tmp_path) -> None:  # noqa: F811
+    from core.conversation_log import ConversationLog
+    from core.runtime import WebBridge
+
+    a = assistant
+    a.ui = lambda label, fn, *args: fn(*args)
+    a.services.conversations = log = ConversationLog(MemoryDB(tmp_path / "m.sqlite"))
+    bridge = WebBridge(a, look_path=tmp_path / "orb_look.json")
+    snap = bridge.snapshot()
+    assert snap["keep"] == {"enabled": True, "on": True}
+    assert snap["voice_model"] == a.config["models"]["live"]
+    assert snap["language"] == (a.config["audio"].get("transcription_languages") or ["auto"])[0]
+    assert set(snap["hub"]) == {"enabled", "reachable"}
+    assert bridge.control("keep_memory") and log.paused and bridge.snapshot()["keep"]["on"] is False
+    assert bridge.control("keep_memory") and not log.paused
+    log.enabled = False
+    assert bridge.control("keep_memory") and not log.paused    # conversations aren't kept: nothing to switch
+    a.services.conversations = None
+    assert bridge.snapshot()["keep"] == {"enabled": False, "on": False}
+    bridge.control("keep_memory")                               # no log: does nothing, doesn't fail
+
+
+def test_the_app_opens_on_the_brain() -> None:
+    from core.runtime import Assistant
+    from ui.server import ACTIONS, STREAM_KINDS
+
+    assert Assistant.APP_SECTIONS[0] == "brain"
+    assert {"keep_memory", "open_brain"} <= ACTIONS and "memory_keep" in STREAM_KINDS

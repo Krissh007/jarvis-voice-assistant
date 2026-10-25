@@ -84,11 +84,12 @@ def test_menu_controls_open_the_app_on_its_sections(assistant) -> None:  # noqa:
 
     a = assistant
     opened = []
-    a.open_app = lambda section="chat": opened.append(section)
+    a.open_app = lambda section="brain": opened.append(section)
     a.ui = lambda label, fn, *args: fn(*args)
     bridge = WebBridge(a)
     assert bridge.control("open_app") and bridge.control("open_command") and bridge.control("open_settings")
-    assert opened == ["chat", "command", "settings"]
+    assert bridge.control("open_brain")
+    assert opened == ["brain", "command", "settings", "brain"]   # the app opens on the Brain
 
 
 def test_the_orb_page_has_the_menu_and_gestures() -> None:

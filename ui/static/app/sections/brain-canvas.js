@@ -1,6 +1,7 @@
 // The Brain view's graph on a canvas: a d3-force layout (it cools and stops, so an idle brain costs
 // nothing), zoom and pan, dragging nodes, focus (only a node and its links light up) and a traced path.
-// Labels are drawn as canvas text, never HTML. Redraws only when something moved or changed.
+// What JARVIS is using right now pulses (pulse()). Labels are drawn as canvas text, never HTML. Redraws
+// only when something moved, changed or pulses.
 "use strict";
 
 import { forceCollide, forceLink, forceManyBody, forceSimulation, forceX, forceY } from "/static/vendor/d3/force/index.js";
@@ -36,6 +37,7 @@ export class BrainCanvas {
     this.showLinks = true;
     this.forces = { repel: 60, distance: 40 };
     this.dirty = true;
+    this.pulses = new Map();   // node id -> {start, until}
     this.sim = forceSimulation([]).stop()
       .force("charge", forceManyBody().distanceMax(500))
       .force("link", forceLink([]))
@@ -107,6 +109,15 @@ export class BrainCanvas {
   }
 
   visible(n) { return n.type === "core" || !this.hidden.has(n.type); }
+
+  // Light a node up for a few seconds (JARVIS is using it). Returns whether that node is in the graph.
+  pulse(id, seconds = 4) {
+    if (!this.nodes.some((n) => n.id === id)) return false;
+    const now = performance.now();
+    this.pulses.set(id, { start: now, until: now + seconds * 1000 });
+    this.dirty = true;
+    return true;
+  }
 
   // ---- focus, path, camera
 
@@ -241,7 +252,9 @@ export class BrainCanvas {
 
   _draw = () => {
     this._frame = requestAnimationFrame(this._draw);
-    if (!this.dirty || !this.w) return;
+    const now = performance.now();
+    for (const [id, p] of this.pulses) if (p.until < now) { this.pulses.delete(id); this.dirty = true; }
+    if (!this.dirty && !this.pulses.size || !this.w) return;
     this.dirty = false;
     const g = this.g, k = this.cam.k;
     g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -293,7 +306,18 @@ export class BrainCanvas {
         g.beginPath(); g.arc(x, y, r + 4, 0, Math.PI * 2); g.stroke();
       }
       g.globalAlpha = 1;
-      const wanted = n === this.hover || lit.has(n) ||
+      const p = this.pulses.get(n.id);
+      if (p) {   // expanding rings, fading as the pulse ends
+        const age = (now - p.start) / 1000, left = Math.min(1, (p.until - now) / 800);
+        for (const off of [0, 0.5]) {
+          const ph = ((age + off) % 1);
+          g.globalAlpha = (1 - ph) * 0.8 * left;
+          g.strokeStyle = c; g.lineWidth = 2;
+          g.beginPath(); g.arc(x, y, r + 3 + ph * 18, 0, Math.PI * 2); g.stroke();
+        }
+        g.globalAlpha = 1;
+      }
+      const wanted = n === this.hover || lit.has(n) || !!p ||
         (!dim && (this.labels === "all" ? k > 0.55 || n.hub : this.labels === "hubs" ? n.hub : false));
       if (wanted) labelled.push([n, x, y, r, dim]);
     }

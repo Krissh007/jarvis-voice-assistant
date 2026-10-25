@@ -236,9 +236,11 @@ class WebBridge:
         "open_chat": ("Open chat", lambda a: a.open_chat()),
         "announce": ("Announce", lambda a: a.toggle_announce()),
         "voice": ("Voice", lambda a: a.toggle_voice()),
-        "open_app": ("App", lambda a: a.open_app("chat")),
+        "open_app": ("App", lambda a: a.open_app()),
         "open_command": ("Command centre", lambda a: a.open_app("command")),
         "open_settings": ("Settings", lambda a: a.open_app("settings")),
+        "open_brain": ("Brain", lambda a: a.open_app("brain")),
+        "keep_memory": ("Memory", lambda a: a.toggle_keep()),
     }
 
     def __init__(self, assistant: Assistant, look_path: Path | None = None) -> None:
@@ -398,7 +400,15 @@ class WebBridge:
             "caption_s": _clamp(web.get("caption_seconds"), 8, 2, 60),
             "problem": self.problem(),
             "orb_visible": a.orb_visible,
+            "keep": self._keep_state(),
+            "hub": {"enabled": bool(a.config["features"].get("agent_hub")), "reachable": a.services.hub_reachable},
+            "voice_model": (a.config.get("models") or {}).get("live"),
+            "language": ((a.config.get("audio") or {}).get("transcription_languages") or ["auto"])[0],
         }
+
+    def _keep_state(self) -> dict:
+        log_ = self._a.services.conversations
+        return {"enabled": bool(log_ is not None and log_.enabled), "on": bool(log_ is not None and log_.enabled and not log_.paused)}
 
     def set_look(self, values: dict) -> dict:
         """Keep the Customize sliders' settings (only known keys, each kept in range) for the next start."""
@@ -1480,11 +1490,11 @@ class Assistant:
         else:
             self.chat_proc.start()
 
-    APP_SECTIONS = ("chat", "command", "memory", "settings")
+    APP_SECTIONS = ("brain", "chat", "command", "memory", "settings")
 
-    def open_app(self, section: str = "chat") -> None:
-        """The app window on one of its sections, brought forward (and switched) if it's already open."""
-        section = section if section in self.APP_SECTIONS else "chat"
+    def open_app(self, section: str = "brain") -> None:
+        """The app window on one of its sections (the Brain unless said), brought forward and switched if open."""
+        section = section if section in self.APP_SECTIONS else "brain"
         if self.app_proc is None:
             return
         if self.app_proc.alive:
@@ -1492,6 +1502,19 @@ class Assistant:
         else:
             self.app_proc.url = self.web.app_url + f"&s={section}"
             self.app_proc.start()
+
+    def toggle_keep(self) -> None:
+        """The Brain's Memory switch: stop keeping this conversation (as "don't remember this" does), or keep
+        it again from now on."""
+        log_ = self.services.conversations
+        if log_ is None or not log_.enabled:
+            return
+        if log_.paused:
+            log_.resume()
+            self._status("(keeping this conversation again)")
+        else:
+            log_.pause()
+            self._status("(not keeping this conversation)")
 
     def new_conversation(self, open_chat: bool = False) -> None:
         """A new chat: the model starts without the conversation so far, and every view clears its

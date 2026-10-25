@@ -11,6 +11,13 @@ const state = {
   announce: true,        // the Announce button
   status: "",            // the latest status line
   activity: "",          // what JARVIS is doing right now ("Searching the web…"); "" = nothing
+  problem: null,         // something JARVIS needs that isn't working, in a few words
+  keep: { enabled: false, on: false },   // is this conversation being kept (the Memory switch)
+  hub: { enabled: false, reachable: null },
+  voiceModel: "",
+  language: "",
+  quickActions: [],
+  captionS: 8,           // how long a reply stays as the caption
 };
 const subscribers = new Set();
 let version = 0;   // bumped on every change, so a view that subscribes late still catches up
@@ -41,17 +48,20 @@ export function useStore() {
   return state;
 }
 
-// The events every page shares: hello (snapshot), state, voice, announce, status, activity.
+// The events every page shares: hello (snapshot), level, state, voice, announce, status, activity, memory_keep.
 export function applyEvent(ev) {
   switch (ev.kind) {
     case "hello": {
       const s = ev.snapshot || {};
       setState({ jarvis: s.state || "starting", voice: (s.voice ?? s.speak) !== false, announce: s.announce !== false,
-                 activity: s.activity || "" });
+                 activity: s.activity || "", problem: s.problem || null, keep: s.keep || state.keep,
+                 hub: s.hub || state.hub, voiceModel: s.voice_model || "", language: s.language || "",
+                 quickActions: Array.isArray(s.quick_actions) ? s.quick_actions : [], captionS: s.caption_s || 8 });
       return;
     }
-    case "level":
+    case "level": setState({ problem: ev.problem || null }); if (ev.state) setState({ jarvis: ev.state }); return;
     case "state": if (ev.state) setState({ jarvis: ev.state }); return;
+    case "memory_keep": setState({ keep: { enabled: !!ev.enabled, on: !!ev.on } }); return;
     case "voice": setState({ voice: !!ev.on }); return;
     case "announce": setState({ announce: !!ev.on }); return;
     case "status": setState({ status: ev.text || "" }); return;

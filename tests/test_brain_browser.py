@@ -177,3 +177,91 @@ async def test_the_model_helpers(served, page) -> None:  # noqa: F811
     assert result["path"] == ["fact:2", "hub:memory", "fact:1", "conv:5", "tool:search_web"]
     assert result["hiddenPath"] == ["fact:2", "hub:memory", "jarvis", "cat:search", "tool:search_web"]
     assert result["found"] == ["conv:5", "fact:1"] and result["degree"] == 3   # "call" is in "called" too
+
+
+# ---- phase 3: the HUD, the switches, the command bar and live highlights
+
+
+async def test_the_app_opens_on_the_brain_with_the_hud(served, page) -> None:  # noqa: F811
+    bridge, url = served
+    bridge.brain_graph = GRAPH
+    await page.goto(url)                                               # no section asked for
+    await page.get_by_role("heading", name="Brain").wait_for()
+    hud = page.get_by_role("region", name="JARVIS", exact=True)
+    await hud.get_by_role("img", name="JARVIS: Listening").wait_for()
+    text = await hud.inner_text()
+    assert "gemini-3.8-live" in text and "en-IN" in text and "Voice on" in text
+    caps = page.get_by_role("group", name="Capabilities")
+    for name in ("Mic", "Voice", "Announce", "Memory", "Agents"):
+        assert await caps.get_by_role("switch", name=name).get_attribute("aria-checked") == "true", name
+
+    bridge.bus.publish("state", state="working")
+    await hud.get_by_role("img", name="JARVIS: Working").wait_for()
+    assert "tone-working" in await page.locator(".hud-ring").get_attribute("class")
+    bridge.bus.publish("state", state="muted")
+    await caps.get_by_role("switch", name="Mic").and_(page.locator("[aria-checked=false]")).wait_for()
+    await hud.get_by_role("button", name="Orb").click()                # the 3D orb (or nothing without WebGL)
+    assert await page.locator(".hud-ring").count() == 0
+    await hud.get_by_role("button", name="Ring").click()
+    await page.locator(".hud-ring").wait_for()
+
+
+async def test_the_switches_are_jarvis_controls(served, page) -> None:  # noqa: F811
+    bridge, url = served
+    bridge.brain_graph = GRAPH
+    await page.goto(url + "&s=brain")
+    caps = page.get_by_role("group", name="Capabilities")
+    for name in ("Mic", "Voice", "Announce", "Memory", "Agents"):
+        await caps.get_by_role("switch", name=name).click()
+    assert await until(lambda: bridge.controls == ["mute", "voice", "announce", "keep_memory", "open_command"])
+    bridge.bus.publish("memory_keep", on=False, enabled=True)
+    bridge.bus.publish("voice", on=False)
+    await caps.get_by_role("switch", name="Memory").and_(page.locator("[aria-checked=false]")).wait_for()
+    await caps.get_by_role("switch", name="Voice").and_(page.locator("[aria-checked=false]")).wait_for()
+    await page.get_by_role("region", name="JARVIS", exact=True).get_by_text("Text only").wait_for()
+    bridge.bus.publish("memory_keep", on=False, enabled=False)
+    assert await caps.get_by_role("switch", name="Memory").is_disabled()
+
+
+async def test_the_command_bar_sends_and_shows_the_caption_and_plans(served, page) -> None:  # noqa: F811
+    bridge, url = served
+    bridge.brain_graph = GRAPH
+    await page.goto(url + "&s=brain")
+    await page.get_by_role("button", name="What's on my screen?").click()   # an example
+    assert await until(lambda: bridge.chats and bridge.chats[-1][0] == "What's on my screen?")
+    box = page.get_by_label("Message to JARVIS")
+    await box.fill("Call Sanjay tomorrow")
+    await box.press("Enter")
+    assert await until(lambda: bridge.chats[-1][0] == "Call Sanjay tomorrow")
+
+    b = bridge.bus
+    b.publish("message", channel="chat", role="user", label="Krishna", text="Call Sanjay tomorrow")
+    b.publish("partial", channel="voice", role="jarvis", text="Setting a ")
+    caption = page.locator(".caption")
+    await caption.get_by_text("Setting a").wait_for()
+    assert "live" in await caption.get_attribute("class")
+    b.publish("message", channel="chat", role="jarvis", label="JARVIS", text="Setting a reminder for tomorrow.")
+    await caption.get_by_text("Setting a reminder for tomorrow.").wait_for()
+    assert await page.get_by_role("button", name="What's on my screen?").count() == 0   # examples step aside
+
+    b.publish("confirm_requested", channel="voice", id=3, tool="set_reminder", summary="Remind you to call Sanjay at 9?",
+              step={})
+    await page.get_by_text("Remind you to call Sanjay at 9?").wait_for()
+    await page.locator(".ask").get_by_role("button", name="Approve").click()
+    assert await until(lambda: "confirm" in bridge.controls)
+    b.publish("confirm_resolved", channel="voice", id=3, tool="set_reminder", outcome="confirmed_typed")
+    await page.locator(".ask-plan").wait_for(state="detached")         # done: it leaves the command bar
+
+
+async def test_what_jarvis_uses_lights_up(served, page) -> None:  # noqa: F811
+    bridge, url = served
+    bridge.brain_graph = GRAPH
+    await page.goto(url + "&s=brain")
+    await page.get_by_text("10 nodes · 11 links").wait_for()
+    pulses = "() => [...document.querySelector('.brain-canvas').brainView.pulses.keys()].sort()"
+    bridge.bus.publish("tool_started", channel="voice", tool="search_web", args={}, step=False)
+    bridge.bus.publish("tool_started", channel="voice", tool="not_in_the_graph", args={}, step=False)
+    bridge.bus.publish("memory_used", channel="voice", topic="sanjay", when="", facts=["Krishna's friend is called Sanjay."],
+                       conversation_lines=0)
+    await page.wait_for_function(f"({pulses})().length === 2")
+    assert await page.evaluate(pulses) == ["fact:1", "tool:search_web"]

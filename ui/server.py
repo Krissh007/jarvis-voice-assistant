@@ -40,7 +40,7 @@ STATIC = Path(__file__).resolve().parent / "static"
 for _type, _ext in (("text/javascript", ".js"), ("text/css", ".css"), ("text/html", ".html")):
     mimetypes.add_type(_type, _ext)
 ACTIONS = {"talk", "sleep", "mute", "stop", "confirm", "cancel", "new_chat", "open_chat", "announce", "voice",
-           "open_app", "open_settings", "open_command"}
+           "open_app", "open_settings", "open_command", "open_brain", "keep_memory"}
 REQUESTS = {"settings", "facts", "conversations", "conversation"}  # read-only, answered to the asking page only
 MAX_MESSAGE_BYTES = 8000  # one WebSocket message from the page (chat is limited to 2000 characters)
 LEVEL_FPS = 15  # orb updates
@@ -48,7 +48,7 @@ HISTORY_KINDS = {"message", "tool_started", "tool_finished", "confirm_requested"
                  "sources", "memory_used", "agent_update", "route"}
 HISTORY_MAX = 150
 STREAM_KINDS = HISTORY_KINDS | {"partial", "state", "status", "focus", "media", "conversation", "announce", "voice", "activity",
-                                "look", "orb_visibility", "brain_update"}
+                                "look", "orb_visibility", "brain_update", "memory_keep"}
 
 
 class Bridge(Protocol):

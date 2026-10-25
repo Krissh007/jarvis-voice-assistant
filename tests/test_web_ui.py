@@ -6,6 +6,7 @@ import asyncio
 import json
 import re
 import signal
+import time
 from pathlib import Path
 
 import pytest
@@ -156,10 +157,10 @@ def test_events_stream_to_the_page_and_chat_and_buttons_come_back(ui) -> None:
         ws.send_text("not json")
         ws.send_text(json.dumps({"type": "chat", "text": "x" * MAX_MESSAGE_BYTES}))  # oversized
         ws.send_text(json.dumps({"type": "control", "action": "mute"}))
-        for _ in range(50):
+        for _ in range(250):  # poll: the fake's level never changes, so waiting for a message could hang
             if len(bridge.controls) == 2:
                 break
-            json.loads(ws.receive_text())  # level updates keep coming
+            time.sleep(0.02)
     assert bridge.chats == [("what's the time", False)]
     assert bridge.controls == ["confirm", "mute"]
 

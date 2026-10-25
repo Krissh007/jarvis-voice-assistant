@@ -90,7 +90,14 @@ class ConversationLog:
     # ---- the bus
 
     def attach(self, bus) -> None:
+        self._bus = bus
         bus.subscribe(self.on_event)
+
+    def _announce(self) -> None:
+        """Tell every view whether this conversation is being kept (the Brain's Memory switch)."""
+        bus = getattr(self, "_bus", None)
+        if bus is not None:
+            bus.publish("memory_keep", on=self.enabled and not self.paused, enabled=self.enabled)
 
     def on_event(self, event) -> None:
         try:
@@ -111,7 +118,9 @@ class ConversationLog:
                 with self.db.connect() as db:
                     db.execute("UPDATE conversations SET ended = ? WHERE id = ?", (_iso(_now()), self._current))
             self._current = None
-            self.paused = False
+            was_paused, self.paused = self.paused, False
+        if was_paused:
+            self._announce()
 
     def add(self, role: str, text: str, channel: str = "") -> bool:
         """Store one finished line. False when it wasn't stored (off, paused, empty or private)."""
@@ -187,7 +196,13 @@ class ConversationLog:
 
     def pause(self) -> str:
         self.paused = True
+        self._announce()
         return "I won't keep anything more from this conversation. It starts again with the next new chat."
+
+    def resume(self) -> None:
+        """Keep this conversation again from now on (the user's own click; what was said meanwhile is gone)."""
+        self.paused = False
+        self._announce()
 
     # ---- forgetting
 

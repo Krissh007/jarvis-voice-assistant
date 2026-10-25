@@ -1,4 +1,5 @@
-// The JARVIS app: an icon sidebar (Chat, Brain, Command centre, Memory, Settings) and the section beside it.
+// The JARVIS app: an icon sidebar (Brain, Chat, Command centre, Memory, Settings) and the section beside it.
+// The Brain opens first: the graph with JARVIS's HUD and the command bar.
 // Split view puts Chat on the left and the Command centre on the right. The section is kept in the
 // address's #fragment (s=...) next to the token, so JARVIS can open the window on a section, and a
 // "focus" event from JARVIS (target "app") switches section and brings the window forward.
@@ -15,8 +16,8 @@ import { MemorySection } from "/static/app/sections/memory.js";
 import { SettingsSection } from "/static/app/sections/settings.js";
 
 export const SECTIONS = [
-  { id: "chat", label: "Chat", icon: "message-square", view: ChatSection },
   { id: "brain", label: "Brain", icon: "network", view: BrainSection },
+  { id: "chat", label: "Chat", icon: "message-square", view: ChatSection },
   { id: "command", label: "Command centre", icon: "activity", view: CommandSection },
   { id: "memory", label: "Memory", icon: "brain", view: MemorySection },
   { id: "settings", label: "Settings", icon: "settings", view: SettingsSection },
@@ -27,7 +28,7 @@ const STATE_LABEL = { starting: "Starting", asleep: "Asleep", listening: "Listen
 
 function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
-  return { section: IDS.includes(p.get("s")) ? p.get("s") : "chat", split: p.get("split") === "1" };
+  return { section: IDS.includes(p.get("s")) ? p.get("s") : "brain", split: p.get("split") === "1" };
 }
 
 function writeHash(section, split) {

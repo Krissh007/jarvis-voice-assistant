@@ -113,3 +113,22 @@ Later, separately: the Face HUD mode, Eyes (webcam) and Watch (screen) capabilit
   own storage wouldn't last), sent in chunks under the socket's 8 KB limit; refreshes keep nodes in place.
 - A narrow window turns the legend into a row of chips above the graph.
 - Group hubs renamed so they don't clash with tool categories: "Remembered facts", "Files used".
+
+## Phase 3 result (done)
+
+- The Brain is the app's default section and first in the sidebar; the orb's radial menu item is now
+  "Brain" (it opens the app, which lands on the Brain), and the App button opens it too.
+- HUD (`app/sections/brain-hud.js`): a ring reticle (SVG, CSS animation) that follows JARVIS's state
+  (blue listening, amber working, brighter while speaking, grey muted, red with the reason), swelling
+  with the voice level; or the 3D orb (orb3d.js, made once and kept). Pills: state or activity, voice
+  model, language, Voice on / Text only.
+- Capability switches, all real JARVIS controls: Mic (mute), Voice, Announce, Memory (keep this
+  conversation, or stop as "don't remember this" does; click again to keep it from now on), Agents
+  (Agent Hub status; opens the Command centre). The log's state is published as `memory_keep`.
+- Command bar (`app/sections/brain-ask.js`): the chat's composer, the caption (your words, JARVIS's words
+  as it speaks, then its reply for caption_seconds), plan cards with Approve / Cancel, and the quick
+  examples while nothing else shows.
+- Live highlights: the tool JARVIS calls, the facts it recalls and the Agent Hub when an agent reports
+  pulse on the graph.
+- A narrow window turns the HUD, switches and legend into one strip above the graph.
+- Not done: a reminders button on the command bar (the composer's buttons are reused as they are).

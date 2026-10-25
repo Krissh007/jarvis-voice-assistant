@@ -196,4 +196,4 @@ def test_open_app_starts_the_window_on_a_section_or_brings_it_forward(assistant)
     assert started and started[0].startswith(a.web.app_url) and started[0].endswith("&s=settings")
     a.open_app("nonsense")                       # already open: switch it and bring it forward
     assert len(started) == 1
-    assert [(e.data["target"], e.data["section"]) for e in seen if e.kind == "focus"] == [("app", "chat")]
+    assert [(e.data["target"], e.data["section"]) for e in seen if e.kind == "focus"] == [("app", "brain")]  # the default

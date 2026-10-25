@@ -1,9 +1,12 @@
 // The Brain: everything JARVIS knows and has done, as one graph (docs/brain-ui-plan.md). Remembered
 // facts, conversations, tools by category, the Agent Hub's agents and actions, reminders and the files
 // JARVIS used; every link says why it's there. Left: search, the inspector (read-only), the busiest hubs
-// and the layout controls. Right: the legend, which is also the filter. Click a node to focus it,
-// Shift-click another to trace the path between them. The graph is refreshed when JARVIS says it changed
-// (brain_update), and where each node sits is kept by JARVIS, so the brain opens the way it was left.
+// and the layout controls. Right: JARVIS's HUD and capability switches (brain-hud.js), then the legend,
+// which is also the filter. Below the graph: the command bar (brain-ask.js). Click a node to focus it,
+// Shift-click another to trace the path between them. What JARVIS uses while it works pulses: the tool it
+// calls, the facts it recalls, the Agent Hub when an agent reports. The graph is refreshed when JARVIS
+// says it changed (brain_update), and where each node sits is kept by JARVIS, so the brain opens the way
+// it was left.
 "use strict";
 
 import { useEffect, useMemo, useRef, useState } from "/static/vendor/preact/hooks.module.js";
@@ -11,6 +14,8 @@ import { html, Icon } from "/static/shared/ui.js";
 import { useStore } from "/static/shared/store.js";
 import { ask, onEvent, send } from "/static/shared/ws.js";
 import { BrainCanvas } from "/static/app/sections/brain-canvas.js";
+import { AskBar } from "/static/app/sections/brain-ask.js";
+import { Hud } from "/static/app/sections/brain-hud.js";
 import { TYPES, colorOf, details, layoutChunks, linkBetween, neighbours, path, prepare, search, topHubs,
          typeCounts, typeLabel } from "/static/app/sections/brain-model.js";
 
@@ -120,6 +125,20 @@ function Legend({ graph, hidden, toggle }) {
   </aside>`;
 }
 
+// What JARVIS is using right now, lit up on the graph (only nodes that are in it).
+export function highlight(v, ev) {
+  if (!v) return;
+  if (ev.kind === "tool_started" || ev.kind === "confirm_requested") v.pulse("tool:" + ev.tool, ev.kind === "confirm_requested" ? 8 : 4);
+  else if (ev.kind === "memory_used") {
+    const said = (ev.facts || []).map((f) => norm(f).slice(0, 60)).filter(Boolean);
+    for (const n of v.nodes) if (n.type === "memory" && !n.hub && said.some((f) => norm(n.label).startsWith(f.slice(0, 40)))) v.pulse(n.id, 5);
+  } else if (ev.kind === "agent_update") {
+    v.pulse("hub:agents", 5);
+  }
+}
+
+function norm(text) { return String(text || "").toLowerCase().replace(/\s+/g, " ").trim(); }
+
 export function BrainSection() {
   const s = useStore();
   const canvasRef = useRef(null);
@@ -185,7 +204,10 @@ export function BrainSection() {
   }
 
   useEffect(() => { if (s.connected) load(); }, [s.connected]);
-  useEffect(() => onEvent((ev) => { if (ev.kind === "brain_update") load(); }), []);
+  useEffect(() => onEvent((ev) => {
+    if (ev.kind === "brain_update") load();
+    else highlight(view.current, ev);
+  }), []);
 
   function pick(node, { shift = false, center = false } = {}) {
     const v = view.current;
@@ -243,12 +265,16 @@ export function BrainSection() {
         ${focused && html`<button class="icon-btn" title="Go to the focused node" aria-label="Go to the focused node"
           onClick=${() => view.current?.centerOn(focused)}><${Icon} name="locate-fixed" size=${16} /></button>`}
       </div>
+      <${AskBar} />
       ${state !== "ready" && html`<div class="brain-empty">
         ${state === "loading" && html`<p class="dim">${s.connected ? "Reading the brain…" : "Not connected to JARVIS."}</p>`}
         ${state === "empty" && html`<p class="dim">Nothing in the brain yet. Talk to JARVIS and it fills up.</p>`}
         ${state === "failed" && html`<p class="dim">The brain couldn't be read. <button class="btn small-btn" onClick=${load}>Try again</button></p>`}
       </div>`}
     </div>
-    <${Legend} graph=${graph} hidden=${hidden} toggle=${toggle} />
+    <div class="brain-right">
+      <${Hud} />
+      <${Legend} graph=${graph} hidden=${hidden} toggle=${toggle} />
+    </div>
   </div>`;
 }

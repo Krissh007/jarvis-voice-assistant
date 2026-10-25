@@ -34,7 +34,7 @@ async function copyText(text) {
 
 // ---------------------------------------------------------------- one turn
 
-function PlanCard({ p }) {
+export function PlanCard({ p }) {
   const steps = Array.isArray(p.step.plan) ? p.step.plan : [];
   const done = p.outcome !== null;
   const approved = done && String(p.outcome).startsWith("confirmed");   // confirmed_voice / _typed / _hotkey
@@ -116,7 +116,7 @@ function Context({ t }) {
 
 // ---------------------------------------------------------------- composer
 
-function Composer({ compact }) {
+export function Composer({ compact, placeholder = "Message JARVIS…", inputRef }) {
   const s = useStore();
   const [text, setText] = useState("");
   const [web, setWeb] = useState("auto");
@@ -160,7 +160,7 @@ function Composer({ compact }) {
     ${pics.length > 0 && html`<div class="pics">${pics.map((p) => html`<span key=${p.id} class="pic-chip">
       <img src=${p.preview} alt=${p.name} /><button type="button" title="Remove" aria-label="Remove picture"
         onClick=${() => setPics(pics.filter((x) => x.id !== p.id))}><${Icon} name="x" size=${12} /></button></span>`)}</div>`}
-    <textarea rows="1" maxlength="2000" placeholder="Message JARVIS…" aria-label="Message to JARVIS" value=${text}
+    <textarea rows="1" maxlength="2000" placeholder=${placeholder} aria-label="Message to JARVIS" value=${text} ref=${inputRef}
       onInput=${(e) => { setText(e.target.value); e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 160) + "px"; }}
       onKeyDown=${(e) => { if (e.key === "Enter" && !e.shiftKey) submit(e); }}></textarea>
     <div class="composer-bar">

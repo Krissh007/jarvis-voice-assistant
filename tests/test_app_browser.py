@@ -36,7 +36,9 @@ class BrowserBridge:
 
     def snapshot(self) -> dict:
         return {"state": "listening", "level": 0.0, "user": "Krishna", "speak": True, "voice": True, "announce": True,
-                "pending": None, "problem": None}
+                "pending": None, "problem": None, "keep": {"enabled": True, "on": True},
+                "hub": {"enabled": True, "reachable": True}, "voice_model": "gemini-3.8-live", "language": "en-IN",
+                "quick_actions": ["What's on my screen?", "What are my reminders?"], "caption_s": 8}
 
     def chat(self, text, speak, web="auto", attachments=None) -> bool:
         self.chats.append((text, speak, web))
