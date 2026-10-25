@@ -48,7 +48,7 @@ HISTORY_KINDS = {"message", "tool_started", "tool_finished", "confirm_requested"
                  "sources", "memory_used", "agent_update", "route"}
 HISTORY_MAX = 150
 STREAM_KINDS = HISTORY_KINDS | {"partial", "state", "status", "focus", "media", "conversation", "announce", "voice", "activity",
-                                "look", "orb_visibility"}
+                                "look", "orb_visibility", "brain_update"}
 
 
 class Bridge(Protocol):
@@ -66,6 +66,7 @@ class Bridge(Protocol):
     def pin(self, text: Any) -> dict: ...  # the chat's Pin to memory
     async def snap_screen(self) -> dict: ...  # "attach my screen" (private windows blacked out)
     async def status(self) -> dict: ...  # the command centre's strip (asks the Agent Hub)
+    async def brain(self) -> dict: ...  # the Brain view's graph (core/brain_graph.py)
     attachments: Any  # core.attachments.AttachmentStore: uploaded pictures until their message is sent
     def change_setting(self, key: str, value: Any) -> dict: ...  # one change from the Settings page
     def forget_fact(self, fact_id: Any) -> dict: ...  # the Memory settings' Forget button
@@ -235,6 +236,10 @@ def _handle(bridge: Bridge, text: str) -> dict[str, Any] | None:
         async def status_reply() -> dict[str, Any]:  # asks the Agent Hub: a few seconds at most
             return {"kind": "reply", "id": rid, "what": "status", "data": await bridge.status()}
         return status_reply()
+    elif kind == "request" and msg.get("what") == "brain":
+        async def brain_reply() -> dict[str, Any]:  # reads the database and the audit log off the loop
+            return {"kind": "reply", "id": rid, "what": "brain", "data": await bridge.brain()}
+        return brain_reply()
     elif kind == "request" and msg.get("what") in REQUESTS:
         data = bridge.request(msg["what"], msg.get("arg")) if "arg" in msg else bridge.request(msg["what"])
         return {"kind": "reply", "id": rid, "what": msg["what"], "data": data}

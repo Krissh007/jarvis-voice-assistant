@@ -37,6 +37,9 @@ from core.wakeword import WakeState
 log = logging.getLogger(__name__)
 
 PROBLEM_GRACE_S = 20  # the voice session may take this long to connect before the orb shows an error
+BRAIN_KINDS = {"message", "tool_finished", "conversation", "memory_used", "agent_update"}  # change the brain graph
+BRAIN_DEBOUNCE_S = 2.0  # changes inside this long become one brain_update
+BRAIN_HUB_TTL_S = 60  # the Agent Hub's agent list is asked for again after this long
 
 # The chat's web search: Off refuses these for that message (think_through searches on its own too).
 WEB_TOOLS = ("search_web", "read_page", "site_search", "think_through")
@@ -246,6 +249,10 @@ class WebBridge:
         self.attachments = AttachmentStore()  # the chat's pictures, until their message is sent
         self.last_route: dict | None = None  # the reasoning layer's latest decision (route event), for the status strip
         self.bus.subscribe(self._remember_route)
+        self._hub_report: dict | None = None  # the Agent Hub's last agent_status, for the brain graph
+        self._hub_report_at = 0.0
+        self._brain_timer: asyncio.TimerHandle | None = None
+        self._brain_why: set[str] = set()
 
     def problem(self) -> str | None:
         """Something JARVIS needs that isn't working right now (the orb's error ring), in a few words, or None."""
@@ -262,6 +269,47 @@ class WebBridge:
     def _remember_route(self, event) -> None:
         if event.kind == "route":
             self.last_route = {**event.data, "ts": event.ts}
+        elif event.kind in BRAIN_KINDS:
+            self._brain_changed(event.kind)
+
+    def _brain_changed(self, why: str) -> None:
+        """Something the brain graph shows changed: one brain_update after BRAIN_DEBOUNCE_S, however many
+        changes come meanwhile (the page then asks for the graph again)."""
+        self._brain_why.add(why)
+        if self._brain_timer is not None:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:  # before the loop runs (or off it): the page asks when it opens anyway
+            return
+        self._brain_timer = loop.call_later(BRAIN_DEBOUNCE_S, self._brain_publish)
+
+    def _brain_publish(self) -> None:
+        why, self._brain_why, self._brain_timer = sorted(self._brain_why), set(), None
+        self.bus.publish("brain_update", why=why)
+
+    async def brain(self) -> dict:
+        """The Brain view's graph (core/brain_graph.py): memory, conversations, tools, agents, reminders and
+        the files JARVIS used, with the reason for every link. Read-only; built off the loop."""
+        from core import brain_graph
+
+        a = self._a
+        if a.config["features"].get("agent_hub") and a.services.hub is not None                 and time.monotonic() - self._hub_report_at > BRAIN_HUB_TTL_S:
+            try:
+                self._keep_hub_report(await asyncio.wait_for(a.services.hub.agent_status(), 6))
+            except (ToolError, asyncio.TimeoutError):
+                self._hub_report_at = time.monotonic()  # down: drawn without agents, asked again later
+            except Exception:
+                log.exception("brain: Agent Hub status failed")
+                self._hub_report_at = time.monotonic()
+        reminders = a.services.reminders.pending() if a.services.reminders is not None else []
+        return await asyncio.to_thread(
+            brain_graph.build, store=a.services.memory, conversations=a.services.conversations, registry=a.registry,
+            hub_status=self._hub_report if a.config["features"].get("agent_hub") else None, reminders=reminders,
+            audit_path=a.options.log_dir / "actions.jsonl")
+
+    def _keep_hub_report(self, report: dict) -> None:
+        self._hub_report, self._hub_report_at = report, time.monotonic()
 
     async def status(self) -> dict:
         """The command centre's strip: the voice session, the Agent Hub and its agents, which models do what,
@@ -274,6 +322,7 @@ class WebBridge:
         if hub_info["enabled"] and a.services.hub is not None:
             try:
                 report = await asyncio.wait_for(a.services.hub.agent_status(), 6)
+                self._keep_hub_report(report)
                 hub_info.update(reachable=True, agents=report.get("agents", []), planner=report.get("planner"),
                                 registry_tools=report.get("tools_total"))
             except (ToolError, asyncio.TimeoutError) as exc:
@@ -378,6 +427,7 @@ class WebBridge:
         except ToolError as exc:
             return {"ok": False, "message": str(exc)}
         log.info("web: pinned to memory (%s)", result)
+        self._brain_changed("memory")
         return {"ok": True, "message": {"added": "Pinned to memory.", "updated": "Updated in memory.",
                                         "duplicate": "Already in memory."}[result]}
 
@@ -446,6 +496,7 @@ class WebBridge:
             return {"ok": False, "message": "Conversations aren't kept.", "conversations": []}
         n = log_.delete_conversation(conversation_id)
         log.info("web: deleted conversation %s (%d lines)", conversation_id, n)
+        self._brain_changed("conversation")
         return {"ok": n > 0, "message": f"Deleted ({n} lines)." if n else "It was already gone.",
                 "conversations": log_.conversations()}
 
@@ -505,6 +556,7 @@ class WebBridge:
         fact = next((f for f in store.facts() if f["id"] == fact_id), None)
         ok = bool(fact) and store.remove(fact)
         log.info("web: forgot fact %s", fact_id if ok else f"{fact_id} (not found)")
+        self._brain_changed("memory")
         return {"ok": ok, "message": "Forgotten." if ok else "That fact was already gone.", "facts": store.facts()}
 
 
