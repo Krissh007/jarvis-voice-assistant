@@ -22,6 +22,8 @@ from pathlib import Path
 from typing import Any
 
 from core.confirm import Confirmer, PendingAction, UtteranceTracker, answer_kind, is_accept
+
+RECENT_USER_LINES = 3   # "switch to X" ... "I'm still in that tab": the click that follows names X
 from core.registry import NeedsConfirmation, Registry, Tier, Tool, ToolError
 from core.untrusted import wrap
 
@@ -279,6 +281,7 @@ class Dispatcher:
         """A finished utterance ('voice') or typed line ('text'). True if it answered a pending action."""
         self.tainted = False  # a new user turn clears taint
         self.registry.last_user_text = text
+        self.registry.recent_user_texts = [*self.registry.recent_user_texts, text][-RECENT_USER_LINES:]
         pending = self.confirmer.pending
         if pending is None:
             self.registry.user_turn()

@@ -813,3 +813,33 @@ def test_claude_gets_a_draft_until_the_user_says_send(screen, hands) -> None:
     assert run(d.type_in_app("What is a monad?", app="claude", send=True)).endswith("pressed Enter.")
     with pytest.raises(ToolError, match="no draft"):
         run(d.type_in_app("", app="claude", send=True))
+
+
+def test_a_sidebar_name_beats_chat_messages_that_quote_it() -> None:
+    """Seen live: "JobPilot auto apply" matched two chat messages quoting it, and JARVIS clicked one."""
+    controls = [
+        Control(1, "list item", "Pinned section: “Switch to JobPilot auto apply in the pinned section.” It should "
+                                "click it in Claude’s sidebar.", (0, 0, 900, 40)),
+        Control(2, "list item", "Telling it where you are: “I’ve opened JobPilot auto apply.” It should just "
+                                "acknowledge.", (0, 50, 900, 90)),
+        Control(3, "button", "Job Pilot - Auto Apply", (0, 100, 200, 120)),
+        Control(4, "button", "Job Pilot - Job Search", (0, 130, 200, 150)),
+    ]
+    found, _ = desktop.match_controls("JobPilot auto apply", controls)
+    assert [c.id for c in found] == [3]
+    found, _ = desktop.match_controls("auto apply", controls)
+    assert [c.id for c in found] == [3]                  # a partial match skips long message text
+
+
+def test_a_click_on_what_the_user_named_a_moment_ago_does_not_ask(screen, hands) -> None:
+    screen["windows"] = [win("claude.exe", "Claude", 7)]
+    screen["controls"][7] = [Control(41, "button", "Job Pilot - Auto Apply", (0, 0, 90, 20))]
+    registry = type("R", (), {"last_user_text": "I'm still in that tab.", "recent_user_texts": [
+        "Can you switch to job job pilot auto auto apply? In pin section.", "Okay. I'm still seeing Jarvis "
+        "architecture done.", "I'm still in that tab."]})()
+    services = Services()
+    services.dispatcher = type("D", (), {"tainted": True, "registry": registry})()
+    assert isinstance(run(Desktop(CONFIG, services).click_in_app("Job Pilot - Auto Apply", app="claude")), str)
+    registry.recent_user_texts = ["I'm still in that tab."]
+    assert isinstance(run(Desktop(CONFIG, services).click_in_app("Job Pilot - Auto Apply", app="claude")),
+                      NeedsConfirmation)

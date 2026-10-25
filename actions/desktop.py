@@ -232,12 +232,27 @@ def _with_note(out, note: str):
     return out + note if isinstance(out, str) else out
 
 
+def compact(text: str) -> str:
+    """Letters and digits only: "Job Pilot - Auto Apply" and "JobPilot auto apply" are the same name."""
+    return re.sub(r"[^a-z0-9]", "", text.lower())
+
+
+MAX_PARTIAL_NAME = 80   # longer names are text (a chat message), not something to navigate to
+
+
 def match_controls(name: str, controls: list[uia.Control]) -> tuple[list[uia.Control], list[str]]:
-    """Controls whose name matches `name` (best kind of match only), and close names for "did you mean"."""
+    """Controls whose name matches `name` (best kind of match only), and close names for "did you mean".
+
+    Seen live: "JobPilot auto apply" matched two chat messages quoting those words, not the sidebar's
+    "Job Pilot - Auto Apply", and JARVIS clicked a message. Names are also compared without spaces and
+    punctuation, and a partial match never picks a long block of text."""
     want = " ".join(name.lower().split())
+    squashed = compact(name)
     named = [c for c in controls if c.name and c.kind in CLICKABLE]
-    for test in (lambda n: n == want, lambda n: n.startswith(want), lambda n: want in n,
-                 lambda n: all(w in n for w in want.split())):
+    short = lambda n: len(n) <= max(MAX_PARTIAL_NAME, len(want) + 20)  # noqa: E731
+    for test in (lambda n: n == want, lambda n: bool(squashed) and compact(n) == squashed,
+                 lambda n: n.startswith(want), lambda n: bool(squashed) and compact(n).startswith(squashed),
+                 lambda n: short(n) and want in n, lambda n: short(n) and all(w in n for w in want.split())):
         found = [c for c in named if test(c.name.lower())]
         if found:
             return found, []
@@ -518,9 +533,12 @@ class Desktop:
         Seen live: after JARVIS read Claude's window, every sidebar click asked first, because text it
         had read might have steered it. A control the user named themselves wasn't steered."""
         registry = getattr(getattr(self.services, "dispatcher", None), "registry", None)
-        said = set(control_words(getattr(registry, "last_user_text", "") or ""))
+        lines = list(getattr(registry, "recent_user_texts", None) or [getattr(registry, "last_user_text", "") or ""])
+        said = set(control_words(" ".join(lines)))
+        squashed = compact(" ".join(lines))   # "jobpilot" in the user's words covers "Job Pilot"
         wanted = control_words(name)
-        return bool(wanted) and 2 * sum(w in said for w in wanted) >= len(wanted)
+        hits = sum(w in said or (len(w) >= 3 and w in squashed) for w in wanted)
+        return bool(wanted) and 2 * hits >= len(wanted)
 
     def _user_said_send(self) -> bool:
         """The user's own latest words ask to send. Without a conversation (plans, tests) the caller decides."""
