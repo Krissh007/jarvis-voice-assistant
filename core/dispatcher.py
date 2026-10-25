@@ -144,7 +144,9 @@ class Dispatcher:
         # the model is told; the runtime sets it for each new message.
         self.turn_blocked: dict[str, str] = {}
         self.hold = ""   # set while the user's words stop mid-sentence: no tool runs on half a request
+        self.on_user_line: Callable[[str], None] | None = None   # each finished line that isn't a yes/no
         self._failed = False  # the last _execute ended in an error or was stopped
+        self.last_failed = False  # the same, for the caller of handle_call
 
     # ------------------------------------------------------------------ model side
 
@@ -285,6 +287,8 @@ class Dispatcher:
         pending = self.confirmer.pending
         if pending is None:
             self.registry.user_turn()
+            if self.on_user_line is not None:
+                self.on_user_line(text)
             return False
         if source == "voice" and not self.confirmer.armed:
             return False  # spoken before the summary finished: not an answer yet
@@ -447,6 +451,7 @@ class Dispatcher:
             result, self._failed = f"That didn't work ({type(exc).__name__}).", True
         finally:
             self._running = None
+            self.last_failed = self._failed
         if condense and self.condenser is not None and tool.wants_condense(args) and self.condenser.needed(result):
             result = await self.condenser.condense(tool.name, result, self.registry.last_user_text,
                                                    keep=tool.condense_keep(args))

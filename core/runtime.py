@@ -641,6 +641,14 @@ class Assistant:
         self._stall_checked = 0.0     # the heard time already looked at, so one silence restarts once
         self.stall_restart_s = float(config["listening"].get("stall_restart_s", 10) or 0)
         self.registry = load_actions(Registry(), config, self.services)
+        self.registry.register(Tool(
+            name="list_issues",
+            description=("JARVIS's open issues: requests that failed three times and were logged (and sent to "
+                         "Claude to fix). For 'any open issues?', 'what's broken', 'what did you log'."),
+            func=self._list_issues,
+            tier=Tier.SAFE,
+            read_only=True,
+        ))
         if self.wake:
             self.registry.register(Tool(
                 name="go_to_sleep",
@@ -706,6 +714,17 @@ class Assistant:
             accept_phrases=confirm_cfg["accept_phrases"],
             dry_run=options.dry_run,
         )
+        from core.issues import IssueTracker
+
+        # Self-healing: a request that fails 3 times opens an issue (logs/issues.jsonl) that goes to Claude.
+        heal_cfg = config.get("self_heal") or {}
+        self.heal_cfg = heal_cfg
+        self.issues = IssueTracker(options.log_dir / "issues.jsonl", attempts=int(heal_cfg.get("attempts", 3)),
+                                   fixes_path=Path(__file__).resolve().parent.parent / "docs" / "fixes.md")
+        self._last_heal_at = -1e9
+        self._heal_tasks: set[asyncio.Task] = set()
+        if heal_cfg.get("enabled", True):
+            self.dispatcher.on_user_line = self._on_user_line
         from core.activity import Activity
 
         # The status line under the orb and in the chat ("Searching the web…"), so a pause never looks dead.
@@ -1743,6 +1762,7 @@ class Assistant:
         self._status(f"  [tool] {name}({', '.join(f'{k}={v!r}' for k, v in args.items())})")
         result = await self.dispatcher.handle_call(name, args, call_id)
         self._last_tool_at = time.monotonic()  # the model still has to answer with the result
+        result = self._watch_result(name, args, result)
         status = result.get("status")
         if status == "awaiting_confirmation":
             keys = self.config["hotkeys"]
@@ -1750,6 +1770,73 @@ class Assistant:
         else:
             self._status(f"  [tool] -> {status}")
         return result
+
+    # ---- self-healing ----
+
+    def _watch_result(self, name: str, args: dict, result: dict) -> dict:
+        """Count a failed attempt, tell the model to try another way, and open an issue on the 3rd."""
+        if not self.heal_cfg.get("enabled", True) or result.get("status") in {"awaiting_confirmation", "waiting"}:
+            return result
+        tool = self.registry.get(name)
+        ok = result.get("status") not in {"refused", "error"} and not self.dispatcher.last_failed
+        text = str(result.get("result") or result.get("message") or "")
+        self.issues.tool_result(name, args, ok, text, trusted=not (tool and tool.untrusted_output))
+        if hint := self.issues.hint(name):
+            result = {**result, "recovery": hint}
+        self._open_issue_if_due()
+        return result
+
+    def _on_user_line(self, text: str) -> None:
+        self.issues.user_line(text)
+        if self.issues.due():
+            self._notify("[system notice] " + self.issues.hint(""))
+            self._open_issue_if_due()
+
+    def _open_issue_if_due(self) -> None:
+        if (issue := self.issues.open_issue()) is None:
+            return
+        self._status(f"(issue #{issue.id} logged: \"{issue.request[:60]}\" failed {len(issue.attempts)} times)",
+                     problem=True)
+        if self.heal_cfg.get("send_to_claude", True):
+            task = asyncio.ensure_future(self._heal(issue))
+            self._heal_tasks.add(task)              # keep a reference until it's done
+            task.add_done_callback(self._heal_tasks.discard)
+
+    async def _heal(self, issue) -> None:
+        """Hand the issue to Claude in the JARVIS chat, once JARVIS is free, at most every few minutes."""
+        gap = float(self.heal_cfg.get("min_minutes_between", 10)) * 60
+        if time.monotonic() - self._last_heal_at < gap:
+            self.issues.mark(issue.id, "logged (sent recently: not sent again)")
+            return
+        desktop = getattr(self.services, "desktop", None)
+        if desktop is None:
+            self.issues.mark(issue.id, "logged (no desktop tools to reach Claude)")
+            return
+        for _ in range(60):   # wait for JARVIS to finish talking and for any yes/no
+            if not (self.playback.playing or self.dispatcher.awaiting_confirmation or self._turn_open):
+                break
+            await asyncio.sleep(1)
+        self._last_heal_at = time.monotonic()
+        chat = str(self.heal_cfg.get("claude_chat") or "JARVIS architecture dev")
+        try:
+            await desktop.send_to_chat(chat, issue.report())
+        except Exception as exc:
+            log.warning("self-heal: couldn't send issue #%d to Claude: %s", issue.id, exc)
+            self.issues.mark(issue.id, "logged (couldn't reach Claude)")
+            self._notify(f"[system notice] Issue #{issue.id} is logged, but I couldn't send it to Claude ({exc}). "
+                         "Tell the user in one short sentence.")
+            return
+        self.issues.mark(issue.id, "sent to Claude")
+        self._notify(f"[system notice] Issue #{issue.id} was sent to Claude in the {chat} chat to be fixed. "
+                     "Tell the user in one short sentence.")
+
+    async def _list_issues(self) -> str:
+        rows = self.issues.open_issues()
+        if not rows:
+            return "No open issues. Fixed ones are listed in docs/fixes.md."
+        lines = [f"#{r['id']} ({r.get('opened', '')}): \"{r.get('request', '')}\" - {r.get('status', 'open')}"
+                 for r in rows[-10:]]
+        return f"{len(rows)} open issue{'s' if len(rows) != 1 else ''}:\n" + "\n".join(lines)
 
     def on_tool_cancellation(self, ids: list[str]) -> None:
         self.dispatcher.on_tool_cancellation(ids)

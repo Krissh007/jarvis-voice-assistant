@@ -55,6 +55,8 @@ Values that are left as comments or blank are ignored.
 | `wake_word.gain` | `1.0` | Boosts the mic for wake detection only (`--mic-test` suggests a value) |
 | `wake_word.active_window_s` | `60` | After waking, JARVIS keeps listening until this many seconds pass with nothing from you (speech or typing; the count waits while JARVIS is still talking). "Go to sleep", "stop listening", "that's all" or "goodbye" end it at once, and so does a bare "stop" when JARVIS isn't talking or working. Also in Settings, applied at once |
 | `wake_word.chime_volume` | `0.06` | Wake beep loudness (`0` is silent) |
+| `self_heal.enabled` | `true` | A request that fails `self_heal.attempts` (3) times (tool errors or refusals, or you correcting or repeating it) stops being retried; JARVIS tells you and logs an issue in `logs/issues.jsonl` |
+| `self_heal.send_to_claude` | `true` | Also post the issue in Claude's `self_heal.claude_chat` ("JARVIS architecture dev") so Claude finds and fixes the cause; at most every `min_minutes_between` (10) minutes. Fixes are listed in `docs/fixes.md` |
 | `listening.stall_restart_s` | `10` | You said something (3+ words) but Gemini stayed silent this long, with no action running or waiting for your yes: JARVIS reconnects with a recap and repeats your request. `0` turns it off |
 | `browser.step_timeout_s` | `20` | One step in JARVIS's browser (scroll, click, read) gives up after this many seconds |
 | `browser.task_timeout_s` | `120` | A whole multi-step `browser_task` gives up after this many seconds. While a browser job runs, a new browser request is answered "still busy" at once instead of waiting |

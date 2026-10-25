@@ -57,6 +57,13 @@ chat_apps:                       # read_app what=latest and wait_for_app: the ne
       skip_inside: [button, status]   # Copy, Retry, "Thought for 13s", screen-reader status lines
       drop_text: ['^Thought for \d+s$']
 
+self_heal:                      # a request that fails 3 times opens an issue (logs/issues.jsonl) for Claude
+  enabled: true
+  attempts: 3                   # failed attempts (errors, refusals, the user correcting or repeating) per request
+  send_to_claude: true          # post the issue in Claude's chat below so Claude finds and fixes the cause
+  claude_chat: "JARVIS architecture dev"   # the pinned chat's name in Claude's sidebar
+  min_minutes_between: 10       # never post more often than this
+
 listening:
   mode: wake_word               # always_on | push_to_talk | wake_word
   end_pause_ms: 1500            # quiet this long = you've finished; shorter replies faster, but splits sentences

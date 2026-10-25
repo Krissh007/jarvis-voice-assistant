@@ -603,6 +603,19 @@ class Desktop:
                                      step={"app": win.exe, "field": field, "send": send, "why": reasons})
         return _with_note(await self._type(win, text, field, send), held_back)
 
+    async def send_to_chat(self, chat: str, text: str, app: str = "claude") -> str:
+        """Open a chat in Claude's sidebar by name and send a message there. Used by self-healing only,
+        with text JARVIS wrote itself (core/issues.py), never with text from apps or websites."""
+        win = await uia.call(self.target, app, "send to")
+        control = await uia.call(self._pick_control, win, chat)
+        await self._click(win, control, False, False)
+        await asyncio.sleep(1.5)                # the chat opens
+        self.drafts.pop(win.hwnd, None)         # a draft of mine belongs to the chat that was open before
+        out = await self._type(win, text[:self.max_typed], "", True)
+        if isinstance(out, NeedsConfirmation):
+            raise ToolError("the message box turned out to be a terminal")
+        return out
+
     async def _type(self, win: uia.Window, text: str, field: str, send: bool,
                     allow_terminal: bool = False) -> str | NeedsConfirmation:
         key = (win.hwnd, " ".join(text.split()), field.strip().lower(), bool(send))
