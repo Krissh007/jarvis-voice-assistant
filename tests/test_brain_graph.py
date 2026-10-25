@@ -306,3 +306,55 @@ def test_brain_request_and_updates_reach_the_page(assistant) -> None:  # noqa: F
             if msg["kind"] == "reply":
                 break
     assert msg["id"] == 7 and msg["what"] == "brain" and msg["data"]["nodes"] == [{"id": "jarvis"}]
+
+
+def test_the_brain_layout_is_kept_checked_and_merged(assistant, tmp_path) -> None:  # noqa: F811
+    from core import runtime
+    from core.runtime import WebBridge
+
+    bridge = WebBridge(assistant, look_path=tmp_path / "orb_look.json")
+    assert bridge.layout_path == tmp_path / "brain_layout.json" and bridge._brain_layout() == {}
+    assert bridge.save_brain_layout({"jarvis": [1.234, -5], "fact:1": [3, 4], "bad": [1], "nan": [float("nan"), 1],
+                                     "big": [1e9, 0], "bool": [True, 2], "": [1, 2], 7: [1, 2], "x" * 300: [1, 2]})
+    assert bridge._brain_layout() == {"jarvis": [1.2, -5.0], "fact:1": [3.0, 4.0]}
+    assert bridge.save_brain_layout({"conv:2": [9, 9], "fact:1": [0, 0]}, fresh=False)   # the next chunk adds
+    assert bridge._brain_layout() == {"jarvis": [1.2, -5.0], "fact:1": [0.0, 0.0], "conv:2": [9.0, 9.0]}
+    assert bridge.save_brain_layout({"tool:x": [1, 1]})                                   # a new layout replaces
+    assert bridge._brain_layout() == {"tool:x": [1.0, 1.0]}
+    assert bridge.save_brain_layout("not a dict") is False
+
+    many = {f"n{i}": [i, i] for i in range(runtime.BRAIN_LAYOUT_MAX + 50)}
+    bridge.save_brain_layout(many)
+    assert len(bridge._brain_layout()) == runtime.BRAIN_LAYOUT_MAX
+    bridge.layout_path.write_text("[1, 2]", encoding="utf-8")                             # not ours: ignored
+    assert bridge._brain_layout() == {}
+
+
+async def test_the_brain_request_carries_the_kept_layout(assistant, tmp_path) -> None:  # noqa: F811
+    from core.runtime import WebBridge
+
+    bridge = WebBridge(assistant, look_path=tmp_path / "orb_look.json")
+    bridge.save_brain_layout({"jarvis": [10, 20]})
+    assert (await bridge.brain())["layout"] == {"jarvis": [10.0, 20.0]}
+
+
+def test_layout_messages_reach_the_bridge(assistant) -> None:  # noqa: F811
+    from fastapi.testclient import TestClient
+
+    from core.runtime import WebBridge
+    from tests.test_web_ui import PORT, TOKEN, connect
+    from ui.server import create_app
+
+    bridge = WebBridge(assistant)
+    got = []
+    bridge.save_brain_layout = lambda positions, fresh=True: got.append((positions, fresh)) or True
+    client = TestClient(create_app(bridge, TOKEN, PORT), base_url=f"http://127.0.0.1:{PORT}")
+    with connect(client) as ws:
+        json.loads(ws.receive_text())       # hello
+        ws.send_text(json.dumps({"type": "brain_layout", "fresh": True, "positions": {"jarvis": [1, 2]}}))
+        ws.send_text(json.dumps({"type": "brain_layout", "fresh": False, "positions": {"fact:1": [3, 4]}}))
+        ws.send_text(json.dumps({"type": "brain_layout", "positions": "nope"}))         # dropped
+        ws.send_text(json.dumps({"type": "request", "what": "facts", "id": 1}))         # after the others
+        while json.loads(ws.receive_text())["kind"] != "reply":
+            pass
+    assert got == [({"jarvis": [1, 2]}, True), ({"fact:1": [3, 4]}, False)]

@@ -1,4 +1,4 @@
-// The JARVIS app: an icon sidebar (Chat, Command centre, Memory, Settings) and the section beside it.
+// The JARVIS app: an icon sidebar (Chat, Brain, Command centre, Memory, Settings) and the section beside it.
 // Split view puts Chat on the left and the Command centre on the right. The section is kept in the
 // address's #fragment (s=...) next to the token, so JARVIS can open the window on a section, and a
 // "focus" event from JARVIS (target "app") switches section and brings the window forward.
@@ -8,6 +8,7 @@ import { useEffect, useState } from "/static/vendor/preact/hooks.module.js";
 import { html, render, Icon } from "/static/shared/ui.js";
 import { applyEvent, setState, useStore } from "/static/shared/store.js";
 import { connect, onConnection, onEvent, toWindow } from "/static/shared/ws.js";
+import { BrainSection } from "/static/app/sections/brain.js";
 import { ChatSection } from "/static/app/sections/chat.js";
 import { CommandSection } from "/static/app/sections/command.js";
 import { MemorySection } from "/static/app/sections/memory.js";
@@ -15,6 +16,7 @@ import { SettingsSection } from "/static/app/sections/settings.js";
 
 export const SECTIONS = [
   { id: "chat", label: "Chat", icon: "message-square", view: ChatSection },
+  { id: "brain", label: "Brain", icon: "network", view: BrainSection },
   { id: "command", label: "Command centre", icon: "activity", view: CommandSection },
   { id: "memory", label: "Memory", icon: "brain", view: MemorySection },
   { id: "settings", label: "Settings", icon: "settings", view: SettingsSection },

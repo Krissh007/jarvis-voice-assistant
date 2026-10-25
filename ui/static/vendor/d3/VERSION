@@ -1,0 +1,4 @@
+d3-force 3.0.0, d3-quadtree 3.0.1, d3-dispatch 3.0.1, d3-timer 3.0.1 (ISC, Mike Bostock), from
+https://registry.npmjs.org/<name>/-/<name>-<version>.tgz (sha512 integrity checked). src/*.js as ES modules;
+d3-force's bare imports ("d3-dispatch", "d3-quadtree", "d3-timer") are rewritten to relative paths, because
+the page's Content-Security-Policy allows no inline import map. Nothing else is changed.

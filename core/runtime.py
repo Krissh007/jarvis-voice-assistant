@@ -40,6 +40,7 @@ PROBLEM_GRACE_S = 20  # the voice session may take this long to connect before t
 BRAIN_KINDS = {"message", "tool_finished", "conversation", "memory_used", "agent_update"}  # change the brain graph
 BRAIN_DEBOUNCE_S = 2.0  # changes inside this long become one brain_update
 BRAIN_HUB_TTL_S = 60  # the Agent Hub's agent list is asked for again after this long
+BRAIN_LAYOUT_MAX = 4000  # node positions kept for the Brain view (the page's port, so its storage, changes each start)
 
 # The chat's web search: Off refuses these for that message (think_through searches on its own too).
 WEB_TOOLS = ("search_web", "read_page", "site_search", "think_through")
@@ -246,6 +247,7 @@ class WebBridge:
         self._a = assistant
         self.bus = assistant.bus
         self.look_path = look_path or Services().data_dir / "orb_look.json"
+        self.layout_path = self.look_path.with_name("brain_layout.json")
         self.attachments = AttachmentStore()  # the chat's pictures, until their message is sent
         self.last_route: dict | None = None  # the reasoning layer's latest decision (route event), for the status strip
         self.bus.subscribe(self._remember_route)
@@ -303,10 +305,45 @@ class WebBridge:
                 log.exception("brain: Agent Hub status failed")
                 self._hub_report_at = time.monotonic()
         reminders = a.services.reminders.pending() if a.services.reminders is not None else []
-        return await asyncio.to_thread(
+        graph = await asyncio.to_thread(
             brain_graph.build, store=a.services.memory, conversations=a.services.conversations, registry=a.registry,
             hub_status=self._hub_report if a.config["features"].get("agent_hub") else None, reminders=reminders,
             audit_path=a.options.log_dir / "actions.jsonl")
+        graph["layout"] = self._brain_layout()
+        return graph
+
+    def _brain_layout(self) -> dict:
+        try:
+            saved = json.loads(self.layout_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return saved if isinstance(saved, dict) else {}
+
+    def save_brain_layout(self, positions, fresh: bool = True) -> bool:
+        """Where the Brain view's nodes sit ({node id: [x, y]}), so the graph opens the way it was left. A
+        big graph comes in several messages: the first is `fresh` (replaces the kept layout), the rest add
+        to it. Only ids and finite numbers are kept, at most BRAIN_LAYOUT_MAX of them."""
+        import math
+
+        if not isinstance(positions, dict):
+            return False
+        kept = {} if fresh else self._brain_layout()
+        for nid, xy in positions.items():
+            if len(kept) >= BRAIN_LAYOUT_MAX and nid not in kept:
+                break
+            if (isinstance(nid, str) and 0 < len(nid) <= 240 and isinstance(xy, list) and len(xy) == 2
+                    and all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+                            and abs(v) < 1e6 for v in xy)):
+                kept[nid] = [round(float(xy[0]), 1), round(float(xy[1]), 1)]
+        try:
+            self.layout_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.layout_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(kept), encoding="utf-8")
+            tmp.replace(self.layout_path)
+        except OSError as exc:
+            log.warning("web: couldn't keep the brain's layout: %s", exc)
+            return False
+        return True
 
     def _keep_hub_report(self, report: dict) -> None:
         self._hub_report, self._hub_report_at = report, time.monotonic()

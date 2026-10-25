@@ -29,6 +29,10 @@ class BrowserBridge:
         self.config = main.load_config()
         self.settings = SettingsStore(self.config, tmp_path / "settings.json")
         self.env = {"GOOGLE_API_KEY": SECRET}
+        self.brain_graph: dict = {"nodes": [{"id": "jarvis", "type": "core", "label": "JARVIS", "hub": True, "detail": {}}],
+                                  "links": [], "counts": {}, "capped": [], "layout": {}}
+        self.brain_requests = 0
+        self.layouts: list[tuple[dict, bool]] = []
 
     def snapshot(self) -> dict:
         return {"state": "listening", "level": 0.0, "user": "Krishna", "speak": True, "voice": True, "announce": True,
@@ -75,6 +79,14 @@ class BrowserBridge:
 
     async def snap_screen(self) -> dict:
         return {}
+
+    async def brain(self) -> dict:
+        self.brain_requests += 1
+        return self.brain_graph
+
+    def save_brain_layout(self, positions, fresh=True) -> bool:
+        self.layouts.append((positions, fresh))
+        return True
 
     async def status(self) -> dict:
         return {"voice_session": True, "hub": {"enabled": True, "reachable": True, "planner": True, "registry_tools": 60,

@@ -96,3 +96,20 @@ Later, separately: the Face HUD mode, Eyes (webcam) and Watch (screen) capabilit
   `brain_update` (with `why`) at most every 2 s after messages, tool calls, conversations, recalls,
   agent results, pins, forgets and deletes.
 - On the real data: 95 nodes, 210 links, 40 KB, built in about 0.1 s.
+
+## Phase 2 result (done)
+
+- New **Brain** section (after Chat in the sidebar; it becomes the default in Phase 3):
+  `app/sections/brain.js` (panels), `brain-canvas.js` (d3-force layout + canvas drawing),
+  `brain-model.js` (positions, search, path, hubs; no DOM).
+- d3-force 3.0.0 with d3-quadtree, d3-dispatch and d3-timer vendored in `ui/static/vendor/d3` (ISC; sha512
+  checked; bare imports made relative). Lucide icons added: network, route, zoom-in/out, maximize-2,
+  locate-fixed, crosshair, tag.
+- Click to focus (only the node and its links light up), the inspector with every link's reason,
+  Shift-click to trace the path (weighted so it goes through JARVIS or a group hub only when nothing
+  more specific joins the two), search, top hubs, legend as a filter, push-apart / link-length sliders,
+  labels hubs / all / none, links on / off, re-arrange, zoom buttons, fit, double-click to zoom.
+- Positions are kept by JARVIS in `data/brain_layout.json` (the page's port changes each start, so its
+  own storage wouldn't last), sent in chunks under the socket's 8 KB limit; refreshes keep nodes in place.
+- A narrow window turns the legend into a row of chips above the graph.
+- Group hubs renamed so they don't clash with tool categories: "Remembered facts", "Files used".

@@ -67,6 +67,7 @@ class Bridge(Protocol):
     async def snap_screen(self) -> dict: ...  # "attach my screen" (private windows blacked out)
     async def status(self) -> dict: ...  # the command centre's strip (asks the Agent Hub)
     async def brain(self) -> dict: ...  # the Brain view's graph (core/brain_graph.py)
+    def save_brain_layout(self, positions: Any, fresh: bool = True) -> bool: ...  # where the Brain view's nodes sit
     attachments: Any  # core.attachments.AttachmentStore: uploaded pictures until their message is sent
     def change_setting(self, key: str, value: Any) -> dict: ...  # one change from the Settings page
     def forget_fact(self, fact_id: Any) -> dict: ...  # the Memory settings' Forget button
@@ -240,6 +241,8 @@ def _handle(bridge: Bridge, text: str) -> dict[str, Any] | None:
         async def brain_reply() -> dict[str, Any]:  # reads the database and the audit log off the loop
             return {"kind": "reply", "id": rid, "what": "brain", "data": await bridge.brain()}
         return brain_reply()
+    elif kind == "brain_layout" and isinstance(msg.get("positions"), dict):
+        bridge.save_brain_layout(msg["positions"], bool(msg.get("fresh", True)))
     elif kind == "request" and msg.get("what") in REQUESTS:
         data = bridge.request(msg["what"], msg.get("arg")) if "arg" in msg else bridge.request(msg["what"])
         return {"kind": "reply", "id": rid, "what": msg["what"], "data": data}

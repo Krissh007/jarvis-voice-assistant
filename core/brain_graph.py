@@ -28,13 +28,13 @@ from core.privacy import redact
 
 log = logging.getLogger(__name__)
 
-TYPES = {  # type -> the hub every node of that type hangs from (and its label)
-    "memory": ("hub:memory", "Memory"),
+TYPES = {  # type -> the hub every node of that type hangs from (and its label; not a tool category's name)
+    "memory": ("hub:memory", "Remembered facts"),
     "conversation": ("hub:conversation", "Conversations"),
     "tool": (None, None),            # tools hang from their category's hub (cat:<category>)
     "agent": ("hub:agents", "Agent Hub"),
     "reminder": ("hub:reminder", "Reminders"),
-    "file": ("hub:file", "Files"),
+    "file": ("hub:file", "Files used"),
 }
 MAX_CONVERSATIONS = 200
 MAX_FILES = 150
@@ -156,7 +156,7 @@ class Graph:
     def hub(self, type_: str) -> str:
         nid, label = TYPES[type_]
         self.node(nid, type_, label, hub=True)
-        self.link("jarvis", nid, f"JARVIS's {label.lower()}", "structure")
+        self.link("jarvis", nid, f"part of JARVIS: {label.lower()}", "structure")
         return nid
 
 
