@@ -655,6 +655,7 @@ class Assistant:
         self.chat_proc = None  # ui.window.WindowProcess: the complete chat page, in a normal window
         self.app_proc = None  # ui.window.WindowProcess: the app (sidebar shell), in a normal window
         self.orb_visible = True  # the show/hide hotkey
+        self._orb_hidden_for_app = False  # JARVIS hid the orb because the app opened: it comes back when the app closes
         from core.settings_store import SettingsStore
 
         self.settings = SettingsStore(config, Services().data_dir / "settings.json")  # the app's Settings page
@@ -686,7 +687,7 @@ class Assistant:
             self.app_proc = WindowProcess(  # the app: sidebar with Chat, Command centre, Memory, Settings
                 self.web.app_url, state_path=Services().data_dir / "app_window.json", mode="chat",
                 width=int(ucfg.get("app_width", 1240)), height=int(ucfg.get("app_height", 800)), on_top=False,
-                icon=icon, log_path=options.log_dir / "window.log",
+                icon=icon, on_closed=self._app_closed, log_path=options.log_dir / "window.log",
             )
         elif config["features"].get("window") and self.mode != "text":
             from core.face import Face
@@ -1380,8 +1381,11 @@ class Assistant:
         elif name == "show_orb" and pressed:
             self.toggle_orb()
 
-    def toggle_orb(self, visible: bool | None = None) -> None:
-        """The show/hide hotkey (and the tray): the orb's window hides or comes back where it was."""
+    def toggle_orb(self, visible: bool | None = None, for_app: bool = False) -> None:
+        """The show/hide hotkey (and the tray): the orb's window hides or comes back where it was. `for_app`:
+        JARVIS hid it because the app opened; any other change is the user's, and then the app's closing
+        leaves the orb as the user set it."""
+        self._orb_hidden_for_app = for_app
         self.orb_visible = (not self.orb_visible) if visible is None else bool(visible)
         log.info("orb %s", "shown" if self.orb_visible else "hidden")
         self.bus.publish("orb_visibility", visible=self.orb_visible)
@@ -1530,6 +1534,17 @@ class Assistant:
         else:
             self.app_proc.url = self.web.app_url + f"&s={section}"
             self.app_proc.start()
+        self._hide_orb_for_app()
+
+    def _hide_orb_for_app(self) -> None:
+        """The app is open: the orb steps aside (web_ui.hide_orb_with_app). Ctrl+Alt+Space still shows it."""
+        if self.orb_visible and (self.config.get("web_ui") or {}).get("hide_orb_with_app", True):
+            self.toggle_orb(False, for_app=True)
+
+    def _app_closed(self) -> None:
+        """The app window was closed: the orb comes back if JARVIS hid it for the app."""
+        if self._orb_hidden_for_app and not self.orb_visible:
+            self.toggle_orb(True)
 
     def toggle_keep(self) -> None:
         """The Brain's Memory switch: stop keeping this conversation (as "don't remember this" does), or keep

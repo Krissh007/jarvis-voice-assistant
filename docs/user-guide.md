@@ -161,6 +161,8 @@ the clipboard, running a plan, forgetting a memory) is read to you first:
 - **Tap** it for its menu: **Brain**, **Talk** and **Command centre**.
 - **Hold** it to talk. **Double-tap** it to mute or unmute the microphone.
 - **Ctrl+Alt+Space** hides or shows it. Talking without the wake word is **Ctrl+Alt+T** now.
+- It steps aside while the app is open and comes back when you close the app (unless you hid it yourself
+  with Ctrl+Alt+Space). To keep it showing, set `web_ui.hide_orb_with_app: false`.
 - Its colour: blue listening, amber working, grey muted, and **red when something JARVIS needs isn't
   working**: the reason shows under it when you tap (the voice session not connected, or the Agent Hub
   not reachable).

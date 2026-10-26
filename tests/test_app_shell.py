@@ -197,3 +197,55 @@ def test_open_app_starts_the_window_on_a_section_or_brings_it_forward(assistant)
     a.open_app("nonsense")                       # already open: switch it and bring it forward
     assert len(started) == 1
     assert [(e.data["target"], e.data["section"]) for e in seen if e.kind == "focus"] == [("app", "brain")]  # the default
+
+
+class OpenWindow:
+    url = ""
+    alive = False
+
+    def start(self):
+        self.alive = True
+
+
+def orb_events(seen):
+    return [e.data["visible"] for e in seen if e.kind == "orb_visibility"]
+
+
+def test_the_orb_steps_aside_while_the_app_is_open(assistant) -> None:
+    a = assistant
+    seen = []
+    a.bus.subscribe(seen.append)
+    assert a.app_proc.on_closed == a._app_closed                         # the real app window says when it closes
+    a.app_proc = OpenWindow()
+    a.open_app()
+    assert a.orb_visible is False and orb_events(seen) == [False]
+    a.open_app("chat")                                                  # already hidden: nothing more
+    assert orb_events(seen) == [False]
+    a._app_closed()
+    assert a.orb_visible is True and orb_events(seen) == [False, True]  # back where it was
+    a._app_closed()                                                     # closed again: nothing to undo
+    assert orb_events(seen) == [False, True]
+
+
+def test_the_users_own_choice_wins_over_the_app(assistant) -> None:
+    a = assistant
+    a.app_proc = OpenWindow()
+    a.open_app()
+    a.toggle_orb()                                                      # Ctrl+Alt+Space: shown while the app is open
+    a.toggle_orb()                                                      # and hidden again, by the user
+    a._app_closed()
+    assert a.orb_visible is False                                       # the user hid it: it stays hidden
+
+    a.toggle_orb(True)
+    a.toggle_orb(False)                                                 # hidden by the user before the app opened
+    a.open_app()
+    a._app_closed()
+    assert a.orb_visible is False
+
+
+def test_the_orb_can_stay_with_the_app(assistant) -> None:
+    a = assistant
+    a.config["web_ui"]["hide_orb_with_app"] = False
+    a.app_proc = OpenWindow()
+    a.open_app()
+    assert a.orb_visible is True
