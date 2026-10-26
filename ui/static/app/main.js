@@ -3,16 +3,19 @@
 // Split view puts Chat on the left and the Command centre on the right. The section is kept in the
 // address's #fragment (s=...) next to the token, so JARVIS can open the window on a section, and a
 // "focus" event from JARVIS (target "app") switches section and brings the window forward.
+// The same page is the phone app (docs/mobile.md): on a phone the sidebar is a tab bar at the bottom, and
+// until the phone is paired it shows the pairing screen (a code from the QR code's #pair=..., or typed).
 "use strict";
 
 import { useEffect, useState } from "/static/vendor/preact/hooks.module.js";
 import { html, render, Icon } from "/static/shared/ui.js";
-import { applyEvent, setState, useStore } from "/static/shared/store.js";
-import { connect, onConnection, onEvent, toWindow } from "/static/shared/ws.js";
+import { applyEvent, getState, setState, useStore } from "/static/shared/store.js";
+import { connect, onConnection, onEvent, onUnpaired, paired, phone, toWindow } from "/static/shared/ws.js";
 import { BrainSection } from "/static/app/sections/brain.js";
 import { ChatSection } from "/static/app/sections/chat.js";
 import { CommandSection } from "/static/app/sections/command.js";
 import { MemorySection } from "/static/app/sections/memory.js";
+import { PairScreen } from "/static/app/sections/phone.js";
 import { SettingsSection } from "/static/app/sections/settings.js";
 
 export const SECTIONS = [
@@ -28,11 +31,13 @@ const STATE_LABEL = { starting: "Starting", asleep: "Asleep", listening: "Listen
 
 function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
-  return { section: IDS.includes(p.get("s")) ? p.get("s") : "brain", split: p.get("split") === "1" };
+  const first = phone ? "chat" : "brain";   // the Brain graph is a big-screen view: the phone opens on Chat
+  return { section: IDS.includes(p.get("s")) ? p.get("s") : first, split: p.get("split") === "1" };
 }
 
 function writeHash(section, split) {
   const p = new URLSearchParams(location.hash.slice(1));
+  p.delete("pair");   // a pairing code is used once: never left in the address or the history
   p.set("s", section);
   if (split) p.set("split", "1"); else p.delete("split");
   history.replaceState(null, "", "#" + p.toString());   // the token stays in the fragment
@@ -46,7 +51,7 @@ function Sidebar({ section, split, go, toggleSplit }) {
         aria-label=${x.label} aria-current=${x.id === section ? "page" : undefined} onClick=${() => go(x.id)}>
         <${Icon} name=${x.icon} size=${20} /></button>`)}
     <div class="grow"></div>
-    <button class=${"nav" + (split ? " active" : "")} title="Split view: chat and command centre side by side"
+    <button class=${"nav split-btn" + (split ? " active" : "")} title="Split view: chat and command centre side by side"
       aria-label="Split view" aria-pressed=${split ? "true" : "false"} onClick=${toggleSplit}>
       <${Icon} name="columns-2" size=${20} /></button>
     <span class=${"conn dot " + (s.connected ? "ok" : "bad")} title=${s.connected ? "Connected to JARVIS" : "Not connected"}></span>
@@ -91,7 +96,33 @@ function App() {
   </div>`;
 }
 
+// The phone app: paired, or the pairing screen. The code from a QR code's #pair=... is read once and
+// taken out of the address at once.
+let linkCode = new URLSearchParams(location.hash.slice(1)).get("pair") || "";   // ignored if already paired
+if (linkCode) {
+  const p = new URLSearchParams(location.hash.slice(1));
+  p.delete("pair");
+  history.replaceState(null, "", p.toString() ? "#" + p.toString() : location.pathname);
+}
+
+function Root() {
+  const s = useStore();
+  if (phone && !s.paired) {
+    const code = linkCode;
+    linkCode = "";   // used once, by the screen's first try
+    return html`<${PairScreen} code=${code} onPaired=${() => { setState({ paired: true }); connect(); }} />`;
+  }
+  return html`<${App} />`;
+}
+
 onEvent(applyEvent);
 onConnection((on) => setState({ connected: on }));
-render(html`<${App} />`, document.getElementById("root"));
-connect();
+onUnpaired(() => setState({ paired: false, connected: false }));
+setState({ paired: paired() });
+if (phone) document.documentElement.classList.add("phone");
+render(html`<${Root} />`, document.getElementById("root"));
+if (getState().paired) connect();
+// The phone app's service worker keeps only the app's own files (never chat data); HTTPS only, so never on the PC.
+if (phone && location.protocol === "https:" && "serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+}

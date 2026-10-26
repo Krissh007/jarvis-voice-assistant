@@ -8,6 +8,14 @@ must pass three checks, or any website open in the user's browser could drive JA
 - the Host header is 127.0.0.1 or localhost on this port (stops DNS rebinding);
 - the Origin is this server's own page.
 
+The phone (the mobile app, docs/mobile.md) reaches the same server through `tailscale serve`: HTTPS on the
+PC's Tailscale name, forwarded to 127.0.0.1 here, so the server itself never listens on another interface.
+Only when web_ui.remote names that host do its Host and https/wss Origin pass the checks. A phone can't
+know the launch's token, so it pairs once (ui/pairing.py) and then sends its device token in the
+WebSocket's subprotocol header or an upload's header, never in a URL. A phone can't pair other phones,
+see or remove devices, take a picture of the PC's screen, or open windows on the PC. Requests that came
+through Tailscale Funnel (the public internet) are refused.
+
 What the page sends is limited to: a chat message (through ChatChannel, like the window's box) and the
 buttons the tray and hotkeys already have (talk, sleep, mute, stop, confirm, cancel). Confirm is the
 user's click in JARVIS's own window, the same as the confirm hotkey; nothing the model or a tool
@@ -22,6 +30,7 @@ import contextlib
 import json
 import logging
 import mimetypes
+import re
 import secrets
 import socket
 from pathlib import Path
@@ -32,12 +41,14 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from core.bus import EventBus
+from ui.pairing import DeviceStore
 
 log = logging.getLogger(__name__)
 
 STATIC = Path(__file__).resolve().parent / "static"
 # Windows' registry often maps .js to text/plain, and with nosniff the browser then won't run it.
-for _type, _ext in (("text/javascript", ".js"), ("text/css", ".css"), ("text/html", ".html")):
+for _type, _ext in (("text/javascript", ".js"), ("text/css", ".css"), ("text/html", ".html"),
+                    ("application/manifest+json", ".webmanifest")):
     mimetypes.add_type(_type, _ext)
 ACTIONS = {"talk", "sleep", "mute", "stop", "confirm", "cancel", "new_chat", "open_chat", "announce", "voice",
            "open_app", "open_settings", "open_command", "open_brain", "keep_memory", "open_jobpilot"}
@@ -49,6 +60,34 @@ HISTORY_KINDS = {"message", "tool_started", "tool_finished", "confirm_requested"
 HISTORY_MAX = 150
 STREAM_KINDS = HISTORY_KINDS | {"partial", "state", "status", "focus", "media", "conversation", "announce", "voice", "activity",
                                 "look", "orb_visibility", "brain_update", "memory_keep"}
+DEVICE_PROTOCOL = "jarvis"  # a phone's WebSocket asks for this subprotocol, and sends its token as a second one:
+DEVICE_PREFIX = "jarvis-device."  # "jarvis-device.<token>" (a header, so the token is never in the URL)
+NOT_PAIRED = 4401  # the close code a phone gets when its token isn't valid (any more): it shows Pair again
+PC_ONLY = {"pair_start", "pair_cancel", "devices", "remove_device"}  # messages only the PC's own pages may send
+PC_ONLY_ACTIONS = {"open_app", "open_settings", "open_command", "open_chat", "open_brain",
+                   "open_jobpilot"}  # they open windows on the PC
+REMOTE_PORT = 47821  # web_ui.remote's default: the fixed port `tailscale serve` forwards to
+_HOSTNAME = re.compile(r"^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
+
+
+def remote_settings(web_ui: dict | None) -> tuple[str, int] | None:
+    """web_ui.remote as (the Tailscale host name, the fixed local port), or None when phone access is off.
+    The host must be a plain DNS name (no scheme, port or path), e.g. mypc.tail1234.ts.net."""
+    remote = (web_ui or {}).get("remote") or {}
+    if not isinstance(remote, dict) or not remote.get("enabled"):
+        return None
+    host = str(remote.get("host") or "").strip().lower().rstrip(".")
+    if not _HOSTNAME.match(host):
+        log.warning("web UI: phone access is on but web_ui.remote.host isn't a host name like mypc.tail1234.ts.net; "
+                    "it stays off")
+        return None
+    try:
+        port = int(remote.get("port") or REMOTE_PORT)
+    except (TypeError, ValueError):
+        port = REMOTE_PORT
+    if not 1024 <= port <= 65535:
+        port = REMOTE_PORT
+    return host, port
 
 
 class Bridge(Protocol):
@@ -75,12 +114,13 @@ class Bridge(Protocol):
     def forget_fact(self, fact_id: Any) -> dict: ...  # the Memory settings' Forget button
 
 
-def security_headers(port: int) -> dict[str, str]:
+def security_headers(port: int, remote_host: str | None = None) -> dict[str, str]:
+    phone = f" wss://{remote_host}" if remote_host else ""
     return {
         "Content-Security-Policy": (
             "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
-            f"connect-src 'self' ws://127.0.0.1:{port} ws://localhost:{port}; base-uri 'none'; form-action 'none'; "
-            "frame-ancestors 'none'"
+            f"connect-src 'self' ws://127.0.0.1:{port} ws://localhost:{port}{phone}; manifest-src 'self'; "
+            "worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
         ),
         "X-Content-Type-Options": "nosniff",
         "Referrer-Policy": "no-referrer",
@@ -92,15 +132,25 @@ def _dumps(payload: dict[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=False, default=str)
 
 
-def create_app(bridge: Bridge, token: str, port: int) -> FastAPI:
+def create_app(bridge: Bridge, token: str, port: int, remote_host: str | None = None,
+               devices: DeviceStore | None = None) -> FastAPI:
+    """remote_host: the PC's Tailscale name when phone access is on (web_ui.remote); devices: the paired phones."""
     hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
     origins = {f"http://{h}" for h in hosts}
-    headers = security_headers(port)
+    if remote_host:  # `tailscale serve` keeps the phone's Host header (HTTPS on 443)
+        hosts |= {remote_host, f"{remote_host}:443"}
+        origins.add(f"https://{remote_host}")
+    headers = security_headers(port, remote_host)
+    live: dict[str, set] = {}  # device id -> its open WebSockets (closed at once when it's removed)
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    def allowed(headers_) -> bool:
+        """Host is this server (or its Tailscale name), and the request didn't come in through Funnel."""
+        return headers_.get("host") in hosts and "tailscale-funnel-request" not in headers_
 
     @app.middleware("http")
     async def guard(request: Request, call_next):
-        if request.headers.get("host") not in hosts:
+        if not allowed(request.headers):
             return PlainTextResponse("Not here.", status_code=400)
         response = await call_next(request)
         response.headers.update(headers)
@@ -115,8 +165,12 @@ def create_app(bridge: Bridge, token: str, port: int) -> FastAPI:
         return FileResponse(STATIC / "chat.html", media_type="text/html")
 
     @app.get("/app")
-    async def app_page():  # the app: sidebar with Chat, Command centre, Memory, Settings
+    async def app_page():  # the app: sidebar with Chat, Command centre, Memory, Settings (and the phone's app)
         return FileResponse(STATIC / "app" / "index.html", media_type="text/html")
+
+    @app.get("/sw.js")
+    async def service_worker():  # the phone app's service worker: served from / so it may cover /app
+        return FileResponse(STATIC / "app" / "sw.js", media_type="text/javascript")
 
     def _page_only(request: Request) -> bool:
         """Uploads come from JARVIS's own page: its Origin and the launch token (in a header, never the URL)."""
@@ -124,11 +178,40 @@ def create_app(bridge: Bridge, token: str, port: int) -> FastAPI:
         return (request.headers.get("origin") in origins
                 and secrets.compare_digest(given.encode(), token.encode()))
 
+    def _page_or_phone(request: Request) -> bool:
+        """The PC's page, or a paired phone: its Origin and its device token (in a header)."""
+        if _page_only(request):
+            return True
+        given = request.headers.get("x-jarvis-device", "")
+        return (devices is not None and bool(given) and request.headers.get("origin") in origins
+                and devices.check(given) is not None)
+
+    @app.post("/pair")
+    async def pair(request: Request):  # the phone trades its one-time code for a device token
+        refused = JSONResponse({"ok": False, "message": "That pairing code isn't valid. Make a new one on the PC "
+                                "(Settings, Phone)."}, status_code=403)
+        if devices is None or not remote_host or request.headers.get("origin") not in origins:
+            log.warning("web UI: refused a pairing (origin %r)", request.headers.get("origin"))
+            return refused
+        raw = await request.body()
+        if len(raw) > 1000:
+            return refused
+        try:
+            body = json.loads(raw)
+        except ValueError:
+            return refused
+        if not isinstance(body, dict) or not isinstance(body.get("code"), str):
+            return refused
+        device = await asyncio.to_thread(devices.redeem, body["code"], str(body.get("name") or "Phone"))
+        if device is None:
+            return refused
+        return JSONResponse({"ok": True, "token": device["token"], "device": {"id": device["id"], "name": device["name"]}})
+
     @app.post("/upload")
     async def upload(request: Request):  # a picture attached in the chat
         from core.attachments import MAX_UPLOAD_BYTES, AttachmentError
 
-        if not _page_only(request):
+        if not _page_or_phone(request):
             log.warning("web UI: refused an upload (origin %r)", request.headers.get("origin"))
             return JSONResponse({"ok": False, "message": "Not here."}, status_code=403)
         try:
@@ -160,17 +243,60 @@ def create_app(bridge: Bridge, token: str, port: int) -> FastAPI:
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
+    def pair_start(_msg) -> dict:
+        if devices is None or not remote_host:
+            return {"ok": False, "message": "Phone access is off. Set web_ui.remote (enabled, host) in config.yaml "
+                    "and restart JARVIS: see docs/mobile.md."}
+        from ui.qr import svg
+
+        made = devices.new_code()
+        url = f"https://{remote_host}/app#pair={made['code']}"
+        return {"ok": True, "url": url, "code": made["code"], "expires_in": made["expires_in"], "qr": svg(url)}
+
+    def pair_cancel(_msg) -> dict:
+        if devices is not None:
+            devices.cancel_code()
+        return {"ok": True}
+
+    def devices_view(_msg=None) -> dict:
+        return {"ok": True, "remote": remote_host, "devices": devices.devices() if devices is not None else []}
+
+    async def remove_device(msg) -> dict:
+        device_id = msg.get("device")
+        if devices is None or not isinstance(device_id, str) or not devices.remove(device_id):
+            return {**devices_view(), "ok": False, "message": "That device isn't paired."}
+        for other in list(live.pop(device_id, ())):  # its token stops working now, not at its next connection
+            with contextlib.suppress(Exception):
+                await other.close(code=NOT_PAIRED)
+        return devices_view()
+
+    own = {"pair_start": pair_start, "pair_cancel": pair_cancel, "devices": devices_view, "remove_device": remove_device}
+
     @app.websocket("/ws")
     async def ws(socket_: WebSocket):
         given = socket_.query_params.get("t", "")
-        if (socket_.headers.get("host") not in hosts or socket_.headers.get("origin") not in origins
-                or not secrets.compare_digest(given.encode(), token.encode())):
+        offered = list(socket_.scope.get("subprotocols") or [])
+        phone = not given and DEVICE_PROTOCOL in offered
+        if (not allowed(socket_.headers) or socket_.headers.get("origin") not in origins
+                or not (phone or secrets.compare_digest(given.encode(), token.encode()))):
             log.warning("web UI: refused a connection (host %r, origin %r)", socket_.headers.get("host"),
                         socket_.headers.get("origin"))
             await socket_.close(code=1008)
             return
-        await socket_.accept()
-        log.info("web UI connected")
+        device = None
+        if phone:
+            sent = next((p[len(DEVICE_PREFIX):] for p in offered if p.startswith(DEVICE_PREFIX)), "")
+            device = devices.check(sent) if devices is not None and sent else None
+            await socket_.accept(subprotocol=DEVICE_PROTOCOL)
+            if device is None:  # accepted only to say why: the phone then asks to be paired again
+                log.warning("web UI: refused a phone that isn't paired (origin %r)", socket_.headers.get("origin"))
+                await socket_.close(code=NOT_PAIRED)
+                return
+            live.setdefault(device["id"], set()).add(socket_)
+            log.info("web UI connected (phone %r)", device["name"])
+        else:
+            await socket_.accept()
+            log.info("web UI connected")
         stream = bridge.bus.stream(kinds=STREAM_KINDS)
         history = [e.to_dict() for e in current_conversation(bridge.bus)][-HISTORY_MAX:]
         await socket_.send_text(_dumps({"kind": "hello", "snapshot": bridge.snapshot(), "history": history}))
@@ -180,7 +306,7 @@ def create_app(bridge: Bridge, token: str, port: int) -> FastAPI:
         try:
             while True:
                 text = await socket_.receive_text()
-                reply = _handle(bridge, text)
+                reply = _handle(bridge, text, phone=device is not None, own=own)
                 if asyncio.iscoroutine(reply):  # the status request waits for the Agent Hub
                     replies.add(task := asyncio.create_task(_send_later(socket_, reply)))
                     task.add_done_callback(replies.discard)
@@ -189,6 +315,8 @@ def create_app(bridge: Bridge, token: str, port: int) -> FastAPI:
         except WebSocketDisconnect:
             pass
         finally:
+            if device is not None:
+                live.get(device["id"], set()).discard(socket_)
             stream.close()
             for t in [*tasks, *replies]:
                 t.cancel()
@@ -205,9 +333,11 @@ def current_conversation(bus: EventBus) -> list:
     return events[starts[-1] + 1:] if starts else events
 
 
-def _handle(bridge: Bridge, text: str) -> dict[str, Any] | None:
+def _handle(bridge: Bridge, text: str, phone: bool = False, own: dict | None = None) -> dict[str, Any] | None:
     """One message from the page. Anything malformed is dropped (and logged without its content).
-    Requests get a reply for the page that sent them: {"kind": "reply", "id": <its id>, ...}."""
+    Requests get a reply for the page that sent them: {"kind": "reply", "id": <its id>, ...}.
+    phone: it came from a paired phone (no pairing, devices or PC windows); own: the server's own messages
+    (pairing and devices), type -> function(msg) returning the reply's data (or a coroutine of it)."""
     if len(text.encode("utf-8", "replace")) > MAX_MESSAGE_BYTES:
         log.warning("web UI: dropped an oversized message (%d characters)", len(text))
         return None
@@ -220,6 +350,16 @@ def _handle(bridge: Bridge, text: str) -> dict[str, Any] | None:
         return None
     kind = msg.get("type")
     rid = msg.get("id") if isinstance(msg.get("id"), (int, str)) else None
+    if phone and (kind in PC_ONLY or (kind == "control" and msg.get("action") in PC_ONLY_ACTIONS)):
+        log.warning("web UI: a phone can't send %r", str(msg.get("action") or kind)[:20])
+        return None
+    if own and kind in own:
+        data = own[kind](msg)
+        if asyncio.iscoroutine(data):
+            async def own_reply(data=data) -> dict[str, Any]:
+                return {"kind": "reply", "id": rid, "what": kind, "data": await data}
+            return own_reply()
+        return {"kind": "reply", "id": rid, "what": kind, "data": data}
     if kind == "chat" and isinstance(msg.get("text"), str):
         extras = {}
         if msg.get("web") in ("on", "off"):
@@ -313,11 +453,23 @@ class _HideToken(logging.Filter):
 class WebUI:
     """Owns the server's socket, token and lifetime, inside the assistant's loop."""
 
-    def __init__(self, bridge: Bridge, port: int = 0) -> None:
+    def __init__(self, bridge: Bridge, port: int = 0, remote_host: str | None = None,
+                 devices: DeviceStore | None = None) -> None:
         self.bridge = bridge
         self.token = secrets.token_urlsafe(32)
+        self.remote_host = remote_host  # the PC's Tailscale name when phone access is on
+        self.devices = devices
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._sock.bind(("127.0.0.1", int(port or 0)))  # never another interface
+        try:
+            self._sock.bind(("127.0.0.1", int(port or 0)))  # never another interface (`tailscale serve` forwards here)
+        except OSError:
+            if not port:
+                raise
+            log.error("web UI: port %d is in use, so the phone app can't reach JARVIS this time; using a free port "
+                      "(choose another web_ui.remote.port and run tailscale serve with it)", port)
+            self._sock.close()
+            self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self._sock.bind(("127.0.0.1", 0))
         self.port: int = self._sock.getsockname()[1]
         self._server = None
 
@@ -350,10 +502,13 @@ class WebUI:
             logger = logging.getLogger(name)
             logger.addFilter(hide)
             logger.setLevel(logging.WARNING)
-        config = uvicorn.Config(create_app(self.bridge, self.token, self.port), log_config=None, access_log=False,
+        app = create_app(self.bridge, self.token, self.port, self.remote_host, self.devices)
+        config = uvicorn.Config(app, log_config=None, access_log=False,
                                 lifespan="off", ws_max_size=MAX_MESSAGE_BYTES * 2, timeout_graceful_shutdown=1)
         self._server = _Server(config)
         log.info("web UI on 127.0.0.1:%d", self.port)
+        if self.remote_host:
+            log.info("web UI: phone access at https://%s (through tailscale serve)", self.remote_host)
         await self._server.serve(sockets=[self._sock])
 
     def stop(self) -> None:

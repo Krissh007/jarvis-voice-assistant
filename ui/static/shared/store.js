@@ -18,6 +18,7 @@ const state = {
   language: "",
   quickActions: [],
   captionS: 8,           // how long a reply stays as the caption
+  paired: true,          // the phone app: false until the phone is paired (the PC's pages always are)
 };
 const subscribers = new Set();
 let version = 0;   // bumped on every change, so a view that subscribes late still catches up

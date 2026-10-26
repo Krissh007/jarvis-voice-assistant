@@ -685,12 +685,16 @@ class Assistant:
         self.announce = prefs["announce"]  # the Announce button: speak background news
         self.voice = prefs["voice"]  # the Voice button: off = text-only replies, nothing is spoken
         if config["features"].get("web_ui") and self.mode != "text":
-            from ui.server import WebUI
+            from ui.pairing import DeviceStore
+            from ui.server import WebUI, remote_settings
             from ui.window import WindowProcess
 
             ucfg = config.get("web_ui") or {}
             bridge = WebBridge(self)
-            self.web = WebUI(bridge, int(ucfg.get("port") or 0))
+            remote = remote_settings(ucfg)  # the phone app through `tailscale serve` (docs/mobile.md): a fixed port
+            self.web = WebUI(bridge, remote[1] if remote else int(ucfg.get("port") or 0),
+                             remote_host=remote[0] if remote else None,
+                             devices=DeviceStore(Services().data_dir / "devices.json"))
             icon = Path(__file__).resolve().parent.parent / "assets" / "jarvis.ico"
             if ucfg.get("window", True):
                 self.window_proc = WindowProcess(

@@ -343,3 +343,78 @@ code { font: 12.5px var(--mono); color: var(--text); }
   .brain-legend p, .brain-stamp { margin: 0; }
   .ask { width: calc(100% - 70px); left: 12px; transform: none; }
 }
+
+/* ---- phone pairing (Settings, Phone on the PC; the pairing screen on the phone) */
+.phone-panel { margin-top: 6px; }
+.phone-panel .status-item > span:nth-child(2) { flex: none; }
+.phone-panel .status-item code { width: auto; flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.pair-info { min-width: 0; }
+.pair-info code { overflow-wrap: anywhere; }
+.phone-panel > .btn { margin: 8px 0; }
+.pair-box { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; margin: 12px 0; padding: 16px;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+.qr { width: 220px; height: 220px; border-radius: 8px; background: #fff; image-rendering: pixelated; }
+.pair-info h3 { margin-top: 0; }
+.pair-code { font: 600 26px var(--mono); letter-spacing: 0.12em; color: var(--accent); margin: 6px 0; }
+.devices { list-style: none; margin: 8px 0 0; padding: 0; }
+.devices li { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.devices li:last-child { border-bottom: none; }
+.device-text { flex: 1; min-width: 0; }
+.pair-screen { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center;
+  padding: calc(env(safe-area-inset-top) + 20px) calc(env(safe-area-inset-right) + 20px)
+           calc(env(safe-area-inset-bottom) + 20px) calc(env(safe-area-inset-left) + 20px); }
+.pair-card { max-width: 420px; text-align: center; }
+.pair-card h1 { font-size: 21px; margin: 14px 0 8px; }
+.pair-logo { display: grid; place-items: center; }
+.brand-dot.big { width: 64px; height: 64px; box-shadow: 0 0 40px var(--accent); }
+.pair-form { display: flex; flex-direction: column; gap: 10px; margin: 18px 0 8px; }
+.pair-form input { font: 600 20px var(--mono); letter-spacing: 0.1em; text-align: center; text-transform: uppercase;
+  padding: 12px; border-radius: var(--radius); border: 1px solid var(--line-strong); background: var(--panel-2); }
+.pair-form input:focus { border-color: var(--accent); outline: none; }
+.btn.big { justify-content: center; min-height: 48px; font-size: 16px; }
+
+/* ---- the phone app: a tab bar at the bottom, one column, big tap targets, the notch and home bar kept clear */
+@media (max-width: 760px) {
+  .shell { flex-direction: column; height: 100vh; height: 100dvh; }
+  .main { order: 1; min-height: 0; }
+  .side { order: 2; width: 100%; flex-direction: row; justify-content: space-around; gap: 0; padding: 4px 8px;
+    padding-bottom: calc(env(safe-area-inset-bottom) + 4px); padding-left: calc(env(safe-area-inset-left) + 8px);
+    padding-right: calc(env(safe-area-inset-right) + 8px); border-right: none; border-top: 1px solid var(--line); }
+  .side .brand, .side .grow, .side .split-btn, .side .conn { display: none; }
+  .nav { width: 56px; height: 46px; }
+  .nav.active::before { left: 14px; right: 14px; top: -5px; bottom: auto; width: auto; height: 3px; }
+  .top { padding: 8px 14px; padding-top: calc(env(safe-area-inset-top) + 8px); padding-left: calc(env(safe-area-inset-left) + 14px);
+    padding-right: calc(env(safe-area-inset-right) + 14px); min-height: 48px; gap: 8px; }
+  .top .pill { min-width: 0; max-width: 70%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-block; }
+  .top .pill .dot { display: inline-block; vertical-align: middle; margin-right: 4px; }
+
+  .chat { grid-template-columns: minmax(0, 1fr); }
+  .chat .context { display: none; }
+  .thread { padding: 12px 12px 6px; }
+  .turn.selected { border-color: transparent; background: none; }   /* no context panel to pick a turn for */
+  .msg, .shown, .plan { max-width: 92%; }
+  .msg .bubble { font-size: 15.5px; }
+  .msg-actions { opacity: 0.8; }
+  .msg-actions button { padding: 8px 10px; }
+  .plan { max-width: 100%; }
+  .plan-actions .btn { flex: 1; justify-content: center; min-height: 48px; font-size: 16px; }
+
+  .composer { padding: 8px 10px; padding-bottom: 8px; padding-left: calc(env(safe-area-inset-left) + 10px);
+    padding-right: calc(env(safe-area-inset-right) + 10px); }
+  .composer textarea { font-size: 16px; min-height: 48px; padding: 12px 14px; }   /* 16px: iOS doesn't zoom in */
+  .composer .tool { min-width: 44px; min-height: 44px; justify-content: center; }
+  .composer .tool span { display: none; }
+  .composer .btn { min-height: 44px; }
+  .composer .send { min-width: 72px; justify-content: center; font-size: 15px; }
+
+  .settings { flex-direction: column; }
+  .cats { width: 100%; flex-direction: row; overflow-x: auto; padding: 8px 10px; border-right: none; border-bottom: 1px solid var(--line); }
+  .cat { flex: none; padding: 9px 12px; }
+  .cat > .icon:last-child { display: none; }
+  .cat-body { padding: 14px 14px 30px; }
+  .row { flex-wrap: wrap; gap: 10px; }
+  .row-control { max-width: 100%; }
+  .range input, .text-value input { width: 100%; }
+  .strip { grid-template-columns: minmax(0, 1fr); }
+  .command, .page { padding: 14px; }
+}

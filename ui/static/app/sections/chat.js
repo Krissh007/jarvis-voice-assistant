@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from "/static/vendor/preact/hooks.module.js";
 import { html, Icon } from "/static/shared/ui.js";
 import { useStore } from "/static/shared/store.js";
-import { ask, control, send, token } from "/static/shared/ws.js";
+import { ask, authHeaders, control, phone, send, token } from "/static/shared/ws.js";
 import { useChat } from "/static/app/sections/chat-model.js";
 
 const TOOL_LABEL = {
@@ -47,8 +47,8 @@ export function PlanCard({ p }) {
     ${steps.length > 0 && html`<ol class="plan-steps">${steps.map((s, i) => html`<li key=${i}
       class=${p.step.plan_step === i + 1 ? "now" : ""}>${label(s)}</li>`)}</ol>`}
     ${!done && html`<div class="plan-actions">
-      <button class="btn primary" onClick=${() => control("confirm")}><${Icon} name="check" size=${15} /> Approve</button>
-      <button class="btn" onClick=${() => control("cancel")}><${Icon} name="x" size=${15} /> Cancel</button></div>`}
+      <button class="btn primary" onClick=${() => control("confirm")}><${Icon} name="check" size=${15} /> ${phone ? "Yes" : "Approve"}</button>
+      <button class="btn" onClick=${() => control("cancel")}><${Icon} name="x" size=${15} /> ${phone ? "No" : "Cancel"}</button></div>`}
   </div>`;
 }
 
@@ -130,7 +130,7 @@ export function Composer({ compact, placeholder = "Message JARVIS…", inputRef 
     setNote("Adding the picture…");
     try {
       const r = await fetch("/upload", { method: "POST", body: file,
-        headers: { "x-jarvis-token": token, "x-file-name": file.name.slice(0, 80), "content-type": file.type || "application/octet-stream" } });
+        headers: { ...authHeaders(), "x-file-name": file.name.slice(0, 80), "content-type": file.type || "application/octet-stream" } });
       const d = await r.json();
       if (d.ok) { setPics((p) => [...p, d].slice(-4)); setNote(""); } else setNote(d.message);
     } catch { setNote("Couldn't add the picture."); }
@@ -161,24 +161,25 @@ export function Composer({ compact, placeholder = "Message JARVIS…", inputRef 
       <img src=${p.preview} alt=${p.name} /><button type="button" title="Remove" aria-label="Remove picture"
         onClick=${() => setPics(pics.filter((x) => x.id !== p.id))}><${Icon} name="x" size=${12} /></button></span>`)}</div>`}
     <textarea rows="1" maxlength="2000" placeholder=${placeholder} aria-label="Message to JARVIS" value=${text} ref=${inputRef}
+      enterkeyhint="send"
       onInput=${(e) => { setText(e.target.value); e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 160) + "px"; }}
-      onKeyDown=${(e) => { if (e.key === "Enter" && !e.shiftKey) submit(e); }}></textarea>
+      onKeyDown=${(e) => { if (e.key === "Enter" && !e.shiftKey && !phone) submit(e); }}></textarea>
     <div class="composer-bar">
       <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp" hidden ref=${fileRef}
         onChange=${(e) => { upload(e.target.files[0]); e.target.value = ""; }} />
       <button type="button" class="tool" title="Attach a picture" aria-label="Attach a picture" onClick=${() => fileRef.current.click()}>
         <${Icon} name="paperclip" size=${17} /></button>
-      <button type="button" class="tool" title="Attach a picture of my screen (private windows are blacked out)"
-        aria-label="Attach my screen" onClick=${snap}><${Icon} name="image" size=${17} /></button>
+      ${!phone && html`<button type="button" class="tool" title="Attach a picture of my screen (private windows are blacked out)"
+        aria-label="Attach my screen" onClick=${snap}><${Icon} name="image" size=${17} /></button>`}
       <button type="button" class=${"tool web-" + web} title=${WEB_TITLE[web] + " (click to change)"} aria-label=${WEB_TITLE[web]}
         onClick=${() => setWeb(WEB[(WEB.indexOf(web) + 1) % WEB.length])}><${Icon} name="globe" size=${17} />
         <span>${web === "auto" ? "Web: auto" : web === "on" ? "Web: on" : "Web: off"}</span></button>
       <span class="grow note dim small" role="status">${note}</span>
-      <button type="button" class="tool" title="Talk instead (Ctrl+Alt+Space)" aria-label="Talk" onClick=${() => control("talk")}>
-        <${Icon} name="mic" size=${17} /></button>
+      ${!phone && html`<button type="button" class="tool" title="Talk instead (Ctrl+Alt+Space)" aria-label="Talk" onClick=${() => control("talk")}>
+        <${Icon} name="mic" size=${17} /></button>`}
       ${busy && html`<button type="button" class="btn" title="Stop (Ctrl+Alt+S)" onClick=${() => control("stop")}>
         <${Icon} name="square" size=${14} /> Stop</button>`}
-      <button type="submit" class="btn primary" disabled=${!text.trim() && !pics.length}><${Icon} name="send" size=${15} /> Send</button>
+      <button type="submit" class="btn primary send" aria-label="Send" disabled=${!text.trim() && !pics.length}><${Icon} name="send" size=${15} /> <span>Send</span></button>
     </div>
   </form>`;
 }
