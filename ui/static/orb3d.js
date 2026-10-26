@@ -27,6 +27,7 @@ const PALETTES = {
   red: { cyan: 0xff5f69, ice: 0xffcdd2, deep: 0xbe192d },
   amber: { cyan: 0xffb946, ice: 0xffebbe, deep: 0xd26e14 },
   muted: { cyan: 0x8a9bb0, ice: 0xd2dce8, deep: 0x3c4c62 },   // microphone off
+  thinking: { cyan: 0xaa8cff, ice: 0xe4daff, deep: 0x603cdc },   // a reply or a tool is on its way
   error: { cyan: 0xff4d6a, ice: 0xffc6d0, deep: 0xa8102c },   // something JARVIS needs isn't working
 };
 const CLOUD_POINTS = 5000;

@@ -94,7 +94,7 @@ is what lowers both columns.
 | Setting | Default | Meaning |
 |---|---|---|
 | `web_ui.port` | `0` | The web window's port on 127.0.0.1 (`0` = any free port). Every connection needs this launch's random token |
-| `web_ui.window` | `true` | Show the orb: tap = menu (Chat, Talk, Command centre), hold = talk, double-tap = mute or unmute, drag anywhere. Its colour: blue listening, amber working, grey muted, red when something JARVIS needs isn't working (the reason shows under it); `false` = tray only |
+| `web_ui.window` | `true` | Show the orb: hover (or tap) = menu (Chat, Command centre, Agent Hub, Dashboards, Settings; click or flick), hold = talk, double-tap = mute or unmute, a longer drag moves it. Its colour: blue listening, violet thinking, amber working, grey with a mic-off badge muted, red when something JARVIS needs isn't working (the reason shows under it); `false` = tray only |
 | `web_ui.orb_size` | `112` | How big the orb looks, in pixels (70–260) |
 | `web_ui.core_size` | `0.83` | The arc reactor core's size as a share of the cloud's (0.4–1.0) |
 | `web_ui.orb_brightness` | `0.55` | How bright the orb's arc reactor core and its nucleus glow, 0.2 (faint) to 1.0 (bright) |
@@ -111,12 +111,13 @@ each; they change the orb live, and your choices are kept in `data/orb_look.json
 | `web_ui.remote.host` | `""` | This PC's Tailscale name (MagicDNS + HTTPS on), e.g. `mypc.tail1234.ts.net`; a plain host name, no scheme, port or path |
 | `web_ui.remote.port` | `47821` | The fixed local port `tailscale serve` forwards HTTPS to (still 127.0.0.1 only) |
 | `web_ui.app_width` / `web_ui.app_height` | `1240` / `800` | The app's window (sidebar: Chat, Command centre, Memory, Settings) the first time; then it remembers |
-| `web_ui.voice_replies` | `true` | Starting value of the **Voice** button (off = text-only replies); the button's choice is kept in `data/prefs.json` |
+| `web_ui.voice_replies` | `true` | The **Voice** button (and Chat's speaker button) at each start (off = text-only replies; listening carries on). A click lasts until JARVIS restarts |
 | `web_ui.announce` | `true` | Starting value of the **Announce** button (off = agent results and reminders shown, not spoken); kept in `data/prefs.json` |
 | `web_ui.always_on_top` | `true` | Keep the orb above other windows |
 | `web_ui.close_button` | `quit` | Closing the orb (Alt+F4) quits JARVIS, or `hide` keeps it running in the tray |
 | `web_ui.app_maximized` | `true` | The app (Brain, Chat) opens maximized; `false` opens it at the size and place it was left |
-| `web_ui.hide_orb_with_app` | `true` | The orb hides while the app (Brain, Chat) is open and comes back when it closes; `false` keeps it showing |
+| `web_ui.dashboards` | PMO, JobPilot | The orb menu's Dashboards ring: a list of `{id, label, short, url}` (an http or https address, opened in your browser) or `{id, label, short, open: jobpilot}` (JobPilot's dashboard, started first if needed). Up to 8; anything else is left out with a warning in the log |
+| `web_ui.dock_orb_in_app` | `true` | While the app is full screen (maximized) the orb sits in the dot at the top right of its header; minimised, restored to a window or closed, it floats again where it was. `false` keeps it floating |
 | `window.always_on_top` | `true` | The older Tk window (`features.window`, used only when `web_ui` is off): keep it above others |
 | `window.opacity` | `1.0` | Below 1 lets windows behind show through |
 | `window.close_button` | `quit` | The X quits JARVIS, or `hide` keeps it running in the tray |

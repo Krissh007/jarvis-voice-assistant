@@ -30,8 +30,8 @@ class FakeBridge:
         return {"state": self.state, "level": 0.0, "user": "Krishna", "speak": False,
                 "pending": {"id": 7, "summary": "Close Notepad"}}
 
-    def chat(self, text: str, speak: bool) -> bool:
-        self.chats.append((text, speak))
+    def chat(self, text: str, speak: bool, phone: bool = False) -> bool:
+        self.chats.append((text, speak, "phone") if phone else (text, speak))
         return True
 
     def control(self, action: str) -> bool:
@@ -638,7 +638,7 @@ async def test_voice_button_makes_every_reply_text_only(assistant, tmp_path) -> 
         await asyncio.sleep(0.01)
     assert a.voice is False and bridge.snapshot()["voice"] is False and bridge.snapshot()["speak"] is False
     assert [e.data["on"] for e in seen if e.kind == "voice"] == [False]
-    assert load_prefs({}, a.prefs_path) == {"announce": True, "voice": False}
+    assert load_prefs({}, a.prefs_path) == {"announce": True, "voice": True}   # not kept: on at the next start
 
     a.submit_text("what time is it", speak=True)                        # even a "spoken reply" message
     a.on_audio(b"\x01\x00" * 100)
@@ -664,6 +664,8 @@ def test_window_settings_default_from_config_and_read_the_old_announce_file(tmp_
     assert load_prefs({}, missing) == {"announce": False, "voice": True}
     missing.write_text("not json", encoding="utf-8")
     assert load_prefs({}, missing) == {"announce": False, "voice": True}             # falls back to the old file
+    missing.write_text('{"announce": true, "voice": false}', encoding="utf-8")      # an older file's Voice off
+    assert load_prefs({}, missing) == {"announce": True, "voice": True}              # isn't kept any more
 
 
 async def test_voice_replies_can_be_switched_by_voice_and_gemini_is_told(assistant, tmp_path) -> None:
@@ -683,7 +685,70 @@ async def test_voice_replies_can_be_switched_by_voice_and_gemini_is_told(assista
     assert a.voice is False and told[-1] == VOICE_OFF_NOTE
     assert "already off" in await tool.func(on=False) and len(told) == 1
     assert "on again" in await tool.func(on="true")
-    assert a.voice is True and "back ON" in told[-1]
+    assert a.voice is True and "back ON" in told[-1] and "replaces" in told[-1]   # the latest note wins
+    assert "later [app note]" in VOICE_OFF_NOTE and "microphone works" in VOICE_OFF_NOTE
+
+
+async def test_muting_replies_never_stops_listening(assistant, tmp_path) -> None:
+    """Chat's speaker button (the Voice setting) mutes what JARVIS says, nothing else."""
+    from core.runtime import WebBridge
+    from core.wakeword import WakeState
+
+    a = assistant
+    a._loop = asyncio.get_running_loop()
+    a.prefs_path = tmp_path / "prefs.json"
+    a.wake = WakeState()
+    a.wake.wake()
+    a.gate.muted = False
+    session = a.session
+    assert WebBridge(a).control("voice")
+    for _ in range(50):
+        if not a.voice:
+            break
+        await asyncio.sleep(0.01)
+    assert a.voice is False
+    assert a.gate.muted is False and a.wake.awake and a.session is session   # still listening, same session
+    a.on_input_transcript("what's the time")                                 # what the user says still arrives
+    assert a.transcript.last_user() == "what's the time"
+
+
+async def test_typing_at_the_pc_keeps_jarvis_listening_but_the_phone_doesnt(assistant, monkeypatch) -> None:
+    """In Chat, a typed message opens the listening window like speaking does: the answer can be followed
+    up by voice without the wake word. A phone's message never opens the PC's microphone."""
+    from core.runtime import WebBridge
+    from core.wakeword import WakeState
+
+    a = assistant
+    monkeypatch.setattr(a.session, "send_text", lambda text: None)
+    a.chat.attach(asyncio.get_running_loop())
+    a.wake = WakeState()
+    bridge = WebBridge(a)
+    assert bridge.chat("hello", speak=True, phone=True)
+    assert not a.wake.awake
+    assert bridge.chat("hello", speak=True)
+    assert a.wake.awake
+    a.wake.awake = False
+    assert not bridge.chat("x" * 3000, speak=True) and not a.wake.awake    # not sent: nothing opened
+    a.wake = None                                                          # always listening: nothing to open
+    assert bridge.chat("hello", speak=True)
+
+
+def test_the_server_says_when_a_message_came_from_the_phone() -> None:
+    from ui.server import _handle
+
+    class Bridge:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def chat(self, text, speak, **extras):
+            self.calls.append(extras)
+            return True
+
+    bridge = Bridge()
+    _handle(bridge, json.dumps({"type": "chat", "text": "hi"}))
+    _handle(bridge, json.dumps({"type": "chat", "text": "hi", "phone": False}), phone=True)
+    _handle(bridge, json.dumps({"type": "chat", "text": "hi", "phone": True}))   # a page can't claim it
+    assert bridge.calls == [{}, {"phone": True}, {}]
 
 
 def test_the_system_instruction_says_when_voice_replies_are_off(assistant) -> None:

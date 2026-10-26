@@ -59,11 +59,12 @@ HISTORY_KINDS = {"message", "tool_started", "tool_finished", "confirm_requested"
                  "sources", "memory_used", "agent_update", "route"}
 HISTORY_MAX = 150
 STREAM_KINDS = HISTORY_KINDS | {"partial", "state", "status", "focus", "media", "conversation", "announce", "voice", "activity",
-                                "look", "orb_visibility", "brain_update", "memory_keep"}
+                                "look", "orb_visibility", "orb_dock", "brain_update", "memory_keep"}
 DEVICE_PROTOCOL = "jarvis"  # a phone's WebSocket asks for this subprotocol, and sends its token as a second one:
 DEVICE_PREFIX = "jarvis-device."  # "jarvis-device.<token>" (a header, so the token is never in the URL)
 NOT_PAIRED = 4401  # the close code a phone gets when its token isn't valid (any more): it shows Pair again
-PC_ONLY = {"pair_start", "pair_cancel", "devices", "remove_device"}  # messages only the PC's own pages may send
+PC_ONLY = {"pair_start", "pair_cancel", "devices", "remove_device", "orb_dock",
+           "open_dashboard"}  # only the PC's own pages may send these
 PC_ONLY_ACTIONS = {"open_app", "open_settings", "open_command", "open_chat", "open_brain",
                    "open_jobpilot"}  # they open windows on the PC
 REMOTE_PORT = 47821  # web_ui.remote's default: the fixed port `tailscale serve` forwards to
@@ -109,6 +110,8 @@ class Bridge(Protocol):
     def save_brain_layout(self, positions: Any, fresh: bool = True) -> bool: ...  # where the Brain view's nodes sit
     async def show_file(self, node_id: Any) -> dict: ...  # the Brain inspector's Show in folder
     async def hub_control(self, action: Any) -> dict: ...  # the Command centre's Agent Hub Start / Stop
+    def orb_dock(self, msg: dict) -> None: ...  # the app window: full screen (dock the orb in its dot) or not
+    def open_dashboard(self, dashboard_id: str) -> bool: ...  # the orb menu's Dashboards ring (web_ui.dashboards)
     attachments: Any  # core.attachments.AttachmentStore: uploaded pictures until their message is sent
     def change_setting(self, key: str, value: Any) -> dict: ...  # one change from the Settings page
     def forget_fact(self, fact_id: Any) -> dict: ...  # the Memory settings' Forget button
@@ -366,6 +369,8 @@ def _handle(bridge: Bridge, text: str, phone: bool = False, own: dict | None = N
             extras["web"] = msg["web"]
         if isinstance(msg.get("attachments"), list) and msg["attachments"]:
             extras["attachments"] = [a for a in msg["attachments"] if isinstance(a, str)][:4]
+        if phone:
+            extras["phone"] = True   # typed away from the PC: the PC's microphone isn't opened for it
         bridge.chat(msg["text"], bool(msg.get("speak", True)), **extras)
     elif kind == "regenerate":
         bridge.regenerate(bool(msg.get("speak", True)))
@@ -383,6 +388,10 @@ def _handle(bridge: Bridge, text: str, phone: bool = False, own: dict | None = N
         async def brain_reply() -> dict[str, Any]:  # reads the database and the audit log off the loop
             return {"kind": "reply", "id": rid, "what": "brain", "data": await bridge.brain()}
         return brain_reply()
+    elif kind == "orb_dock" and isinstance(msg.get("docked"), bool):
+        bridge.orb_dock(msg)
+    elif kind == "open_dashboard" and isinstance(msg.get("id"), str):
+        bridge.open_dashboard(msg["id"][:40])
     elif kind == "hub_control" and msg.get("action") in ("start", "stop"):
         async def hub_reply() -> dict[str, Any]:  # the Hub's script takes up to a few minutes
             return {"kind": "reply", "id": rid, "what": "hub_control", "data": await bridge.hub_control(msg["action"])}

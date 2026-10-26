@@ -24,6 +24,10 @@ h3 { font-size: 13px; font-weight: 600; margin: 18px 0 6px; color: var(--dim); t
 /* ---- header and body */
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .top { display: flex; align-items: center; gap: 10px; padding: 12px 20px; border-bottom: 1px solid var(--line); min-height: 54px; }
+.orb-dot { width: 40px; height: 40px; flex: none; display: grid; place-items: center; margin-left: 2px; }
+.orb-dot::after { content: ""; width: 12px; height: 12px; border-radius: 50%;
+  background: radial-gradient(circle, var(--accent-strong), var(--accent) 50%, transparent 75%); box-shadow: 0 0 10px var(--accent); }
+.orb-dot.docked::after { display: none; }   /* the orb itself is here */
 .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line);
   background: var(--panel); color: var(--dim); font-size: 12.5px; }
 .body { flex: 1; min-height: 0; overflow: auto; }
@@ -133,6 +137,7 @@ code { font: 12.5px var(--mono); color: var(--text); }
 .composer .tool:hover { color: var(--text); background: var(--panel-2); }
 .composer .web-on { color: var(--accent); border-color: rgba(56, 198, 244, 0.35); }
 .composer .web-off { color: var(--warn); border-color: rgba(255, 181, 71, 0.35); }
+.composer .tool.muted { color: var(--warn); border-color: rgba(255, 181, 71, 0.35); }
 .composer .note { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pics { display: flex; gap: 8px; }
 .pic-chip { position: relative; }

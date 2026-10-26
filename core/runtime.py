@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import sys
 import threading
 import time
@@ -68,9 +69,12 @@ class Options:
 # voice replies off, "I can't hear you" got "I'm not on mute, check your speakers".
 VOICE_OFF_NOTE = (
     "[app note] Voice replies are switched OFF right now (the user turned off Voice): nothing you say is heard, "
-    "the user only reads your replies on screen. If they say they can't hear you, tell them voice replies are "
-    "off and offer to turn them on with set_voice_replies."
+    "the user only reads your replies on screen. You still hear them: the microphone works as before. If they "
+    "say they can't hear you, tell them voice replies are off and offer to turn them on with set_voice_replies. "
+    "This holds until a later [app note] says voice replies are back on."
 )
+VOICE_ON_NOTE = ("[app note] Voice replies are back ON: the user hears you again. This replaces any earlier note "
+                 "saying they were off.")
 
 
 class Transcript:
@@ -188,16 +192,19 @@ def orb_look(config: dict, path: Path | None) -> dict:
     return look
 
 
-# The window's on/off buttons, kept in data/prefs.json: key -> the web_ui setting in config.yaml used
-# until the button is first pressed (both default on).
+# The window's on/off buttons: key -> the web_ui setting in config.yaml (both default on). Announce is kept
+# in data/prefs.json once pressed; Voice isn't: each start speaks replies again (web_ui.voice_replies), so a
+# Voice click doesn't leave JARVIS silent for days.
 PREFS = {
     "announce": "announce",      # speak background news: agent results, reminders, the morning briefing
     "voice": "voice_replies",    # speak at all; off = every reply is text only (chat and caption)
 }
+KEPT_PREFS = ("announce",)
 
 
 def load_prefs(config: dict, path: Path | None) -> dict[str, bool]:
-    """Each button's last setting from the file, else config.yaml's web_ui value, else on."""
+    """Announce's last setting from the file, else config.yaml's web_ui value, else on; Voice from
+    config.yaml alone (on unless web_ui.voice_replies is false)."""
     data: object = {}
     for source in ([path, path.with_name("announce.json")] if path else []):  # announce.json: before prefs.json
         try:
@@ -209,16 +216,40 @@ def load_prefs(config: dict, path: Path | None) -> dict[str, bool]:
     if not isinstance(data, dict):
         data = {}
     web = config.get("web_ui") or {}
-    return {key: data[key] if isinstance(data.get(key), bool) else bool(web.get(setting, True))
+    return {key: data[key] if key in KEPT_PREFS and isinstance(data.get(key), bool) else bool(web.get(setting, True))
             for key, setting in PREFS.items()}
 
 
 def save_prefs(path: Path, prefs: dict[str, bool]) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({k: bool(prefs[k]) for k in PREFS}), encoding="utf-8")
+        path.write_text(json.dumps({k: bool(prefs[k]) for k in KEPT_PREFS}), encoding="utf-8")
     except OSError as exc:
         log.warning("couldn't keep the window's settings: %s", exc)
+
+
+DASHBOARD_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,30}$")
+
+
+def dashboards(config: dict) -> list[dict]:
+    """web_ui.dashboards, checked: each has an id, a label (and a short one for the orb's button), and either
+    a web address (http or https) or `open: jobpilot` (JobPilot's dashboard, started first if needed).
+    Anything else is left out, with a warning."""
+    from urllib.parse import urlsplit
+
+    out: list[dict] = []
+    for d in (config.get("web_ui") or {}).get("dashboards") or []:
+        if not isinstance(d, dict):
+            continue
+        did, label = str(d.get("id") or "").strip().lower(), " ".join(str(d.get("label") or "").split())[:40]
+        short = " ".join(str(d.get("short") or label).split())[:10]
+        url, opens = str(d.get("url") or "").strip(), str(d.get("open") or "").strip().lower()
+        good_url = bool(url) and urlsplit(url).scheme in ("http", "https") and bool(urlsplit(url).hostname)
+        if not DASHBOARD_ID.match(did) or not label or any(x["id"] == did for x in out) or not (good_url or opens == "jobpilot"):
+            log.warning("web_ui.dashboards: left out %r (it needs an id, a label and an http(s) url or open: jobpilot)", did or d)
+            continue
+        out.append({"id": did, "label": label, "short": short, "url": url if good_url else "", "open": opens})
+    return out[:8]
 
 
 class WebBridge:
@@ -421,6 +452,31 @@ class WebBridge:
                                                   status=lambda text: self.bus.publish("status", text=text))
         return a.services.hub_launcher
 
+    def open_dashboard(self, dashboard_id: str) -> bool:
+        """The orb menu's Dashboards ring: one of web_ui.dashboards."""
+        if not any(d["id"] == dashboard_id for d in dashboards(self._a.config)):
+            return False
+        self._a.ui("web: dashboard", self._a.open_dashboard, dashboard_id)
+        return True
+
+    def orb_dock(self, msg: dict) -> None:
+        """The app window says whether it's full screen, and where its header's dot is on the screen."""
+        import math
+
+        if not msg.get("docked"):
+            self._a.ui("web: orb floats", self._a.dock_orb, None)
+            return
+        try:
+            x, y, size = float(msg["x"]), float(msg["y"]), float(msg.get("size") or 40)
+        except (KeyError, TypeError, ValueError):
+            return
+        if not all(math.isfinite(v) and abs(v) < 100000 for v in (x, y, size)):
+            return
+        hwnd = msg.get("hwnd")
+        hwnd = hwnd if isinstance(hwnd, int) and not isinstance(hwnd, bool) and 0 < hwnd < 2 ** 48 else 0
+        where = {"x": int(round(x)), "y": int(round(y)), "size": int(min(max(size, 28), 80)), "hwnd": hwnd}
+        self._a.ui("web: orb docks", self._a.dock_orb, where)
+
     async def hub_control(self, action) -> dict:
         """The Command centre's Start / Stop for the Agent Hub (JobPilot, its MCP server and the Hub). The page
         says only "start" or "stop"; what runs is the script in agent_hub.start_script."""
@@ -439,6 +495,7 @@ class WebBridge:
             "speak": a.voice,  # the typing box's speaker toggle is the Voice setting
             "voice": a.voice,
             "activity": a.activity.text,
+            "activity_kind": a.activity.kind,   # thinking, tool, composing, background (the orb shows "thinking")
             "announce": a.announce,
             "pending": {"id": pending.id, "summary": pending.summary} if pending else None,
             "quick_actions": [str(q)[:80] for q in (web.get("quick_actions") or [])][:8],
@@ -447,6 +504,8 @@ class WebBridge:
             "caption_s": _clamp(web.get("caption_seconds"), 8, 2, 60),
             "problem": self.problem(),
             "orb_visible": a.orb_visible,
+            "orb_dock": a.orb_dock,
+            "dashboards": [{k: d[k] for k in ("id", "label", "short")} for d in dashboards(a.config)],
             "keep": self._keep_state(),
             "hub": {"enabled": bool(a.config["features"].get("agent_hub")), "reachable": a.services.hub_reachable},
             "voice_model": (a.config.get("models") or {}).get("live"),
@@ -474,18 +533,25 @@ class WebBridge:
             log.warning("web: couldn't keep the orb's look: %s", exc)
         return orb_look(self._a.config, self.look_path)
 
-    def chat(self, text: str, speak: bool, web: str = "auto", attachments: list | None = None) -> bool:
+    def chat(self, text: str, speak: bool, web: str = "auto", attachments: list | None = None,
+             phone: bool = False) -> bool:
+        """A typed message from the app. Typed at this PC (not on the phone), JARVIS listens on afterwards, as
+        after speaking: the answer can be followed up by voice without the wake word."""
         log.info("web: typed message (%d characters, %s)", len(text), "spoken reply" if speak else "silent reply")
         if web == "auto" and not attachments:
-            return self._a.chat.send(text, speak=speak, source="web")
-        text = " ".join((text or "").split())
-        pictures = self.attachments.take(attachments or [])
-        if (not text and not pictures) or len(text) > 2000:
-            return False
-        if web not in ("auto", "on", "off"):
-            web = "auto"
-        self._a.submit_text(text, speak, "web", web=web, pictures=pictures)
-        return True
+            sent = self._a.chat.send(text, speak=speak, source="web")
+        else:
+            text = " ".join((text or "").split())
+            pictures = self.attachments.take(attachments or [])
+            if (not text and not pictures) or len(text) > 2000:
+                return False
+            if web not in ("auto", "on", "off"):
+                web = "auto"
+            self._a.submit_text(text, speak, "web", web=web, pictures=pictures)
+            sent = True
+        if sent and not phone:
+            self._a.listen_after_typing()
+        return sent
 
     def regenerate(self, speak: bool) -> bool:
         """The chat's Regenerate: your last message again, asking for a different answer. Actions still ask
@@ -674,7 +740,7 @@ class Assistant:
         self.chat_proc = None  # ui.window.WindowProcess: the complete chat page, in a normal window
         self.app_proc = None  # ui.window.WindowProcess: the app (sidebar shell), in a normal window
         self.orb_visible = True  # the show/hide hotkey
-        self._orb_hidden_for_app = False  # JARVIS hid the orb because the app opened: it comes back when the app closes
+        self.orb_dock: dict | None = None  # where the orb sits docked in the full-screen app ({x, y, size}), or None
         from core.settings_store import SettingsStore
 
         self.settings = SettingsStore(config, Services().data_dir / "settings.json")  # the app's Settings page
@@ -1219,8 +1285,10 @@ class Assistant:
         self.set_announce(not self.announce)
 
     def set_voice(self, on: bool) -> None:
-        """The Voice button. Off: JARVIS never speaks; every reply, typed or spoken, is text in the chat and
-        the caption. The microphone still works. Turning it off also cuts off anything being said now."""
+        """The Voice button (and the Chat's speaker button). Off: JARVIS never speaks; every reply, typed or
+        spoken, is text in the chat and the caption. Only what it says is muted: the microphone, the wake word
+        and the voice session carry on. Turning it off also cuts off anything being said now. It's on again at
+        the next start."""
         self.voice = bool(on)
         if not self.voice:
             self.player.clear("voice replies off")
@@ -1229,8 +1297,7 @@ class Assistant:
         self.bus.publish("voice", on=self.voice)
         session = getattr(self, "session", None)
         if session is not None:   # tell Gemini, so "I can't hear you" gets the real answer
-            session.send_context(VOICE_OFF_NOTE if not self.voice else
-                                 "[app note] Voice replies are back ON: the user hears you again.")
+            session.send_context(VOICE_OFF_NOTE if not self.voice else VOICE_ON_NOTE)
         self._status("(voice replies on)" if self.voice else "(voice replies off: text only)")
 
     def toggle_voice(self) -> None:
@@ -1281,6 +1348,13 @@ class Assistant:
             return  # it's waiting for a yes/no; a "Yes?" of its own would confuse that
         self._notify('[system notice] The user pressed Talk while you were already listening. '
                      'Reply with just: "Yes?"')
+
+    def listen_after_typing(self) -> None:
+        """A message typed at this PC: like speaking, it opens the listening window (wake-word mode), so the
+        user can go on by voice. Quietly: no chime, no "Yes?"."""
+        if self.wake is not None and not self.wake.awake:
+            self.wake.wake()
+            self._status("(awake)")
 
     def talk(self) -> None:
         """'Talk to JARVIS' without the wake word: tray click, or the push-to-talk key in wake-word mode."""
@@ -1405,11 +1479,8 @@ class Assistant:
         elif name == "show_orb" and pressed:
             self.toggle_orb()
 
-    def toggle_orb(self, visible: bool | None = None, for_app: bool = False) -> None:
-        """The show/hide hotkey (and the tray): the orb's window hides or comes back where it was. `for_app`:
-        JARVIS hid it because the app opened; any other change is the user's, and then the app's closing
-        leaves the orb as the user set it."""
-        self._orb_hidden_for_app = for_app
+    def toggle_orb(self, visible: bool | None = None) -> None:
+        """The show/hide hotkey (and the tray): the orb's window hides or comes back where it was."""
         self.orb_visible = (not self.orb_visible) if visible is None else bool(visible)
         log.info("orb %s", "shown" if self.orb_visible else "hidden")
         self.bus.publish("orb_visibility", visible=self.orb_visible)
@@ -1558,17 +1629,37 @@ class Assistant:
         else:
             self.app_proc.url = self.web.app_url + f"&s={section}"
             self.app_proc.start()
-        self._hide_orb_for_app()
 
-    def _hide_orb_for_app(self) -> None:
-        """The app is open: the orb steps aside (web_ui.hide_orb_with_app). Ctrl+Alt+Space still shows it."""
-        if self.orb_visible and (self.config.get("web_ui") or {}).get("hide_orb_with_app", True):
-            self.toggle_orb(False, for_app=True)
+    def dock_orb(self, where: dict | None) -> None:
+        """The app's window is full screen (where = {x, y, size}: the dot at the top right of its header, in
+        screen pixels) or isn't any more (None). The orb never hides for the app: docked, it sits in that
+        dot, the same orb; undocked, it goes back where it floated (web_ui.dock_orb_in_app)."""
+        if where is not None and not (self.config.get("web_ui") or {}).get("dock_orb_in_app", True):
+            where = None
+        if where == self.orb_dock:
+            return
+        self.orb_dock = where
+        log.info("orb %s", f"docked in the app at {where['x']},{where['y']}" if where else "floating")
+        self.bus.publish("orb_dock", docked=where is not None, **(where or {}))
 
     def _app_closed(self) -> None:
-        """The app window was closed: the orb comes back if JARVIS hid it for the app."""
-        if self._orb_hidden_for_app and not self.orb_visible:
-            self.toggle_orb(True)
+        """The app window was closed: the orb floats again where it was."""
+        self.dock_orb(None)
+
+    def open_dashboard(self, dashboard_id: str) -> None:
+        """The orb menu's Dashboards ring: JobPilot's dashboard (as its button does), or a web address in the
+        default browser."""
+        found = next((d for d in dashboards(self.config) if d["id"] == dashboard_id), None)
+        if found is None:
+            return
+        if found["open"] == "jobpilot" and not found["url"]:
+            self.open_jobpilot()
+            return
+        import webbrowser
+
+        log.info("opening the %s", found["label"])
+        self._status(f"(opening the {found['label']})")
+        asyncio.ensure_future(asyncio.to_thread(webbrowser.open, found["url"]))
 
     def open_jobpilot(self) -> None:
         """The Command centre's JobPilot dashboard button: the dashboard in the default browser. If it doesn't

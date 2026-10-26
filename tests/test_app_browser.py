@@ -36,6 +36,8 @@ class BrowserBridge:
         self.forgotten: list = []
         self.hub_up = True
         self.hub_actions: list = []
+        self.docks: list = []
+        self.dashboards_opened: list = []
         self.shown: list = []
         self.read: list = []
 
@@ -43,7 +45,9 @@ class BrowserBridge:
         return {"state": "listening", "level": 0.0, "user": "Krishna", "speak": True, "voice": True, "announce": True,
                 "pending": None, "problem": None, "keep": {"enabled": True, "on": True},
                 "hub": {"enabled": True, "reachable": True}, "voice_model": "gemini-3.8-live", "language": "en-IN",
-                "quick_actions": ["What's on my screen?", "What are my reminders?"], "caption_s": 8}
+                "quick_actions": ["What's on my screen?", "What are my reminders?"], "caption_s": 8,
+                "dashboards": [{"id": "pmo", "label": "PMO Dashboard", "short": "PMO"},
+                               {"id": "jobpilot", "label": "JobPilot dashboard", "short": "JobPilot"}]}
 
     def chat(self, text, speak, web="auto", attachments=None) -> bool:
         self.chats.append((text, speak, web))
@@ -102,6 +106,13 @@ class BrowserBridge:
 
     def save_brain_layout(self, positions, fresh=True) -> bool:
         self.layouts.append((positions, fresh))
+        return True
+
+    def orb_dock(self, msg) -> None:
+        self.docks.append(msg)
+
+    def open_dashboard(self, dashboard_id) -> bool:
+        self.dashboards_opened.append(dashboard_id)
         return True
 
     async def hub_control(self, action) -> dict:
@@ -251,4 +262,39 @@ async def test_the_command_centre_starts_and_stops_the_agent_hub(served, page) -
     assert bridge.hub_actions == ["start", "stop"]
     await page.get_by_role("button", name="JobPilot dashboard").click()
     assert await until(lambda: "open_jobpilot" in bridge.controls)
+
+
+async def test_chats_speaker_button_mutes_only_replies(served, page) -> None:
+    bridge, url = served
+    await page.goto(url + "&s=chat")
+    speaker = page.get_by_role("button", name="Spoken replies")
+    await speaker.wait_for()
+    assert await speaker.get_attribute("aria-pressed") == "true" and "Spoken" in await speaker.inner_text()
+    await speaker.click()
+    assert await until(lambda: bridge.controls == ["voice"])               # the Voice setting, nothing else
+    bridge.bus.publish("voice", on=False)
+    await page.locator(".composer .tool.muted").wait_for()
+    assert await speaker.get_attribute("aria-pressed") == "false" and "Muted" in await speaker.inner_text()
+    assert "still listens" in await speaker.get_attribute("title")
+    assert await page.get_by_role("button", name="Talk").is_enabled()      # talking still works
+
+
+async def test_the_app_has_a_dot_for_the_orb_and_reports_full_screen(served, page) -> None:
+    bridge, url = served
+    await page.goto(url + "&s=chat")
+    dot = page.locator("header .orb-dot")
+    await dot.wait_for()
+    box = await dot.bounding_box()
+    assert box["x"] + box["width"] > 1200                               # the top right of the header
+    await page.evaluate("window.jarvisDock({docked: true, x: 1880, y: 60, size: 40})")   # what the window says
+    await page.evaluate("window.jarvisDock({docked: false})")
+    await page.evaluate("window.jarvisDock({x: 1})")                    # not a dock message: ignored
+    assert await until(lambda: len(bridge.docks) == 2)
+    assert bridge.docks[0]["docked"] is True and bridge.docks[0]["x"] == 1880 and bridge.docks[1] == {"type": "orb_dock", "docked": False}
+    assert await page.locator("header .pill .dot").count() == 1
+    bridge.bus.publish("orb_dock", docked=True, x=1880, y=60, size=40)
+    await page.locator("header .orb-dot.docked").wait_for()             # the orb is in the dot now
+    assert await page.locator("header .pill .dot").count() == 0
+    bridge.bus.publish("orb_dock", docked=False)
+    await page.locator("header .orb-dot:not(.docked)").wait_for()
 

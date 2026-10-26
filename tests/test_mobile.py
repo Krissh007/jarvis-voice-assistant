@@ -264,7 +264,7 @@ def test_a_paired_phone_connects_with_its_token_in_the_subprotocol(phone_ui) -> 
         ws.send_text(json.dumps({"type": "control", "action": "confirm"}))  # Yes on a confirmation
         ws.send_text(json.dumps({"type": "request", "what": "nothing"}))  # an answer marks the end
         until(ws, "level")
-    assert bridge.chats == [("hi from the phone", False)] and bridge.controls == ["confirm"]
+    assert bridge.chats == [("hi from the phone", False, "phone")] and bridge.controls == ["confirm"]
 
 
 @pytest.mark.parametrize("protocols", [

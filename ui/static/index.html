@@ -8,12 +8,16 @@
 </head>
 <body>
   <div id="stage">
-    <canvas id="orb" aria-label="JARVIS. Tap for the menu, hold to talk, double-tap to mute, drag to move."></canvas>
+    <canvas id="orb" aria-label="JARVIS. Hover or tap for the menu, hold to talk, double-tap to mute, drag to move."></canvas>
+    <div id="mutedBadge" hidden aria-hidden="true"><svg><use href="/static/vendor/lucide/sprite.svg#i-mic-off" /></svg></div>
     <nav id="radial" hidden aria-label="JARVIS menu">
-      <button data-go="chat" title="Brain: JARVIS's graph, state and chat" aria-label="Brain"><svg class="ri"><use href="/static/vendor/lucide/sprite.svg#i-network" /></svg><span>Brain</span></button>
-      <button data-go="talk" title="Talk (or hold the orb)" aria-label="Talk"><svg class="ri"><use href="/static/vendor/lucide/sprite.svg#i-mic" /></svg><span>Talk</span></button>
+      <button data-go="chat" title="Chat with JARVIS" aria-label="Chat"><svg class="ri"><use href="/static/vendor/lucide/sprite.svg#i-message-square" /></svg><span>Chat</span></button>
       <button data-go="command" title="Command centre" aria-label="Command centre"><svg class="ri"><use href="/static/vendor/lucide/sprite.svg#i-activity" /></svg><span>Command</span></button>
+      <button data-go="hub" title="Start the Agent Hub (JobPilot and its services)" aria-label="Start the Agent Hub"><svg class="ri"><use href="/static/vendor/lucide/sprite.svg#i-plug" /></svg><span>Agent Hub</span></button>
+      <button data-go="dashboards" title="Dashboards" aria-label="Dashboards" aria-expanded="false"><svg class="ri"><use href="/static/vendor/lucide/sprite.svg#i-layout-dashboard" /></svg><span>Dashboards</span></button>
+      <button data-go="settings" title="Settings" aria-label="Settings"><svg class="ri"><use href="/static/vendor/lucide/sprite.svg#i-settings" /></svg><span>Settings</span></button>
     </nav>
+    <nav id="subring" hidden aria-label="Dashboards"></nav>
     <div id="problem" hidden role="status"></div>
     <div id="panel" hidden>
       <div id="controls" role="toolbar" aria-label="Controls">

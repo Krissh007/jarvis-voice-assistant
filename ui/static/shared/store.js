@@ -18,6 +18,7 @@ const state = {
   language: "",
   quickActions: [],
   captionS: 8,           // how long a reply stays as the caption
+  orbDocked: false,      // the orb sits in the app's top-right dot (the app is full screen)
   paired: true,          // the phone app: false until the phone is paired (the PC's pages always are)
 };
 const subscribers = new Set();
@@ -57,12 +58,14 @@ export function applyEvent(ev) {
       setState({ jarvis: s.state || "starting", voice: (s.voice ?? s.speak) !== false, announce: s.announce !== false,
                  activity: s.activity || "", problem: s.problem || null, keep: s.keep || state.keep,
                  hub: s.hub || state.hub, voiceModel: s.voice_model || "", language: s.language || "",
-                 quickActions: Array.isArray(s.quick_actions) ? s.quick_actions : [], captionS: s.caption_s || 8 });
+                 quickActions: Array.isArray(s.quick_actions) ? s.quick_actions : [], captionS: s.caption_s || 8,
+                 orbDocked: !!s.orb_dock });
       return;
     }
     case "level": setState({ problem: ev.problem || null }); if (ev.state) setState({ jarvis: ev.state }); return;
     case "state": if (ev.state) setState({ jarvis: ev.state }); return;
     case "memory_keep": setState({ keep: { enabled: !!ev.enabled, on: !!ev.on } }); return;
+    case "orb_dock": setState({ orbDocked: !!ev.docked }); return;
     case "voice": setState({ voice: !!ev.on }); return;
     case "announce": setState({ announce: !!ev.on }); return;
     case "status": setState({ status: ev.text || "" }); return;

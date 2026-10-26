@@ -36,21 +36,31 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   align-items: stretch; gap: 10px; }
 #panel[hidden] { display: none; }
 
-/* The radial menu (tap the orb): three round buttons under the orb, placed by app.js. No CSS transitions:
-   the see-through window doesn't run them; app.js animates with frames. */
-#radial[hidden] { display: none; }
-#radial button { position: absolute; width: 58px; height: 58px; margin: -29px 0 0 -29px; border-radius: 50%;
+/* The radial menu (hover or tap the orb): round buttons in a ring around it, and the Dashboards ring outside
+   that, placed by app.js. No CSS transitions: the see-through window doesn't run them; app.js animates with
+   frames. */
+#radial[hidden], #subring[hidden] { display: none; }
+#radial button, #subring button { position: absolute; width: 58px; height: 58px; margin: -29px 0 0 -29px; border-radius: 50%;
   border: 1px solid rgba(56, 198, 244, .45); background: rgba(6, 14, 24, .92); color: #cfefff; cursor: pointer;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 0;
   box-shadow: 0 0 14px rgba(56, 198, 244, .25); font: 10px/1 "Segoe UI", system-ui, sans-serif; }
-#radial button:hover, #radial button:focus-visible { border-color: #6fd8ff; background: rgba(12, 32, 48, .96); color: #fff;
+#radial button:hover, #radial button:focus-visible, #subring button:hover, #subring button:focus-visible,
+#radial button.aim, #subring button.aim, #radial button[aria-expanded="true"] { border-color: #6fd8ff; background: rgba(12, 32, 48, .96); color: #fff;
   outline: none; box-shadow: 0 0 18px rgba(56, 198, 244, .5); }
-#radial .ri { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+#subring button { border-color: rgba(170, 140, 255, .55); }
+#radial span, #subring span { max-width: 56px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9.5px; letter-spacing: -0.1px; }
+#radial .ri, #subring .ri { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 body.menu #panel { display: none !important; }
 #problem { position: absolute; transform: translateX(-50%); max-width: 220px; padding: 4px 10px; border-radius: 999px;
   background: rgba(40, 6, 12, .88); border: 1px solid rgba(255, 77, 106, .5); color: #ffd0d8; font: 11px/1.3 "Segoe UI", system-ui, sans-serif;
   text-align: center; pointer-events: none; }
 #problem[hidden] { display: none; }
+/* Muted: a mic-off badge over the orb (grey too), so it reads even docked at 40 px. Clicks go to the orb. */
+#mutedBadge { position: absolute; transform: translate(-50%, -50%); display: grid; place-items: center; pointer-events: none;
+  border-radius: 50%; background: rgba(12, 18, 28, 0.62); border: 2px solid rgba(255, 120, 120, 0.9); color: #ffd7d7;
+  box-shadow: 0 0 10px rgba(255, 90, 90, 0.45); }
+#mutedBadge svg { width: 58%; height: 58%; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+#mutedBadge[hidden] { display: none; }
 /* No CSS animations or transitions here: in the see-through Qt window the browser engine doesn't advance
    them, so a fade would stop halfway (cards stuck half see-through). app.js animates with frames instead. */
 

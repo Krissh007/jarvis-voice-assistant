@@ -158,16 +158,23 @@ the clipboard, running a plan, forgetting a memory) is read to you first:
 
 **The orb** floats above your other windows (drag it anywhere; it stays where you leave it).
 
-- **Tap** it for its menu: **Brain**, **Talk** and **Command centre**.
-- **Hold** it to talk. **Double-tap** it to mute or unmute the microphone.
+- **Point at it** and its menu blooms out around it: **Chat**, **Command centre**, **Agent Hub** (starts it),
+  **Dashboards** and **Settings** (near an edge, or docked in the app, they fan out on the side with room).
+  Click one, or **flick**: press the orb, drag a little toward the item and let go. Point at **Dashboards**
+  (or flick to it) for a second ring: **PMO** (the PMO Tracker in Notion) and **JobPilot**; add more under
+  `web_ui.dashboards` in `config.yaml`. Move the mouse away and the menu folds up. **Tap** the orb to open
+  or close the menu too.
+- **Hold** it to talk. **Double-tap** it to mute or unmute the microphone (docked or floating): muted, it
+  turns grey with a mic-off badge. **Drag** it further than the menu reaches to move it.
 - **Ctrl+Alt+Space** hides or shows it. Talking without the wake word is **Ctrl+Alt+T** now.
-- It steps aside while the app is open and comes back when you close the app (unless you hid it yourself
-  with Ctrl+Alt+Space). To keep it showing, set `web_ui.hide_orb_with_app: false`.
-- Its colour: blue listening, amber working, grey muted, and **red when something JARVIS needs isn't
+- It never disappears when the app opens. While the app is full screen it sits in the dot at the top right of
+  the app (the same orb, smaller); minimise or close the app and it floats again where you left it.
+- Its colour: blue listening (still when idle), violet thinking, amber working on a task, grey muted, and
+  **red when something JARVIS needs isn't
   working**: the reason shows under it when you tap (the voice session not connected, or the Agent Hub
   not reachable).
 
-**The app** opens maximized from the orb's menu on the **Brain** (New chat opens Chat). Its icon sidebar has five
+**The app** opens maximized from the orb's menu (Chat, Command centre or Settings). Its icon sidebar has five
 sections; the button under them shows Chat and the Command centre side by side.
 
 - **Brain**: everything JARVIS knows and has done, as one graph: remembered facts (amber), conversations
@@ -197,6 +204,10 @@ sections; the button under them shows Chat and the Command centre side by side.
   an answer used: tools, web sources (site names) and memory. Click an older turn to see its panel.
   Under the typing box: attach a picture (paperclip) or a picture of your screen (private windows are
   blacked out first), set **Web** to auto (JARVIS decides), on or off for the next message, talk, stop.
+  The speaker button (**Spoken** / **Muted**) is the Voice switch: muted, replies are text only, but
+  JARVIS still listens and you can keep talking to it. Voice is on again each time JARVIS starts.
+  Voice works in Chat as everywhere else: say "hey Jarvis", or after typing a message just keep talking
+  (typing at the PC opens the listening window, as speaking does; a message from the phone doesn't).
 - **Command centre**: whether the voice session, the Agent Hub and each of its agents are working,
   which model does what, and a live list of everything JARVIS does, newest first (green done, amber
   running or waiting for you, red failed), with Approve / Cancel on anything waiting. **Start Agent Hub**

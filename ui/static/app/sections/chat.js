@@ -175,6 +175,10 @@ export function Composer({ compact, placeholder = "Message JARVIS…", inputRef 
         onClick=${() => setWeb(WEB[(WEB.indexOf(web) + 1) % WEB.length])}><${Icon} name="globe" size=${17} />
         <span>${web === "auto" ? "Web: auto" : web === "on" ? "Web: on" : "Web: off"}</span></button>
       <span class="grow note dim small" role="status">${note}</span>
+      <button type="button" class=${"tool" + (s.voice ? "" : " muted")} aria-pressed=${s.voice ? "true" : "false"}
+        aria-label="Spoken replies" onClick=${() => control("voice")}
+        title=${s.voice ? "Replies are spoken. Click to mute them (JARVIS keeps listening)" : "Replies are muted: text only, JARVIS still listens. Click to hear them"}>
+        <${Icon} name=${s.voice ? "volume-2" : "volume-x"} size=${17} /><span>${s.voice ? "Spoken" : "Muted"}</span></button>
       ${!phone && html`<button type="button" class="tool" title="Talk instead (Ctrl+Alt+Space)" aria-label="Talk" onClick=${() => control("talk")}>
         <${Icon} name="mic" size=${17} /></button>`}
       ${busy && html`<button type="button" class="btn" title="Stop (Ctrl+Alt+S)" onClick=${() => control("stop")}>

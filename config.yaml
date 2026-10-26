@@ -108,8 +108,12 @@ web_ui:                         # used when features.web_ui is true: the orb and
   caption_seconds: 8            # voice mode: a reply's caption under the orb fades after this many seconds
   always_on_top: true
   close_button: quit            # closing the orb (Alt+F4) quits JARVIS, or "hide" keeps it running in the tray
-  hide_orb_with_app: true       # the orb steps aside while the app (Brain, Chat) is open, and comes back when it closes
+  dock_orb_in_app: true         # while the app is full screen the orb sits in the dot at its top right; it floats again when the app is minimised or closed
   app_maximized: true           # the app opens maximized (false: the size and place it was left at)
+  dashboards:                   # the orb menu's Dashboards ring; add more here: an id, a label, a short label for
+                                # the button, and a web address (url) or `open: jobpilot`
+    - {id: pmo, label: PMO Dashboard, short: PMO, url: "https://app.notion.com/p/7672a7ef6a4546c7aea87755a3f6670a"}
+    - {id: jobpilot, label: JobPilot dashboard, short: JobPilot, open: jobpilot}
   quick_actions:                # buttons in the control centre; each sends its text to JARVIS
     - "What's on my screen?"
     - "Play some music"

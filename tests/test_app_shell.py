@@ -211,41 +211,65 @@ def orb_events(seen):
     return [e.data["visible"] for e in seen if e.kind == "orb_visibility"]
 
 
-def test_the_orb_steps_aside_while_the_app_is_open(assistant) -> None:
+def dock_events(seen):
+    return [(e.data["docked"], e.data.get("x"), e.data.get("y")) for e in seen if e.kind == "orb_dock"]
+
+
+def test_the_orb_never_hides_for_the_app_and_docks_while_it_is_full_screen(assistant) -> None:
     a = assistant
     seen = []
     a.bus.subscribe(seen.append)
     assert a.app_proc.on_closed == a._app_closed                         # the real app window says when it closes
     a.app_proc = OpenWindow()
     a.open_app()
-    assert a.orb_visible is False and orb_events(seen) == [False]
-    a.open_app("chat")                                                  # already hidden: nothing more
-    assert orb_events(seen) == [False]
-    a._app_closed()
-    assert a.orb_visible is True and orb_events(seen) == [False, True]  # back where it was
-    a._app_closed()                                                     # closed again: nothing to undo
-    assert orb_events(seen) == [False, True]
+    assert a.orb_visible is True and orb_events(seen) == []              # opening the app doesn't hide the orb
+    a.dock_orb({"x": 1880, "y": 60, "size": 40})                        # the app went full screen
+    a.dock_orb({"x": 1880, "y": 60, "size": 40})                        # the same again: nothing new
+    assert a.orb_dock == {"x": 1880, "y": 60, "size": 40} and dock_events(seen) == [(True, 1880, 60)]
+    assert a.web.bridge.snapshot()["orb_dock"] == {"x": 1880, "y": 60, "size": 40}   # a reloaded orb page docks too
+    a.dock_orb(None)                                                    # minimised or restored to a window
+    assert a.orb_dock is None and dock_events(seen)[-1] == (False, None, None)
+    a.dock_orb({"x": 1880, "y": 60, "size": 40})
+    a._app_closed()                                                     # closed: floats again
+    assert a.orb_dock is None and dock_events(seen)[-1][0] is False and a.orb_visible is True
 
 
-def test_the_users_own_choice_wins_over_the_app(assistant) -> None:
+def test_the_orb_can_keep_floating(assistant) -> None:
     a = assistant
-    a.app_proc = OpenWindow()
-    a.open_app()
-    a.toggle_orb()                                                      # Ctrl+Alt+Space: shown while the app is open
-    a.toggle_orb()                                                      # and hidden again, by the user
-    a._app_closed()
-    assert a.orb_visible is False                                       # the user hid it: it stays hidden
-
-    a.toggle_orb(True)
-    a.toggle_orb(False)                                                 # hidden by the user before the app opened
-    a.open_app()
-    a._app_closed()
-    assert a.orb_visible is False
+    a.config["web_ui"]["dock_orb_in_app"] = False
+    a.dock_orb({"x": 1880, "y": 60, "size": 40})
+    assert a.orb_dock is None
 
 
-def test_the_orb_can_stay_with_the_app(assistant) -> None:
+def test_dock_messages_are_checked(assistant) -> None:
+    from core.runtime import WebBridge
+
     a = assistant
-    a.config["web_ui"]["hide_orb_with_app"] = False
-    a.app_proc = OpenWindow()
-    a.open_app()
-    assert a.orb_visible is True
+    a.ui = lambda label, fn, *args: fn(*args)
+    bridge = WebBridge(a)
+    bridge.orb_dock({"docked": True, "x": 1880.4, "y": 59.6, "size": 400, "hwnd": 132456})
+    assert a.orb_dock == {"x": 1880, "y": 60, "size": 80, "hwnd": 132456}   # rounded; the size kept in range
+    for bad in ({"docked": True, "x": "far", "y": 1}, {"docked": True, "x": float("inf"), "y": 1},
+                {"docked": True, "y": 1}, {"docked": True, "x": 1e9, "y": 1}):
+        bridge.orb_dock(bad)
+        assert a.orb_dock == {"x": 1880, "y": 60, "size": 80, "hwnd": 132456}, bad
+    for hwnd in (-5, True, "132456", 2 ** 60):                          # not a window handle: docked without an owner
+        bridge.orb_dock({"docked": True, "x": 10, "y": 10, "hwnd": hwnd})
+        assert a.orb_dock["hwnd"] == 0, hwnd
+    bridge.orb_dock({"docked": False})
+    assert a.orb_dock is None
+
+
+def test_the_orb_and_app_pages_carry_the_dock() -> None:
+    from ui.server import PC_ONLY, STREAM_KINDS
+
+    assert "orb_dock" in STREAM_KINDS and "orb_dock" in PC_ONLY        # a phone can't move the PC's orb
+    orb_js = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert 'case "orb_dock": return dock(ev);' in orb_js and 'toWindow("dock"' in orb_js
+    main_js = (STATIC / "app" / "main.js").read_text(encoding="utf-8")
+    assert 'toWindow("dock_slot"' in main_js and "window.jarvisDock" in main_js and "!phone && html`<${OrbDot} />`" in main_js
+    win = (STATIC.parent / "window.py").read_text(encoding="utf-8")
+    assert 'command == "dock" and orb_mode' in win and 'command == "dock_slot" and not orb_mode' in win
+    assert "view.isMaximized() or view.isFullScreen()" in win and "QEvent.WindowStateChange" in win
+    assert 'orb["dock"] is None:  # the user dragged it' in win               # docked moves never become the floating place
+    assert '"hwnd": int(view.winId())' in win and "GWLP_HWNDPARENT" in win and "HWND_NOTOPMOST" in win   # owned, not topmost

@@ -7,10 +7,10 @@
 // until the phone is paired it shows the pairing screen (a code from the QR code's #pair=..., or typed).
 "use strict";
 
-import { useEffect, useState } from "/static/vendor/preact/hooks.module.js";
+import { useEffect, useRef, useState } from "/static/vendor/preact/hooks.module.js";
 import { html, render, Icon } from "/static/shared/ui.js";
 import { applyEvent, getState, setState, useStore } from "/static/shared/store.js";
-import { connect, onConnection, onEvent, onUnpaired, paired, phone, toWindow } from "/static/shared/ws.js";
+import { connect, onConnection, onEvent, onUnpaired, paired, phone, send, toWindow } from "/static/shared/ws.js";
 import { BrainSection } from "/static/app/sections/brain.js";
 import { ChatSection } from "/static/app/sections/chat.js";
 import { CommandSection } from "/static/app/sections/command.js";
@@ -58,16 +58,48 @@ function Sidebar({ section, split, go, toggleSplit }) {
   </nav>`;
 }
 
+// The dot at the top right of the header is where the orb docks while the app is full screen (ui/window.py):
+// the page tells its window where the dot is; the window, while maximized, tells JARVIS where that is on
+// the screen, and the orb moves into it. Not on a phone (there's no orb there).
+const DOT_SIZE = 40;   // how big the docked orb looks, in pixels
+function OrbDot() {
+  const s = useStore();
+  const ref = useRef(null);
+  useEffect(() => {
+    const report = () => {
+      const r = ref.current && ref.current.getBoundingClientRect();
+      if (r) toWindow("dock_slot", { x: r.left + r.width / 2, y: r.top + r.height / 2, size: DOT_SIZE });
+    };
+    report();
+    const ro = new ResizeObserver(report);
+    ro.observe(ref.current);
+    ro.observe(document.body);
+    return () => ro.disconnect();
+  }, []);
+  return html`<span class=${"orb-dot" + (s.orbDocked ? " docked" : "")} ref=${ref} aria-hidden="true"
+    title=${s.orbDocked ? "" : "The orb sits here while the app is full screen"}></span>`;
+}
+// The window calls this with whether it's full screen, and where the dot is on the screen. The last word is
+// sent again whenever the connection (re)opens: it can come before the page is connected, or JARVIS restarts.
+let lastDock = null;
+window.jarvisDock = (where) => {
+  if (!where || typeof where.docked !== "boolean") return;
+  lastDock = { type: "orb_dock", ...where };
+  send(lastDock);
+};
+onConnection((on) => { if (on && lastDock) send(lastDock); });
+
 function Header({ title }) {
   const s = useStore();
   return html`<header class="top">
     <h1>${title}</h1>
     <div class="grow"></div>
-    <span class="pill" title="What JARVIS is doing"><span class=${"dot " + (s.jarvis === "muted" ? "warn" : s.connected ? "ok" : "bad")}></span>
+    <span class="pill" title="What JARVIS is doing">${!s.orbDocked && html`<span class=${"dot " + (s.jarvis === "muted" ? "warn" : s.connected ? "ok" : "bad")}></span>`}
       ${s.connected ? s.activity || STATE_LABEL[s.jarvis] || s.jarvis : "Not connected"}</span>
     ${!s.voice && html`<span class="pill" title="Voice replies are off: JARVIS answers in text only">
       <${Icon} name="volume-x" size=${14} /> Text only</span>`}
     ${!s.announce && html`<span class="pill" title="Announcements are off"><${Icon} name="bell-off" size=${14} /> Quiet</span>`}
+    ${!phone && html`<${OrbDot} />`}
   </header>`;
 }
 
