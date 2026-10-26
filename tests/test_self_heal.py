@@ -103,3 +103,34 @@ async def test_the_third_failure_tells_the_model_and_sends_the_issue_to_claude(a
 def test_list_issues_is_a_tool(assistant) -> None:
     tool = assistant.registry.get("list_issues")
     assert tool is not None and tool.read_only
+
+
+def test_issue_1_follow_up_questions_and_a_cancel_are_not_failures(tmp_path) -> None:
+    """Issue #1 (27 Oct): every tool worked, but two follow-ups and "No, cancel that" opened an issue."""
+    t = IssueTracker(tmp_path / "issues.jsonl")
+    t.user_line("What are the agents doing currently?")
+    t.tool_result("agent_hub_status", {}, True, "Two runs are working.", trusted=False)
+    t.user_line("What requests are those?")
+    t.user_line("Javesh, what tasks agents are performing?")
+    t.tool_result("agent_hub_status", {}, True, "Fetching skill requirements.", trusted=False)
+    t.user_line("No, cancel that. I don't want to do that. Ignore the job.")
+    assert not t.due() and t.open_issue() is None and t.episode is None
+
+
+def test_soft_corrections_count_once_a_tool_has_failed(tmp_path) -> None:
+    t = IssueTracker(tmp_path / "issues.jsonl")
+    t.user_line("Close Chrome")
+    t.user_line("No, the one you just opened.")                # no tool failed yet: just talking
+    assert t.episode.failures == 0
+    t.tool_result("close_app", {"name": "chrome"}, True, "chrome isn't open.")
+    t.user_line("No, the one you just opened.")                # now it's a correction
+    t.user_line("It didn't work, I can still see it.")          # always a correction
+    assert t.due() and "failed 3 times" in t.hint("close_app")
+
+
+def test_corrections_alone_are_reported_honestly(tmp_path) -> None:
+    t = IssueTracker(tmp_path / "issues.jsonl")
+    t.user_line("Switch to the JobPilot chat")
+    for line in ("You didn't switch it.", "Nothing happened.", "It's not working, try again."):
+        t.user_line(line)
+    assert t.due() and "tools reported no error" in t.hint("")

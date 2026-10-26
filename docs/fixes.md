@@ -16,6 +16,10 @@ Where JARVIS's bugs and fixes are recorded:
 Format: `- #<issue> (<date>): <what was wrong> -> <what changed> (<commit>)`. Fixes found by reading the
 logs before self-healing existed have no issue number.
 
+- #1 (2026-10-27): a false alarm in self-healing itself. "What are the agents doing?", two follow-up
+  questions and "No, cancel that" opened an issue although every tool worked, and JARVIS told Krishna the
+  check had failed -> follow-ups and soft "no"s count only after a tool has failed, cancelling ends the
+  request, and the stop message says honestly whether tools failed (commit: see git log "Self-heal issue #1")
 - (2026-10-25): "JobPilot auto apply" clicked a chat message quoting it instead of the sidebar chat ->
   names match without spaces/punctuation; partial matches skip long text; recent lines count as naming
   a control (commit 008e782)

@@ -25,11 +25,20 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 ATTEMPTS = 3
-# The user telling JARVIS it went wrong.
+# The user telling JARVIS it went wrong: always a failed attempt.
 CORRECTION = re.compile(
-    r"^(no|nope|not that|wrong)\b|\b(still|you didn'?t|didn'?t work|not working|doesn'?t work|isn'?t working|"
-    r"that'?s not|that is not|i can'?t see|can'?t see it|try again|again|nothing happened|it'?s not)\b",
+    r"\b(you didn'?t|didn'?t work|did not work|not working|doesn'?t work|isn'?t working|nothing happened|"
+    r"try again|i can'?t see (it|that|the)|still (seeing|in|on|there|open|not|the same)|"
+    r"wrong (one|chat|tab|app|window))\b",
     re.IGNORECASE)
+# A softer "no", or the same request again: a failed attempt only once a tool has failed for it. Seen live
+# (issue #1, 27 Oct): two follow-up questions about the agents and "No, cancel that" opened an issue,
+# although every tool had worked and Krishna was just talking.
+SOFT_CORRECTION = re.compile(r"^(no|nope|not that|wrong)\b|\b(that'?s not|that is not|it'?s not|again)\b",
+                             re.IGNORECASE)
+# The user dropping the request: the episode ends, and nothing failed.
+CANCEL = re.compile(r"\b(cancel|never ?mind|forget (it|that|about)|ignore (it|that|the)|don'?t want|leave it|"
+                    r"stop (it|that))\b", re.IGNORECASE)
 # Tool results that are failures even though the tool ran ("did you mean ...").
 FAILED_RESULT = re.compile(
     r"several things match|did you mean|can'?t find|couldn'?t|isn'?t open|not found|i stopped|that didn'?t work|"
@@ -76,6 +85,7 @@ class Episode:
     started: float
     attempts: list[dict] = field(default_factory=list)
     failures: int = 0
+    tool_failures: int = 0
     reported: bool = False
 
 
@@ -119,10 +129,17 @@ class IssueTracker:
         if not text:
             return
         ep = self.episode
-        if ep is not None and not ep.reported and (CORRECTION.search(text) or similar(text, ep.request)):
-            ep.attempts.append({"kind": "user", "text": _short(text)})
-            ep.failures += 1   # they had to say it again, or tell JARVIS it was wrong
-            return
+        if ep is not None and not ep.reported:
+            if CANCEL.search(text) and not CORRECTION.search(text):
+                self.episode = None   # they dropped it: nothing to heal
+                return
+            soft = SOFT_CORRECTION.search(text) or similar(text, ep.request)
+            if CORRECTION.search(text) or (soft and ep.tool_failures):
+                ep.attempts.append({"kind": "user", "text": _short(text)})
+                ep.failures += 1   # they had to say it again, or tell JARVIS it was wrong
+                return
+            if soft:
+                return             # a follow-up on the same thing while JARVIS's tools are working: same episode
         self.episode = Episode(request=text, started=self.clock())
 
     def tool_result(self, tool: str, args: dict, ok: bool, result: str, trusted: bool = True) -> None:
@@ -136,6 +153,7 @@ class IssueTracker:
         ep.attempts.append({"kind": "tool", "tool": tool, "args": {k: _short(v) for k, v in (args or {}).items()},
                             "result": said})
         ep.failures += 1
+        ep.tool_failures += 1
 
     # ---- what JARVIS does about it ----
 
@@ -149,8 +167,10 @@ class IssueTracker:
         if ep is None or not ep.failures or ep.reported:
             return ""
         if ep.failures >= self.attempts:
-            return ("This request has now failed " f"{ep.failures} times. Stop retrying. Tell the user in one "
-                    "sentence what you tried and that you've logged it and sent it to Claude to fix.")
+            what = (f"failed {ep.failures} times" if ep.tool_failures else
+                    f"needed {ep.failures} corrections from the user, though your tools reported no error")
+            return (f"This request has {what}. Stop retrying. Tell the user accurately, in one sentence, what "
+                    "went wrong, and that you've logged it and sent it to Claude to fix.")
         other = OTHER_WAY.get(tool, "a different tool, or ask the user one short question")
         return (f"That didn't work (attempt {ep.failures} of {self.attempts}). Don't repeat the same call: "
                 f"try another way: {other}.")
