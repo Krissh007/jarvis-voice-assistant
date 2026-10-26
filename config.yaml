@@ -109,6 +109,7 @@ web_ui:                         # used when features.web_ui is true: the orb and
   always_on_top: true
   close_button: quit            # closing the orb (Alt+F4) quits JARVIS, or "hide" keeps it running in the tray
   hide_orb_with_app: true       # the orb steps aside while the app (Brain, Chat) is open, and comes back when it closes
+  app_maximized: true           # the app opens maximized (false: the size and place it was left at)
   quick_actions:                # buttons in the control centre; each sends its text to JARVIS
     - "What's on my screen?"
     - "Play some music"

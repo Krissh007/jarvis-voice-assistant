@@ -15,7 +15,7 @@ WebSocket like any view. To its window it sends only console lines starting "jar
 - `jarvis:shape:[...]`: the orb page's clickable circles and boxes, in page pixels;
 - `jarvis:mode:{"expanded": true|false}`: open or close the control centre;
 - `jarvis:drag`: start moving the window with the mouse (the orb was dragged);
-- `jarvis:front`: come to the front;
+- `jarvis:front`: come to the front (un-minimized, but still maximized if it was);
 - `jarvis:size:{"size": px}`: the orb's new size (the Customize slider), in pixels;
 - `jarvis:hide` / `jarvis:show`: the orb's show/hide hotkey (the page keeps running while hidden).
 The orb window answers with `jarvisPlace({expanded, x, y, canvas})`: where the orb is in the page.
@@ -136,6 +136,7 @@ def run_window(argv: list[str] | None = None) -> int:
     parser.add_argument("--size", type=int, default=112, help="orb mode: how big the orb looks, in pixels")
     parser.add_argument("--width", type=int, default=1100, help="chat mode: first width")
     parser.add_argument("--height", type=int, default=760, help="chat mode: first height")
+    parser.add_argument("--maximized", action="store_true", help="chat mode: open maximized")
     parser.add_argument("--on-top", action="store_true")
     parser.add_argument("--icon", type=Path)
     args = parser.parse_args(argv)
@@ -181,7 +182,9 @@ def run_window(argv: list[str] | None = None) -> int:
                 if handle is not None:
                     handle.startSystemMove()
             elif command == "front":
-                view.showNormal()
+                if view.isMinimized():   # back as it was before (maximized stays maximized)
+                    view.setWindowState((view.windowState() & ~Qt.WindowMinimized) | Qt.WindowActive)
+                view.show()
                 view.raise_()
                 view.activateWindow()
             elif command == "hide" and orb_mode:  # the show/hide hotkey (the page keeps running, hidden)
@@ -209,13 +212,13 @@ def run_window(argv: list[str] | None = None) -> int:
                 if not orb["placing"]:  # the user dragged it: the orb lives where it was left
                     state.update(cx=self.x() + orb["inner"][0], cy=self.y() + orb["inner"][1])
                     orb["home"] = None
-            else:
+            elif not (self.isMaximized() or self.isMinimized()):   # keep the normal place, for un-maximizing
                 state.update(x=self.x(), y=self.y())
             save_soon.start(500)
 
         def resizeEvent(self, event):  # noqa: N802
             super().resizeEvent(event)
-            if not orb_mode:
+            if not orb_mode and not (self.isMaximized() or self.isMinimized()):
                 state.update(width=self.width(), height=self.height())
                 save_soon.start(500)
 
@@ -309,7 +312,10 @@ def run_window(argv: list[str] | None = None) -> int:
         view.setMinimumSize(420, 480)
 
     view.load(QUrl(args.url))
-    view.show()
+    if not orb_mode and args.maximized:
+        view.showMaximized()   # its normal size and place stay as kept, for un-maximizing
+    else:
+        view.show()
     if not orb_mode:
         view.raise_()
         view.activateWindow()
@@ -325,7 +331,7 @@ class WindowProcess:
     def __init__(self, url: str, *, state_path: Path, mode: str = "orb", size: int = 112, width: int = 1100,
                  height: int = 760, on_top: bool = True, icon: Path | None = None,
                  on_closed: Callable[[], None] | None = None, python: str | None = None,
-                 log_path: Path | None = None) -> None:
+                 log_path: Path | None = None, maximized: bool = False) -> None:
         self.url = url
         self.mode = mode
         self.size = size
@@ -335,6 +341,7 @@ class WindowProcess:
         self.on_top = on_top
         self.icon = icon
         self.on_closed = on_closed
+        self.maximized = maximized  # chat mode: open maximized
         self.python = python or sys.executable
         self.log_path = log_path  # the window's own errors (Qt WebEngine)
         self._proc: subprocess.Popen | None = None
@@ -345,6 +352,8 @@ class WindowProcess:
                "--size", str(self.size), "--width", str(self.width), "--height", str(self.height)]
         if self.on_top:
             cmd.append("--on-top")
+        if self.maximized:
+            cmd.append("--maximized")
         if self.icon is not None:
             cmd += ["--icon", str(self.icon)]
         return cmd

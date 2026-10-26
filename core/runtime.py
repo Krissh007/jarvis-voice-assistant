@@ -688,6 +688,7 @@ class Assistant:
                 self.web.app_url, state_path=Services().data_dir / "app_window.json", mode="chat",
                 width=int(ucfg.get("app_width", 1240)), height=int(ucfg.get("app_height", 800)), on_top=False,
                 icon=icon, on_closed=self._app_closed, log_path=options.log_dir / "window.log",
+                maximized=bool(ucfg.get("app_maximized", True)),
             )
         elif config["features"].get("window") and self.mode != "text":
             from core.face import Face

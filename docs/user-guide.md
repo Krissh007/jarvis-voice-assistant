@@ -167,7 +167,7 @@ the clipboard, running a plan, forgetting a memory) is read to you first:
   working**: the reason shows under it when you tap (the voice session not connected, or the Agent Hub
   not reachable).
 
-**The app** opens from the orb's menu on the **Brain** (New chat opens Chat). Its icon sidebar has five
+**The app** opens maximized from the orb's menu on the **Brain** (New chat opens Chat). Its icon sidebar has five
 sections; the button under them shows Chat and the Command centre side by side.
 
 - **Brain**: everything JARVIS knows and has done, as one graph: remembered facts (amber), conversations

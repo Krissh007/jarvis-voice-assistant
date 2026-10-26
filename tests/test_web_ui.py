@@ -473,7 +473,34 @@ def test_window_commands_carry_the_mode_and_size(tmp_path) -> None:
     chat = WindowProcess("http://127.0.0.1:1/chat#t=x", state_path=tmp_path / "c.json", mode="chat", on_top=False)
     o, c = orb.command(), chat.command()
     assert o[o.index("--mode") + 1] == "orb" and o[o.index("--size") + 1] == "150" and "--on-top" in o
-    assert c[c.index("--mode") + 1] == "chat" and "--on-top" not in c
+    assert c[c.index("--mode") + 1] == "chat" and "--on-top" not in c and "--maximized" not in c
+    app = WindowProcess("http://127.0.0.1:1/app#t=x", state_path=tmp_path / "a.json", mode="chat", maximized=True)
+    assert "--maximized" in app.command()
+
+
+def test_the_app_opens_maximized_and_stays_maximized_when_raised(assistant) -> None:
+    a = assistant
+    assert a.app_proc.maximized is True and "--maximized" in a.app_proc.command()
+    src = (STATIC.parent / "window.py").read_text(encoding="utf-8")
+    front = src[src.index('elif command == "front":'):src.index('elif command == "hide"')]
+    assert "showNormal" not in front and "WindowMinimized" in front   # raising un-minimizes, never un-maximizes
+    assert "view.showMaximized()" in src
+    assert src.count("isMaximized() or self.isMinimized()") == 2      # the normal size and place aren't overwritten
+
+
+def test_the_app_can_open_at_its_last_size(tmp_path, monkeypatch) -> None:
+    import main
+    from core.runtime import Assistant, Options
+
+    cfg = main.load_config()
+    cfg["listening"]["mode"] = "push_to_talk"
+    cfg["features"].update(web_ui=True, window=False, tray=False)
+    cfg["web_ui"]["app_maximized"] = False
+    a = Assistant(cfg, client=None, options=Options(log_dir=tmp_path))
+    try:
+        assert "--maximized" not in a.app_proc.command()
+    finally:
+        a.web.stop()
 
 
 async def test_new_chat_starts_fresh_clears_views_and_opens_the_app_on_chat(assistant, monkeypatch) -> None:

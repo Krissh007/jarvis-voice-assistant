@@ -112,6 +112,7 @@ each; they change the orb live, and your choices are kept in `data/orb_look.json
 | `web_ui.announce` | `true` | Starting value of the **Announce** button (off = agent results and reminders shown, not spoken); kept in `data/prefs.json` |
 | `web_ui.always_on_top` | `true` | Keep the orb above other windows |
 | `web_ui.close_button` | `quit` | Closing the orb (Alt+F4) quits JARVIS, or `hide` keeps it running in the tray |
+| `web_ui.app_maximized` | `true` | The app (Brain, Chat) opens maximized; `false` opens it at the size and place it was left |
 | `web_ui.hide_orb_with_app` | `true` | The orb hides while the app (Brain, Chat) is open and comes back when it closes; `false` keeps it showing |
 | `window.always_on_top` | `true` | The older Tk window (`features.window`, used only when `web_ui` is off): keep it above others |
 | `window.opacity` | `1.0` | Below 1 lets windows behind show through |
