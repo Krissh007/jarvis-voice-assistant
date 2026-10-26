@@ -92,13 +92,17 @@ def test_phone_access_is_off_unless_a_valid_host_is_set() -> None:
     assert remote_settings({"remote": {"enabled": True, "host": HOST, "port": 80}}) == (HOST, 47821)
 
 
-def test_the_shipped_config_keeps_phone_access_off() -> None:
+def test_the_config_names_a_valid_phone_host_or_keeps_phone_access_off() -> None:
     import yaml
     from pathlib import Path
 
     config = yaml.safe_load((Path(__file__).resolve().parent.parent / "config.yaml").read_text(encoding="utf-8"))
     remote = config["web_ui"]["remote"]
-    assert remote["enabled"] is False and remote["port"] == 47821 and remote_settings(config["web_ui"]) is None
+    assert remote["port"] == 47821
+    if remote["enabled"]:  # this PC's own Tailscale name: it must pass the host check, or phone access stays off
+        assert remote_settings(config["web_ui"]) == (remote["host"], 47821)
+    else:
+        assert remote_settings(config["web_ui"]) is None
 
 
 # ---------------------------------------------------------------- Host, Origin, CSP

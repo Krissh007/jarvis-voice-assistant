@@ -118,8 +118,8 @@ web_ui:                         # used when features.web_ui is true: the orb and
   chat_width: 1100              # the chat page's window ("New chat"), first time; then it remembers
   chat_height: 760
   remote:                       # the phone app (iPhone) from anywhere, through Tailscale: see docs/mobile.md
-    enabled: false              # on = the server uses the fixed port below and accepts the host below
-    host: ""                    # this PC's Tailscale name with MagicDNS + HTTPS on, e.g. mypc.tail1234.ts.net
+    enabled: true               # on = the server uses the fixed port below and accepts the host below
+    host: jarvis.tail2b2cba.ts.net  # this PC's Tailscale name with MagicDNS + HTTPS on (e.g. mypc.tail1234.ts.net)
     port: 47821                 # still 127.0.0.1 only; `tailscale serve` forwards HTTPS to it. Phones pair in
                                 # Settings > Phone; their tokens are kept hashed in data/devices.json
 

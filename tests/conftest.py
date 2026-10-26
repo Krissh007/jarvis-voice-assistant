@@ -40,3 +40,20 @@ def _no_logging_into_real_memory(monkeypatch):
         real_attach(self, bus)
 
     monkeypatch.setattr(conversation_log.ConversationLog, "attach", attach)
+
+
+@pytest.fixture(autouse=True)
+def _not_on_the_phone_port(monkeypatch):
+    """An Assistant built from config.yaml would take this PC's fixed phone port (web_ui.remote), which the
+    real JARVIS needs for `tailscale serve`. In tests that exact setting is off; a test's own remote works."""
+    import main
+    from ui import server
+
+    shipped = server.remote_settings((main.load_config().get("web_ui") or {}))
+    real = server.remote_settings
+
+    def remote(web_ui):
+        found = real(web_ui)
+        return None if shipped is not None and found == shipped else found
+
+    monkeypatch.setattr(server, "remote_settings", remote)
