@@ -161,6 +161,11 @@ code { font: 12.5px var(--mono); color: var(--text); }
 .strip-row.sub { padding-left: 16px; }
 .strip-big { font-size: 26px; font-weight: 600; line-height: 1.2; }
 .small-btn { margin-top: 10px; padding: 4px 10px; font-size: 12.5px; }
+.hub-control { margin-top: 8px; }
+.hub-buttons { display: flex; gap: 6px; flex-wrap: wrap; }
+.hub-note { margin: 6px 0 0; }
+.hub-lines { margin: 6px 0 0; padding: 6px 8px; max-height: 140px; overflow: auto; border-radius: var(--radius-sm);
+  background: var(--bg); border: 1px solid var(--line); font: 11.5px var(--mono); color: var(--dim); white-space: pre-wrap; }
 .timeline-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
 .timeline-head h2 { margin: 0; flex: 1; }
 .filters { display: flex; gap: 4px; }

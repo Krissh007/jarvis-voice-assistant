@@ -17,6 +17,10 @@ Safety design (deliberately stricter than "expose the Hub's tools to the model")
 Results arrive through a poller that calls the Hub's get_updates. They are only spoken when JARVIS is
 awake and idle; while it is asleep or busy they are held (and saved to disk), with one toast.
 
+When the Hub isn't running and the user asks for something that needs it (a request, its status, a Hub
+tool), JARVIS starts it with the Hub's own start script (core/hub_launcher.py, agent_hub.auto_start) and
+tries once more. The background poller never starts it: a Hub the user stopped stays stopped until asked.
+
 The poller also sends JARVIS's own skills (core/catalog.py) to the Hub's tool registry (sync_tools)
 once the Hub answers, and again whenever the Hub comes back after being unreachable. Only names,
 descriptions, categories and parameter schemas go: never memory, settings or keys.
@@ -44,8 +48,8 @@ log = logging.getLogger(__name__)
 
 DEFAULT_URL = "http://127.0.0.1:8765/mcp"
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
-START_HINT = ("The Agent Hub isn't running. Start it with the run hub script in the Agent Hub folder, "
-              "then ask me again.")
+START_HINT = ("The Agent Hub isn't running. Start it from the Command centre (or the run hub script in the "
+              "Agent Hub folder), then ask me again.")
 TOKEN_HINT = "The Agent Hub token isn't set. Add AGENT_HUB_TOKEN to JARVIS's .env file."
 REJECTED_HINT = ("The Agent Hub turned JARVIS away. Check that AGENT_HUB_TOKEN in JARVIS's .env file "
                  "matches HUB_TOKEN in the Hub's.")
@@ -95,7 +99,7 @@ class HubClient:
     single asyncio task (MCP's task groups require that) and needs no reconnect logic. `target` is the
     Hub's URL, or an in-process MCPServer in tests."""
 
-    def __init__(self, target: Any, token: str | None, timeout_s: float = 8.0) -> None:
+    def __init__(self, target: Any, token: str | None, timeout_s: float = 8.0, launcher: Any = None) -> None:
         if isinstance(target, str):
             host = urlparse(target).hostname or ""
             if host not in LOOPBACK_HOSTS:
@@ -103,6 +107,7 @@ class HubClient:
         self.target = target
         self.token = token
         self.timeout_s = timeout_s
+        self.launcher = launcher  # core.hub_launcher.HubLauncher: starts the Hub for calls the user asked for
 
     @asynccontextmanager
     async def _open(self):
@@ -119,7 +124,22 @@ class HubClient:
             async with Client(self.target) as client:
                 yield client
 
-    async def _call(self, tool: str, args: dict[str, Any]) -> Any:
+    async def _call(self, tool: str, args: dict[str, Any], start: bool = False) -> Any:
+        """One call. `start`: the user asked for this, so if the Hub isn't running, start it and try again."""
+        try:
+            return await self._call_once(tool, args)
+        except ToolError as exc:
+            if not start or self.launcher is None or str(exc) != START_HINT:
+                raise
+            started = await self.launcher.ensure_started()
+            if started is None:
+                raise
+            if not started.get("ok"):
+                raise ToolError(f"The Agent Hub wasn't running, and starting it didn't work ({started.get('message')}). "
+                                "Check the Command centre.") from None
+            return await self._call_once(tool, args)
+
+    async def _call_once(self, tool: str, args: dict[str, Any]) -> Any:
         if isinstance(self.target, str) and not self.token:
             raise ToolError(TOKEN_HINT)
         try:
@@ -135,13 +155,13 @@ class HubClient:
             raise ToolError(_explain(exc)) from None
 
     async def submit(self, text: str) -> dict:
-        return await self._call("submit_request", {"text": text})
+        return await self._call("submit_request", {"text": text}, start=True)
 
     async def confirm(self, request_id: str, approved: bool) -> dict:
         return await self._call("confirm", {"request_id": request_id, "approved": approved})
 
     async def status(self, request_id: str) -> dict:
-        return await self._call("get_status", {"request_id": request_id})
+        return await self._call("get_status", {"request_id": request_id}, start=True)
 
     async def updates(self) -> list[dict]:
         return list(await self._call("get_updates", {}))
@@ -164,7 +184,7 @@ class HubClient:
 
     async def call_tool(self, tool_id: str, args: dict, confirmed: bool = False) -> dict:
         """Run one Hub tool (actions/brain.py). confirmed=True only after the user's own yes."""
-        return await self._call("call_tool", {"tool_id": tool_id, "args": args, "confirmed": confirmed})
+        return await self._call("call_tool", {"tool_id": tool_id, "args": args, "confirmed": confirmed}, start=True)
 
 
 # ---------------------------------------------------------------- the bridge
@@ -388,9 +408,15 @@ def _warm_up() -> None:
 
 
 def register(registry: Registry, config: dict, services) -> None:
+    from core.hub_launcher import HubLauncher, script_from
+
     settings = config.get("agent_hub") or {}
+    launcher = HubLauncher(script_from(config),
+                           status=lambda text: services.bus.publish("status", text=text) if services.bus else None)
+    services.hub_launcher = launcher  # the Command centre's Start / Stop
     client = HubClient(str(settings.get("url") or DEFAULT_URL), env_key("AGENT_HUB_TOKEN"),
-                       float(settings.get("request_timeout_s") or 8))
+                       float(settings.get("request_timeout_s") or 8),
+                       launcher=launcher if settings.get("auto_start", True) else None)
     bridge = HubBridge(client, services, float(settings.get("poll_s") or 5),
                        services.data_dir / "agent_hub_held.json", toast=_toast, registry=registry)
     services.hub = client  # the tool registry's lookups, for core/router.py

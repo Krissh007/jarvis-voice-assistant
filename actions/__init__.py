@@ -51,6 +51,7 @@ class Services:
     reminders: Any = None  # actions.reminders.Reminders, started by the runtime
     ducker: Any = None  # core.ducking.Ducker: music-only volume and ducking while JARVIS is awake
     hub: Any = None  # actions.agent_hub.HubClient: the Agent Hub, incl. its tool registry (find_tools)
+    hub_launcher: Any = None  # core.hub_launcher.HubLauncher: starts / stops the Hub with its own script
     brain: Any = None  # actions.brain.Brain: the reasoning layer behind ask_brain
     bus: Any = None  # core.bus.EventBus: publish progress (e.g. plan steps) for every view; set by the runtime
     on_start: list = field(default_factory=list)  # called once when JARVIS starts (not in tests), e.g. warm-ups

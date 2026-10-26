@@ -199,7 +199,11 @@ sections; the button under them shows Chat and the Command centre side by side.
   blacked out first), set **Web** to auto (JARVIS decides), on or off for the next message, talk, stop.
 - **Command centre**: whether the voice session, the Agent Hub and each of its agents are working,
   which model does what, and a live list of everything JARVIS does, newest first (green done, amber
-  running or waiting for you, red failed), with Approve / Cancel on anything waiting.
+  running or waiting for you, red failed), with Approve / Cancel on anything waiting. **Start Agent Hub**
+  starts JobPilot, its MCP server and the Hub in the background (it can take a minute; what the start
+  script said shows underneath), **Stop** stops what it started, and **JobPilot dashboard** opens the
+  dashboard in your browser (starting it first if needed). You don't have to start the Hub yourself:
+  asking JARVIS for something that needs it ("run discovery", "what's on my shortlist?") starts it.
 - **Memory**: the facts JARVIS remembers (Forget asks once more) and past conversations, kept for 30
   days. Say "don't remember this conversation" to stop keeping the current one, or "forget today's
   conversation".

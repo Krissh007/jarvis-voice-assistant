@@ -40,7 +40,7 @@ STATIC = Path(__file__).resolve().parent / "static"
 for _type, _ext in (("text/javascript", ".js"), ("text/css", ".css"), ("text/html", ".html")):
     mimetypes.add_type(_type, _ext)
 ACTIONS = {"talk", "sleep", "mute", "stop", "confirm", "cancel", "new_chat", "open_chat", "announce", "voice",
-           "open_app", "open_settings", "open_command", "open_brain", "keep_memory"}
+           "open_app", "open_settings", "open_command", "open_brain", "keep_memory", "open_jobpilot"}
 REQUESTS = {"settings", "facts", "conversations", "conversation"}  # read-only, answered to the asking page only
 MAX_MESSAGE_BYTES = 8000  # one WebSocket message from the page (chat is limited to 2000 characters)
 LEVEL_FPS = 15  # orb updates
@@ -69,6 +69,7 @@ class Bridge(Protocol):
     async def brain(self) -> dict: ...  # the Brain view's graph (core/brain_graph.py)
     def save_brain_layout(self, positions: Any, fresh: bool = True) -> bool: ...  # where the Brain view's nodes sit
     async def show_file(self, node_id: Any) -> dict: ...  # the Brain inspector's Show in folder
+    async def hub_control(self, action: Any) -> dict: ...  # the Command centre's Agent Hub Start / Stop
     attachments: Any  # core.attachments.AttachmentStore: uploaded pictures until their message is sent
     def change_setting(self, key: str, value: Any) -> dict: ...  # one change from the Settings page
     def forget_fact(self, fact_id: Any) -> dict: ...  # the Memory settings' Forget button
@@ -242,6 +243,10 @@ def _handle(bridge: Bridge, text: str) -> dict[str, Any] | None:
         async def brain_reply() -> dict[str, Any]:  # reads the database and the audit log off the loop
             return {"kind": "reply", "id": rid, "what": "brain", "data": await bridge.brain()}
         return brain_reply()
+    elif kind == "hub_control" and msg.get("action") in ("start", "stop"):
+        async def hub_reply() -> dict[str, Any]:  # the Hub's script takes up to a few minutes
+            return {"kind": "reply", "id": rid, "what": "hub_control", "data": await bridge.hub_control(msg["action"])}
+        return hub_reply()
     elif kind == "show_file" and isinstance(msg.get("node"), str):
         async def show_reply() -> dict[str, Any]:  # Explorer takes a moment
             return {"kind": "reply", "id": rid, "what": "show_file", "data": await bridge.show_file(msg["node"])}

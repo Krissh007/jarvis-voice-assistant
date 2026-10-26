@@ -343,7 +343,10 @@ receives can confirm an action.
     message (off refuses the web tools for it: `Dispatcher.turn_blocked`).
   - **Command centre**: a status strip (`WebBridge.status`: voice session; the Agent Hub, its planner
     and each agent from the Hub's `agent_status`; which model does what; the last route; tools loaded
-    here vs in the Hub's registry) and a live timeline of tools, confirmations, agent results
+    here vs in the Hub's registry), Start / Stop for the Hub (`hub_control` → `core/hub_launcher.py`, which
+    runs only `agent_hub.start_script`, one run at a time, output lines filtered for secrets; the same
+    launcher starts the Hub when `submit`, `get_status` or `call_tool` find it down, never for the poller),
+    a JobPilot dashboard button (`open_jobpilot`: loopback URLs only, starts the services first if needed) and a live timeline of tools, confirmations, agent results
     (`agent_update`) and routing decisions (`route`, from `ask_brain`, never the request's text).
   - **Memory**: remembered facts (Forget asks once more) and kept conversations (memory step 4).
   - **Settings**: see docs/configuration.md; changes are checked by `core/settings_store.py`.

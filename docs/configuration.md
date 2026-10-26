@@ -187,6 +187,9 @@ each; they change the orb live, and your choices are kept in `data/orb_look.json
 | `agent_hub.url` | `http://127.0.0.1:8765/mcp` | The Agent Hub's MCP address (this computer only). The bearer token is `AGENT_HUB_TOKEN` in `.env` and must equal the Hub's `HUB_TOKEN` |
 | `agent_hub.poll_s` | `5` | How often JARVIS looks for finished results |
 | `agent_hub.request_timeout_s` | `8` | Per call to the Hub |
+| `agent_hub.start_script` | `E:/agent-hub/scripts/start_all.ps1` | The Hub's start script: the Command centre's Start / Stop run it (Stop with `-Stop`, which stops only what it started); `""` hides the buttons |
+| `agent_hub.auto_start` | `true` | A request that needs the Hub (a job-search request, its status, a Hub tool) starts it with that script when it isn't running, then tries once more. The background poller never starts it. After a failed start, JARVIS waits 2 minutes before starting it on its own again |
+| `agent_hub.dashboard_url` | `http://127.0.0.1:8000` | JobPilot's dashboard, opened by the Command centre's button (this computer only); started first if it doesn't answer |
 
 ### Features
 

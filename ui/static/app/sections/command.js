@@ -1,6 +1,7 @@
 // Command centre: a strip with the state of everything JARVIS depends on (voice session, Agent Hub and
-// its agents, which model does what, the latest routing decision, tools loaded), and a live timeline of
-// what JARVIS did, newest first, with Approve / Cancel on anything waiting for you.
+// its agents, which model does what, the latest routing decision, tools loaded), Start / Stop for the
+// Agent Hub and its job-search services, and a live timeline of what JARVIS did, newest first, with
+// Approve / Cancel on anything waiting for you.
 "use strict";
 
 import { useEffect, useState } from "/static/vendor/preact/hooks.module.js";
@@ -24,6 +25,36 @@ function tidy(name) { return String(name || "").replace(/_/g, " "); }
 
 function Card({ icon, title, children }) {
   return html`<div class="strip-card"><div class="strip-title"><${Icon} name=${icon} size=${14} /> ${title}</div>${children}</div>`;
+}
+
+// Start / Stop for the Agent Hub: JARVIS runs the Hub's own start script (JobPilot, its MCP server and the
+// Hub), or the same script with -Stop. Starting waits for each service, so it can take a minute.
+function HubButtons({ hub, reload }) {
+  const [busy, setBusy] = useState(null);       // "start" | "stop" while this page asked
+  const [result, setResult] = useState(null);   // {ok, message, lines}
+  const running = busy || hub.controlling;      // or JARVIS is starting it for a request
+  async function run(action) {
+    setBusy(action);
+    setResult(null);
+    const d = await ask({ type: "hub_control", action }, 330000);
+    setBusy(null);
+    setResult(d || { ok: false, message: "Not connected to JARVIS.", lines: [] });
+    reload();
+  }
+  return html`<div class="hub-control">
+    <div class="hub-buttons">
+      <button class="btn small-btn primary" disabled=${!!running || hub.reachable} onClick=${() => run("start")}
+        title="Start JobPilot, its MCP server and the Agent Hub, in the background">
+        <${Icon} name=${running === "start" ? "loader" : "plug"} size=${13} /> ${running === "start" ? "Starting…" : "Start Agent Hub"}</button>
+      <button class="btn small-btn danger" disabled=${!!running || hub.reachable === false} onClick=${() => run("stop")}
+        title="Stop what the Agent Hub's start script started">
+        <${Icon} name=${running === "stop" ? "loader" : "square"} size=${13} /> ${running === "stop" ? "Stopping…" : "Stop"}</button>
+    </div>
+    ${running === "start" && html`<p class="faint small hub-note" role="status">Starting each service in turn: this can take a minute.</p>`}
+    ${result && html`<p class=${"small hub-note " + (result.ok ? "ok-text" : "bad-text")} role="status">${result.message}</p>`}
+    ${result && result.lines && result.lines.length > 0 && html`<div class="hub-lines" aria-label="What the script said">
+      ${result.lines.map((line, i) => html`<div key=${i}>${line}</div>`)}</div>`}
+  </div>`;
 }
 
 function Strip({ compact }) {
@@ -55,6 +86,10 @@ function Strip({ compact }) {
       ${agents.map((a) => html`<div class="strip-row sub" key=${a.name} title=${a.description}>
         <span class=${"dot " + (a.reachable ? "ok" : a.optional ? "" : "bad")}></span>${a.name}
         <span class="faint small">${a.reachable ? `${a.tools} tools` : a.optional ? "not set up" : a.error || "not reachable"}</span></div>`)}
+      ${hub.control && html`<${HubButtons} hub=${hub} reload=${load} />`}
+      ${hub.enabled && html`<button class="btn small-btn" onClick=${() => control("open_jobpilot")}
+        title="Open JobPilot's dashboard in your browser (starts it first if it isn't running)">
+        <${Icon} name="layout-dashboard" size=${13} /> JobPilot dashboard</button>`}
     </${Card}>
     <${Card} icon="cpu" title="Models">
       <div class="strip-row"><${Icon} name="mic" size=${13} />Voice<span class="mono small">${st.models.voice || "—"}</span></div>

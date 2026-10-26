@@ -241,6 +241,7 @@ class WebBridge:
         "open_settings": ("Settings", lambda a: a.open_app("settings")),
         "open_brain": ("Brain", lambda a: a.open_app("brain")),
         "keep_memory": ("Memory", lambda a: a.toggle_keep()),
+        "open_jobpilot": ("JobPilot dashboard", lambda a: a.open_jobpilot()),
     }
 
     def __init__(self, assistant: Assistant, look_path: Path | None = None) -> None:
@@ -385,7 +386,8 @@ class WebBridge:
         models = a.config.get("models") or {}
         groq = (a.config.get("groq") or {}).get("models") or []
         tools = sorted(t.name for t in a.registry.visible())
-        hub_info: dict = {"enabled": bool(a.config["features"].get("agent_hub")), "reachable": a.services.hub_reachable}
+        hub_info: dict = {"enabled": bool(a.config["features"].get("agent_hub")), "reachable": a.services.hub_reachable,
+                          "control": self._launcher().available, "controlling": self._launcher().running}
         if hub_info["enabled"] and a.services.hub is not None:
             try:
                 report = await asyncio.wait_for(a.services.hub.agent_status(), 6)
@@ -407,6 +409,23 @@ class WebBridge:
             "route": self.last_route,
             "tools": {"loaded": len(tools), "names": tools},
         }
+
+    def _launcher(self):
+        """The Agent Hub's launcher (core/hub_launcher.py): the Hub's own module makes it; without the Hub
+        module (features.agent_hub off) one is made here from config, so the buttons still work."""
+        from core.hub_launcher import HubLauncher, script_from
+
+        a = self._a
+        if a.services.hub_launcher is None:
+            a.services.hub_launcher = HubLauncher(script_from(a.config),
+                                                  status=lambda text: self.bus.publish("status", text=text))
+        return a.services.hub_launcher
+
+    async def hub_control(self, action) -> dict:
+        """The Command centre's Start / Stop for the Agent Hub (JobPilot, its MCP server and the Hub). The page
+        says only "start" or "stop"; what runs is the script in agent_hub.start_script."""
+        log.info("web: Agent Hub %s clicked", action if action in ("start", "stop") else "?")
+        return await self._launcher().run(action)
 
     def snapshot(self) -> dict:
         a = self._a
@@ -1546,6 +1565,44 @@ class Assistant:
         """The app window was closed: the orb comes back if JARVIS hid it for the app."""
         if self._orb_hidden_for_app and not self.orb_visible:
             self.toggle_orb(True)
+
+    def open_jobpilot(self) -> None:
+        """The Command centre's JobPilot dashboard button: the dashboard in the default browser. If it doesn't
+        answer, the Agent Hub's services (JobPilot among them) are started first."""
+        asyncio.ensure_future(self._open_jobpilot())
+
+    async def _open_jobpilot(self) -> None:
+        import urllib.error
+        import urllib.request
+        import webbrowser
+        from urllib.parse import urlsplit
+
+        url = str((self.config.get("agent_hub") or {}).get("dashboard_url") or "http://127.0.0.1:8000")
+        parts = urlsplit(url)
+        if parts.scheme not in ("http", "https") or parts.hostname not in ("127.0.0.1", "localhost", "::1"):
+            self._status("(the JobPilot dashboard must be on this computer: check agent_hub.dashboard_url)")
+            return
+
+        def answers() -> bool:
+            try:
+                with urllib.request.urlopen(url, timeout=2):
+                    return True
+            except urllib.error.HTTPError:
+                return True   # it answered, with an error page: still running
+            except (urllib.error.URLError, OSError, ValueError):
+                return False
+
+        if not await asyncio.to_thread(answers):
+            launcher = self.services.hub_launcher
+            if launcher is None or not launcher.available:
+                self._status("(JobPilot isn't running: start it, then try again)")
+                return
+            started = await launcher.run("start")
+            if not started.get("ok"):
+                self._status(f"(JobPilot couldn't be started: {started.get('message')})")
+                return
+        log.info("opening the JobPilot dashboard")
+        await asyncio.to_thread(webbrowser.open, url)
 
     def toggle_keep(self) -> None:
         """The Brain's Memory switch: stop keeping this conversation (as "don't remember this" does), or keep

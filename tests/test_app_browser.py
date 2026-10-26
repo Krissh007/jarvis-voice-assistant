@@ -34,6 +34,8 @@ class BrowserBridge:
         self.brain_requests = 0
         self.layouts: list[tuple[dict, bool]] = []
         self.forgotten: list = []
+        self.hub_up = True
+        self.hub_actions: list = []
         self.shown: list = []
         self.read: list = []
 
@@ -102,8 +104,16 @@ class BrowserBridge:
         self.layouts.append((positions, fresh))
         return True
 
+    async def hub_control(self, action) -> dict:
+        self.hub_actions.append(action)
+        await asyncio.sleep(0.2)
+        self.hub_up = action == "start"
+        return {"ok": True, "message": "The Agent Hub is running." if self.hub_up else "Stopped what the Agent Hub's script had started.",
+                "lines": ["[ ok ] jobpilot-api: http://127.0.0.1:8000", "[ ok ] agent-hub"] if self.hub_up else []}
+
     async def status(self) -> dict:
-        return {"voice_session": True, "hub": {"enabled": True, "reachable": True, "planner": True, "registry_tools": 60,
+        return {"voice_session": True, "hub": {"enabled": True, "reachable": self.hub_up, "planner": True, "registry_tools": 60,
+                "control": True, "controlling": None,
                 "agents": [{"name": "jobpilot", "reachable": True, "tools": 7, "optional": False, "description": "jobs"}]},
                 "models": {"voice": "gemini-3.8-live", "text": "gemini-3.8-flash", "reasoning": "openai/gpt-oss-120b",
                            "reasoning_fallback": "gemini-3.8-flash"},
@@ -211,7 +221,7 @@ async def test_a_plan_card_approves_with_the_confirm_control(served, page) -> No
 async def test_the_command_centre_shows_status_and_failures(served, page) -> None:
     bridge, url = served
     await page.goto(url + "&s=command")
-    await page.get_by_text("jobpilot").wait_for()                # from the status request
+    await page.get_by_text("jobpilot7 tools").wait_for()         # from the status request
     await page.get_by_text("gemini-3.8-live").wait_for()
     bridge.bus.publish("tool_started", channel="voice", tool="read_page", args={"url": "https://example.com"}, step=False)
     bridge.bus.publish("tool_finished", channel="voice", tool="read_page", step=False, paused=False, ok=False,
@@ -220,3 +230,25 @@ async def test_the_command_centre_shows_status_and_failures(served, page) -> Non
     assert await page.locator(".entry.failed").count() == 1
     await page.get_by_role("button", name="Failed").click()
     assert await page.locator(".entry").count() == 1
+
+
+async def test_the_command_centre_starts_and_stops_the_agent_hub(served, page) -> None:
+    bridge, url = served
+    bridge.hub_up = False
+    await page.goto(url + "&s=command")
+    start = page.get_by_role("button", name="Start Agent Hub")
+    stop = page.get_by_role("button", name="Stop", exact=True)
+    await start.wait_for()
+    assert await stop.is_disabled()                                     # nothing to stop yet
+    await start.click()
+    await page.get_by_text("Starting each service in turn").wait_for()
+    await page.get_by_text("The Agent Hub is running.").wait_for()
+    await page.get_by_text("[ ok ] agent-hub").wait_for()               # what the script said
+    assert bridge.hub_actions == ["start"]
+    assert await until(lambda: True) and await start.is_disabled()      # running now: Start is greyed out
+    await stop.click()
+    await page.get_by_text("Stopped what the Agent Hub's script had started.").wait_for()
+    assert bridge.hub_actions == ["start", "stop"]
+    await page.get_by_role("button", name="JobPilot dashboard").click()
+    assert await until(lambda: "open_jobpilot" in bridge.controls)
+
