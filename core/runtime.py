@@ -2232,7 +2232,7 @@ class Assistant:
         if not self.heal_cfg.get("enabled", True) or result.get("status") in {"awaiting_confirmation", "waiting"}:
             return result
         tool = self.registry.get(name)
-        ok = result.get("status") not in {"refused", "error"} and not self.dispatcher.last_failed
+        ok = result.get("status") not in {"refused", "error", "failed"} and not self.dispatcher.last_failed
         text = str(result.get("result") or result.get("message") or "")
         self.issues.tool_result(name, args, ok, text, trusted=not (tool and tool.untrusted_output))
         if hint := self.issues.hint(name):

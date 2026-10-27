@@ -218,6 +218,24 @@ def test_show_on_screen_caps_and_refuses_empty() -> None:
         screen.Screen(Services()).show_on_screen("No window", ["a"])
 
 
+def test_clear_screen_takes_shown_things_off_the_orb() -> None:
+    """Seen live 28 Oct: "remove the prompt" had no tool, so the prompt stayed until JARVIS slept."""
+    from core.bus import EventBus
+    from core.prompts import PERSONA
+    from core.registry import ToolError
+    from ui.server import STREAM_KINDS
+
+    bus = EventBus()
+    seen = []
+    bus.subscribe(seen.append)
+    assert "chat still has it" in screen.Screen(Services(bus=bus)).clear_screen()
+    assert seen[-1].kind == "screen_clear" and "screen_clear" in STREAM_KINDS   # it reaches the orb's page
+    with pytest.raises(ToolError, match="clear_screen"):
+        screen.Screen(Services(bus=bus)).show_on_screen("", [], "")             # the wrong way says the right one
+    assert "call clear_screen" in PERSONA and 'status "failed" means nothing was done' in PERSONA
+    assert "never make up a reason" in PERSONA
+
+
 def test_prompt_sends_lists_to_the_screen_and_asks_before_guessing() -> None:
     from core.prompts import PERSONA
     assert "show_on_screen" in PERSONA and "Did you mean Claude?" in PERSONA

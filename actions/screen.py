@@ -167,7 +167,7 @@ class Screen:
         items = [" ".join(str(i).split())[:MAX_SHOW_ITEM] for i in (items or []) if str(i).strip()][:MAX_SHOW_ITEMS]
         text = str(text or "").strip()[:MAX_SHOW_TEXT]
         if not items and not text:
-            raise ToolError("There was nothing to show.")
+            raise ToolError("There was nothing to show. To take things off the screen, use clear_screen.")
         bus = getattr(self.services, "bus", None)
         if bus is None:
             raise ToolError("My window isn't open, so I can't show it on screen.")
@@ -175,6 +175,14 @@ class Screen:
         shown = f"{len(items)} item{'s' if len(items) != 1 else ''}" if items else "the text"
         return (f"Shown on screen: {title} ({shown}). Tell the user in a few words that it's on their screen; "
                 "don't read it out.")
+
+    def clear_screen(self) -> str:
+        """Take the pictures and lists JARVIS put next to the orb off the screen. Tier SAFE: display only."""
+        bus = getattr(self.services, "bus", None)
+        if bus is None:
+            raise ToolError("My window isn't open, so there's nothing on the screen to clear.")
+        bus.publish("screen_clear")
+        return "Cleared what you had shown next to the orb (the app's chat still has it)."
 
     async def active_window(self) -> str:
         """Title of the window in front. Rung 2 (Win32). Tier SAFE, read-only; output untrusted."""
@@ -215,6 +223,16 @@ def register(registry: Registry, config: dict, services) -> None:
             "items": {"type": "array", "items": {"type": "string"}},
             "text": {"type": "string"},
         }},
+    ))
+    registry.register(Tool(
+        name="clear_screen",
+        description=("Take what you showed next to the orb (lists, prompts, the picture of the screen you looked "
+                     "at) off the screen, when the user asks to remove, close or clear them. They go away by "
+                     "themselves after a while too."),
+        func=screen.clear_screen,
+        tier=Tier.SAFE,
+        read_only=True,
+        rung=1,
     ))
     registry.register(Tool(
         name="active_window",

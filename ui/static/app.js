@@ -31,6 +31,12 @@ const $ = (id) => document.getElementById(id);
 
 const MAX_SECTIONS = 4;
 const LIST_HOLD_MS = 45000;   // the voice view stays this long when JARVIS put a list on screen
+// How long a picture or a list stays next to the orb, counted from when it was shown, however much you
+// keep talking (seen live 28 Oct: the screen JARVIS looked at and two prompts stayed up for twenty
+// minutes of conversation, until JARVIS went to sleep). Each has a close button too, and "clear the
+// screen" (clear_screen) removes them at once. The app's chat keeps them.
+const CARD_HOLD_MS = { image: 15000, list: LIST_HOLD_MS };
+const cardTimers = {};
 const ACT = { starting: 0, asleep: 0, listening: 0.55, thinking: 0.8, speaking: 1, working: 0.75, muted: 0.15 };
 const STATE_WORDS = { starting: "starting", asleep: "idle", listening: "listening", thinking: "thinking",
   speaking: "speaking", working: "working on a task", muted: "microphone muted" };
@@ -156,6 +162,7 @@ function handle(ev) {
     case "confirm_requested": return confirmRequested(ev);
     case "confirm_resolved": return confirmResolved(ev);
     case "media": return media(ev);
+    case "screen_clear": return clearShown();
     case "conversation": return clearSections();
     case "announce": return setAnnounce(ev.on);
     case "voice": return setSpeak(ev.on);
@@ -281,6 +288,7 @@ function section(key, title, cls) {
 }
 
 function removeSection(key) {
+  clearTimeout(cardTimers[key]);
   const el = sections.get(key);
   if (!el) return;
   sections.delete(key);
@@ -289,6 +297,7 @@ function removeSection(key) {
 }
 
 function clearSections(now) {
+  for (const key of Object.keys(cardTimers)) clearTimeout(cardTimers[key]);
   for (const key of [...sections.keys()]) {
     if (now) { sections.get(key).remove(); sections.delete(key); } else removeSection(key);
   }
@@ -376,6 +385,25 @@ function media(ev) {                   // a picture a tool showed (e.g. the scre
   card.append(img);
   if (ev.caption) { const p = document.createElement("p"); p.className = "dim"; p.textContent = ev.caption; card.append(p); }
   img.onload = sendShape;
+  closable(card, "image");
+}
+
+// A picture or list next to the orb: a close button, and gone by itself after CARD_HOLD_MS.
+function closable(card, key) {
+  const x = document.createElement("button");
+  x.type = "button"; x.className = "card-close"; x.textContent = "×";
+  x.title = "Close"; x.setAttribute("aria-label", "Close " + (card.firstChild.textContent || "this"));
+  x.addEventListener("click", () => removeSection(key));
+  card.append(x);
+  clearTimeout(cardTimers[key]);
+  cardTimers[key] = setTimeout(() => removeSection(key), CARD_HOLD_MS[key]);
+}
+
+// "Clear the screen": the pictures and lists go; the answer and anything waiting for your yes stay.
+function clearShown() {
+  removeSection("image");
+  removeSection("list");
+  captionSoon();
 }
 
 function shownText(ev) {               // a list or text JARVIS put on screen instead of reading it aloud
@@ -389,6 +417,7 @@ function shownText(ev) {               // a list or text JARVIS put on screen in
     card.append(ol);
   }
   if (ev.text) { const p = document.createElement("p"); p.className = "text"; p.textContent = String(ev.text); card.append(p); }
+  closable(card, "list");
   captionSoon();
   sendShapeSoon();
 }

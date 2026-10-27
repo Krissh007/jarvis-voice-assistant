@@ -365,7 +365,7 @@ async def test_failing_tool_returns_a_speakable_error(tmp_path) -> None:
     h = fl.SafetyHarness(tmp_path, extra_tools=[Tool(name="test_boom", description="x", func=boom,
                                                      tier=Tier.SAFE, read_only=True)])
     resp = await h.model_calls("test_boom")
-    assert resp["status"] == "ok" and "didn't work" in resp["result"]
+    assert resp["status"] == "failed" and "didn't work" in resp["result"]
 
 
 # ---------------------------------------------------------------- session plumbing

@@ -182,6 +182,10 @@ the clipboard, running a plan, forgetting a memory) is read to you first:
 - It never disappears when the app opens. While the app is full screen it sits in the dot at the top right of
   the app (the same orb, smaller); minimise or close the app and it floats again where you left it.
   While it's in the app, replies, pictures and lists show only in the app's chat, not around the orb.
+- Floating, what JARVIS puts on screen shows under the orb: the picture of your screen it looked at goes
+  after 15 seconds, a list or prompt after 45, however much you keep talking. Each has a **×** to close
+  it sooner, and "clear the screen" (or "remove the prompt") takes them all away. The app's chat keeps
+  them.
 - Its colour: blue listening (still when idle), violet thinking, amber working on a task, grey muted, and
   **red when something JARVIS needs isn't
   working**: the reason shows under it when you tap (the voice session not connected, or the Agent Hub

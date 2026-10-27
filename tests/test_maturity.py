@@ -11,6 +11,11 @@ from core.utterance import unfinished
     ("I'm very hungry. So", True), ("and the concept is", True), ("Okay, just write a prompt in Claude. Saying", True),
     ("which are like really irrelevant to", True), ("the", True), ("A", True), ("Ahm", True),
     ("I'm very hungry.", False), ("Open Notepad.", False), ("Yes.", False), ("browser task", False), ("", False),
+    # seen live 28 Oct: complete sentences that end on "that", "so", "this" or a number were held back
+    ("Okay, give me a prompt for that.", False), ("I think so.", False), ("Stop repeating this.", False),
+    ("Yeah, can I convert that 3D graph? Into something cooler than that?", False), ("I would say 60 to 70%", False),
+    ("It's still being displayed and", True), ('He said "go to the."', False), ("and then the...", True),
+    ("so…", True),
 ])
 def test_unfinished_sentences(text, still_talking) -> None:
     assert unfinished(text) is still_talking

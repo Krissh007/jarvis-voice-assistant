@@ -64,6 +64,15 @@ async def test_tool_finished_says_whether_it_worked(tmp_path) -> None:
     assert [(f["tool"], f["ok"]) for f in finished] == [("ok_tool", True), ("boom", False)]
 
 
+async def test_a_failed_tool_says_so_to_the_model(tmp_path) -> None:
+    """Seen live 28 Oct: a failed call came back as "ok" and JARVIS said it had done it."""
+    d, _ = make_dispatcher(tmp_path)
+    out = await d.handle_call("boom", {})
+    assert out["status"] == "failed" and out["result"] == "The site is down."
+    assert "nothing was done" in out["instruction"] and "never say" in out["instruction"]
+    assert (await d.handle_call("ok_tool", {}))["status"] == "ok"                 # the next one isn't marked
+
+
 async def test_web_search_off_refuses_the_web_tools_for_that_message(tmp_path) -> None:
     d, events = make_dispatcher(tmp_path)
     d.turn_blocked = {"search_web": "The user turned web search off for this message."}

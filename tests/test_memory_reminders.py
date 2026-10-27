@@ -104,7 +104,7 @@ async def test_remember_in_a_tainted_turn_needs_confirmation(h, tmp_path) -> Non
 async def test_secrets_are_never_remembered(h, tmp_path, fact) -> None:
     await h.dispatcher.on_user_input(f"remember {fact}", "text")
     resp = await h.model_calls("remember", fact=fact)
-    assert resp["status"] == "ok" and "won't store" in resp["result"]
+    assert resp["status"] == "failed" and "won't store" in resp["result"]   # refused: nothing was kept
     assert MemoryStore(tmp_path / "memory.sqlite").facts() == []
 
 

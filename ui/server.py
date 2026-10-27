@@ -59,7 +59,8 @@ HISTORY_KINDS = {"message", "tool_started", "tool_finished", "confirm_requested"
                  "sources", "memory_used", "agent_update", "route"}
 HISTORY_MAX = 150
 STREAM_KINDS = HISTORY_KINDS | {"partial", "state", "status", "focus", "media", "conversation", "announce", "voice", "activity",
-                                "look", "orb_visibility", "orb_dock", "brain_update", "memory_keep"}
+                                "look", "orb_visibility", "orb_dock", "brain_update", "memory_keep",
+                                "screen_clear"}
 DEVICE_PROTOCOL = "jarvis"  # a phone's WebSocket asks for this subprotocol, and sends its token as a second one:
 DEVICE_PREFIX = "jarvis-device."  # "jarvis-device.<token>" (a header, so the token is never in the URL)
 NOT_PAIRED = 4401  # the close code a phone gets when its token isn't valid (any more): it shows Pair again

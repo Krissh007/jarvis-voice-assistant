@@ -197,3 +197,32 @@ async def test_near_a_corner_the_menu_fans_out_into_the_screen(served, page) -> 
     for i, a in enumerate(centres):                                         # and none on top of another
         for c in centres[i + 1:]:
             assert ((a[0] - c[0]) ** 2 + (a[1] - c[1]) ** 2) ** 0.5 >= 56
+
+
+async def test_shown_cards_close_by_button_by_time_and_on_clear(served, page) -> None:  # noqa: F811
+    """Seen live 28 Oct: the screen JARVIS looked at and two prompts stayed next to the orb for twenty minutes
+    of conversation. Each card now has a close button and its own time limit, and clear_screen removes them;
+    an answer still being shown stays."""
+    bridge, _, _, _ = await open_orb(served, page)
+    b = bridge.bus
+    cards = page.locator("#sections .card.media")
+    b.publish("media", type="text", title="UI prompt", items=[], text="Move the channel name to the header.")
+    await page.get_by_role("button", name="Close UI prompt").click()
+    await cards.first.wait_for(state="detached")
+
+    await page.evaluate("CARD_HOLD_MS.image = 400")
+    b.publish("media", type="image", title="Looking at your screen", data="data:image/png;base64,iVBORw0KGgo=")
+    await cards.first.wait_for()
+    for _ in range(4):                                                     # talking doesn't keep it up
+        b.publish("message", channel="voice", role="user", label="Krishna", text="and another thing")
+        await page.wait_for_timeout(150)
+    await cards.first.wait_for(state="detached")
+
+    b.publish("message", channel="voice", role="jarvis", label="JARVIS", text="Here are the ideas.")
+    b.publish("media", type="text", title="Ideas", items=["One", "Two"], text="")
+    b.publish("media", type="image", title="Looking at your screen", data="data:image/png;base64,iVBORw0KGgo=")
+    await page.get_by_role("button", name="Close Ideas").wait_for()
+    b.publish("screen_clear")
+    await cards.nth(1).wait_for(state="detached")
+    await cards.first.wait_for(state="detached")
+    assert await page.locator("#sections .card .reply").inner_text() == "Here are the ideas."   # the answer stays

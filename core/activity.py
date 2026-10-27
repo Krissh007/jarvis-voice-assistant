@@ -47,8 +47,8 @@ TOOL_TEXT = {
     "run_plan": "Working through the plan…", "preview_voice": "Getting a voice sample…",
 }
 # Quick app-state tools: no status line (it would only flash).
-QUIET = {"get_datetime", "go_to_sleep", "set_voice_replies", "set_reply_voice", "show_on_screen", "media_key",
-         "set_volume", "set_music_volume", "start_task", "finish_task", "stop_task", "task_status",
+QUIET = {"get_datetime", "go_to_sleep", "set_voice_replies", "set_reply_voice", "show_on_screen", "clear_screen",
+         "media_key", "set_volume", "set_music_volume", "start_task", "finish_task", "stop_task", "task_status",
          "pause_conversation_log", "forget_conversation"}
 
 

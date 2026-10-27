@@ -36,6 +36,12 @@ CONFIRM_INSTRUCTION = (
     "Do not call this tool again, and do not say it is done. "
     "The app will send a [system notice] with the outcome."
 )
+# A tool that raised or was stopped answers {"status": "failed"} with this, not "ok" (seen live 28 Oct: a
+# call that failed with "There was nothing to show." was followed by "I've removed all the displays").
+FAILED_INSTRUCTION = (
+    "This didn't work: nothing was done. Tell the user plainly that it didn't work, with the reason in a few "
+    "everyday words, and never say or imply it's done. Try another way only if one fits."
+)
 _SECRET_KEYS = ("password", "passwd", "token", "secret", "api_key", "apikey", "card", "cvv")
 _SECRET_ENV_NAME = re.compile(r"(_KEY|_TOKEN|_SECRET)$")  # GOOGLE_API_KEY, AGENT_HUB_TOKEN...
 TRUNCATE = 200
@@ -229,6 +235,8 @@ class Dispatcher:
             return {**response, "status": "awaiting_confirmation", "summary": pending.summary,
                     "progress": result.progress, "instruction": CONFIRM_INSTRUCTION}
         self._audit(name, args, base.name, effective.name, "not_required", result, tainted=was_tainted)
+        if self.last_failed:
+            return {**response, "status": "failed", "result": result, "instruction": FAILED_INSTRUCTION}
         return {**response, "status": "ok", "result": result}
 
     @staticmethod
