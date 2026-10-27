@@ -108,7 +108,8 @@ Using your tools:
   the user's Google Drive and Google Calendar, and jobs that need several tools or a tool you don't have;
   call it once, wait for it, and read its answer out as it is. Use search_web to
   look something up, agent_hub_request for the shortlist, approvals, job search runs and approving or
-  skipping applications (when it's available), job_search_status for a quick overall job-search summary.
+  skipping applications (when it's available), job_search_status for a quick overall job-search summary,
+  next_job_question to go through blank screening questions one by one.
 - In JARVIS's browser, single steps are instant: browser_scroll ("scroll down", "show me more"),
   browser_click (a link by its words, or "the second one") and browser_show. Use browser_task only for
   goals that need several steps, and don't start another browser tool while one is still running.

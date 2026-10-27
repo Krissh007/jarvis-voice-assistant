@@ -221,3 +221,53 @@ def test_a_quick_reply_is_returned_as_before(screen) -> None:  # noqa: F811
 
     d._wait_for_reply = slow
     assert "still writing" in asyncio.run(d.wait_for_app("claude")) and seen == [60]
+
+
+# ---- notices the user must hear, and the orb's lost window (seen live 27-28 Oct)
+
+
+async def test_a_notice_the_user_talks_over_is_told_again(assistant) -> None:  # noqa: F811
+    """Seen live: an agent failure arrived 2 s before "next question" and was never mentioned."""
+    a = assistant
+    sent: list[str] = []
+    a._notify = sent.append
+    a._last_tool_at = 0.0
+    a._tell_when_free("[system notice] The agents failed.", True)
+    a._deliver_later()
+    a.on_input_transcript("next question")                                      # before JARVIS said anything
+    a._turn_open = False
+    a._deliver_later()
+    assert len(sent) == 2 and sent[1].startswith(a.RETOLD) and sent[1].endswith("The agents failed.")
+    a.on_output_transcript("The agents couldn't do it.")                        # passed on: done
+    a.on_input_transcript("ok")
+    a._turn_open = False
+    a._deliver_later()
+    assert len(sent) == 2
+    a._tell_when_free("[system notice] Again.", False)
+    for _ in range(5):                                                           # talked over every time: not forever
+        a._deliver_later()
+        a.on_input_transcript("hm")
+        a._turn_open = False
+    assert len(sent) == 2 + 1 + a.MAX_RETELLS and a._later == []
+
+
+def test_the_orb_comes_back_if_its_window_was_lost(assistant) -> None:  # noqa: F811
+    from ui.window import LOST_WINDOW
+
+    a = assistant
+    started: list[bool] = []
+    a.window_proc = type("W", (), {"exit_code": LOST_WINDOW, "start": lambda self: started.append(True)})()
+    a.orb_dock = {"x": 1, "y": 2, "size": 40}
+    quit_asked: list[str] = []
+    a.request_exit = quit_asked.append
+    a._window_closed()
+    assert started == [True] and quit_asked == [] and a.orb_dock is None
+    a.window_proc.exit_code = 0                                                 # the user closed it: as before
+    a._window_closed()
+    assert started == [True] and (quit_asked or a.config.get("web_ui", {}).get("close_button") == "hide")
+
+
+def test_reading_jobpilot_isnt_called_waiting_on_agents() -> None:
+    assert progress_key("job_search_status", "tool", 0, False) == "jobs" and LINES["jobs"] == "Still checking JobPilot."
+    assert doing_key("next_job_question", "tool") == "doing_jobs"
+    assert progress_key("agent_hub_request", "tool", 0, False) == "agents"

@@ -15,7 +15,10 @@ Safety design (deliberately stricter than "expose the Hub's tools to the model")
   turn, and are announced by a [system notice] that says they are data.
 
 Results arrive through a poller that calls the Hub's get_updates. They are only spoken when JARVIS is
-awake and idle; while it is asleep or busy they are held (and saved to disk), with one toast.
+awake and idle; while it is asleep or busy they are held (and saved to disk), with one toast. A result the
+user talks over before JARVIS mentions it is told again at the next pause (services.tell_when_free), and a
+request still out after agent_hub.still_working_s gets one "still working on it" notice (seen live: a
+request failed after 14 minutes, the failure was talked over, and the user never heard).
 
 When the Hub isn't running and the user asks for something that needs it (a request, its status, a Hub
 tool), JARVIS starts it with the Hub's own start script (core/hub_launcher.py, agent_hub.auto_start) and
@@ -33,6 +36,7 @@ import json
 import logging
 import re
 import threading
+import time
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -58,6 +62,9 @@ MAX_REQUEST_CHARS = 500
 MAX_SAY_CHARS = 400
 MAX_HELD = 20
 _GO_AHEAD = re.compile(r"\s*should i go ahead\??\s*$", re.IGNORECASE)
+_A_LINK = re.compile(r"\b(link|url|web ?address)s?\b", re.IGNORECASE)
+LINK_HINT = ("The agents can't see this conversation: put the link's full web address (https://...) in the "
+             "request, copied from where you saw it (a search result), and call agent_hub_request again.")
 
 
 # ---------------------------------------------------------------- the MCP client
@@ -195,7 +202,8 @@ def _clean(text: Any, limit: int = MAX_SAY_CHARS) -> str:
 
 class HubBridge:
     def __init__(self, client: Any, services: Any, poll_s: float = 5.0, held_path: Path | None = None,
-                 toast: Callable[[str, str], None] | None = None, registry: Registry | None = None) -> None:
+                 toast: Callable[[str, str], None] | None = None, registry: Registry | None = None,
+                 still_working_s: float = 300.0) -> None:
         self.client = client
         self.registry = registry  # JARVIS's skills, sent to the Hub's tool registry
         self.synced = False
@@ -206,6 +214,9 @@ class HubBridge:
         self.last_request_id: str | None = None
         self.held: list[dict] = self._load_held()
         self._toasted = False
+        self.still_working_s = still_working_s
+        self.out: dict[str, dict] = {}   # request id -> {"text", "at", "told"}: handed over, no result yet
+        self.clock = time.monotonic
 
     # -- tools
 
@@ -213,11 +224,15 @@ class HubBridge:
         text = _clean(request, MAX_REQUEST_CHARS)
         if not text:
             raise ToolError("What should I ask the agents to do?")
+        if _A_LINK.search(text) and "http" not in text.lower():
+            raise ToolError(LINK_HINT)   # seen live: "process the Wipro job link", with no link in it
         reply = await self.client.submit(text)
         rid = reply.get("request_id")
         say = _clean(reply.get("say"))
         if rid:
             self.last_request_id = rid
+            if reply.get("status") not in {"done", "failed"}:
+                self.out[rid] = {"text": text, "at": self.clock(), "told": False}
         if reply.get("status") == "awaiting_confirmation" and rid:
             return NeedsConfirmation(
                 summary=_GO_AHEAD.sub("", say) or "Go ahead with what the agents proposed",
@@ -268,6 +283,9 @@ class HubBridge:
             if fresh:
                 self.held.extend(fresh)
                 self._save_held()
+        for item in self.held:
+            self.out.pop(str(item.get("request_id") or ""), None)
+        self._still_working()
         if not self.held:
             self._toasted = False
             return
@@ -283,10 +301,29 @@ class HubBridge:
         item = self.held.pop(0)
         self._save_held()
         self._timeline(item)
+        later = getattr(self.services, "tell_when_free", None)
+        if later is not None:   # told again if the user talks over it; taints the turn it's said in
+            later(self._notice(item), True)
+            return
         if self.services.taint:
             self.services.taint()  # the text came from job sites and mail: never acted on without a yes
         if self.services.notify:
             self.services.notify(self._notice(item))
+
+    def _still_working(self) -> None:
+        """One notice for a request handed over long ago with no result yet, so JARVIS doesn't just keep
+        promising to tell the user (the request's words are JARVIS's own, not the agents')."""
+        later = getattr(self.services, "tell_when_free", None)
+        now = self.clock()
+        for rid, item in list(self.out.items()):
+            if now - item["at"] > 4 * 3600:
+                self.out.pop(rid)   # long forgotten: stop tracking it
+            elif not item["told"] and later is not None and now - item["at"] >= self.still_working_s:
+                item["told"] = True
+                minutes = max(1, round((now - item["at"]) / 60))
+                later(f"[system notice] The job search agents are still working on \"{_clean(item['text'], 160)}\" "
+                      f"after {minutes} minutes, with no result yet. Tell the user in one short sentence and offer "
+                      "to check on it (agent_hub_status).", False)
 
     @staticmethod
     def _notice(item: dict) -> str:
@@ -418,7 +455,8 @@ def register(registry: Registry, config: dict, services) -> None:
                        float(settings.get("request_timeout_s") or 8),
                        launcher=launcher if settings.get("auto_start", True) else None)
     bridge = HubBridge(client, services, float(settings.get("poll_s") or 5),
-                       services.data_dir / "agent_hub_held.json", toast=_toast, registry=registry)
+                       services.data_dir / "agent_hub_held.json", toast=_toast, registry=registry,
+                       still_working_s=float(settings.get("still_working_s") or 300))
     services.hub = client  # the tool registry's lookups, for core/router.py
     services.background.append(bridge.poll_loop)
     services.on_start.append(_warm_up)
@@ -433,7 +471,8 @@ def register(registry: Registry, config: dict, services) -> None:
             "app's window ('switch to auto apply', 'go to X in the pinned section': those are read_app and "
             "click_in_app), reading what's on screen, or when the user only says what they've opened. Pass "
             "the user's request in "
-            "their own words, with any job, company or application they named. It returns at once with an "
+            "their own words, with any job, company or application they named, and the full web address of any "
+            "link they mean (the agents can't see this conversation). It returns at once with an "
             "acknowledgement; the result is announced later in a system notice, so don't wait for it or "
             "make up an answer. Starting a run, approving and skipping ask the user to confirm first. "
             "Call it every time the user asks, even if an earlier call said the Hub wasn't running: it may "

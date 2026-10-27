@@ -29,6 +29,7 @@ LINES = {
     "reply": "Still waiting for the reply.",
     "thinking": "Still thinking it through.",
     "agents": "Still waiting on your agents.",
+    "jobs": "Still checking JobPilot.",
     "hub": "Starting the Agent Hub. That takes a moment.",
     "files": "Still searching your files.",
     "browser": "Still working in the browser.",
@@ -42,6 +43,7 @@ LINES = {
     "doing_typing": "I'm typing it in.",
     "doing_thinking": "I'm thinking it through.",
     "doing_agents": "Your agents are working on it.",
+    "doing_jobs": "I'm checking JobPilot.",
     "doing_hub": "I'm starting the Agent Hub.",
     "doing_files": "I'm searching your files.",
     "doing_browser": "I'm working in the browser.",
@@ -57,7 +59,9 @@ TOPIC = {
     "wait_for_app": "reply",
     "type_in_app": "typing",
     "ask_brain": "thinking", "think_through": "thinking", "run_plan": "thinking",
-    "agent_hub_request": "agents", "agent_hub_status": "agents", "job_search_status": "agents",
+    "agent_hub_request": "agents", "agent_hub_status": "agents",
+    # JobPilot's own data, read directly (seen live: "Still waiting on your agents." while it only read JobPilot)
+    "job_search_status": "jobs", "next_job_question": "jobs", "save_job_answer": "jobs",
     "find_files": "files",
     "browser_task": "browser", "browser_open": "browser", "browser_click": "browser", "browser_scroll": "browser",
 }

@@ -55,6 +55,19 @@ def is_retryable(exc: Exception) -> bool:
     return "timed out" in str(exc).lower() or "timeout" in type(exc).__name__.lower()
 
 
+def is_timeout(exc: Exception) -> bool:
+    """The model ran out of time (504, or our own request timeout): trying it again costs the same wait.
+    Seen live: a 504 after 9.5 s, a retry, a 503, then the backup answered: 24 s for a screen check."""
+    code = getattr(exc, "code", None) or getattr(getattr(exc, "response", None), "status_code", None)
+    text = str(exc).lower()
+    return (code == 504 or isinstance(exc, httpx.TimeoutException) or "timed out" in text
+            or "deadline" in text or "timeout" in type(exc).__name__.lower())
+
+
+def _no_retry_on_timeout(exc: Exception) -> bool:
+    return is_retryable(exc) and not is_timeout(exc)
+
+
 class LLM:
     def __init__(
         self,
@@ -111,14 +124,17 @@ class LLM:
         now = self.clock()
         usable = [m for m in models if self._cooling.get(m, 0) <= now]   # quota used up: don't waste time on it
         ready = [m for m in usable if self._struggling.get(m, 0) <= now]
-        tried_first = False
-        for model in ready or usable:   # all of them overloaded lately: try them anyway
-            first, tried_first = not tried_first, True
+        chain = ready or usable   # all of them overloaded lately: try them anyway
+        backup_after = bool(self.openrouter_key and self.openrouter_model and not images)
+        for i, model in enumerate(chain):
+            first = i == 0
             timeout = self._attempt_timeout(first, max_tokens)
+            more = i < len(chain) - 1 or backup_after   # a timeout moves on at once when there's another model
             try:
                 return await with_backoff(
                     lambda m=model, t=timeout: self._gemini(m, prompt, system, max_tokens, json, images, thinking, t),
-                    is_retryable, retries=self.retries if first else self.fallback_retries, base_s=self.base_delay_s,
+                    _no_retry_on_timeout if more else is_retryable,
+                    retries=self.retries if first else self.fallback_retries, base_s=self.base_delay_s,
                 )
             except Exception as exc:
                 log.warning("model %s failed: %s", model, exc)

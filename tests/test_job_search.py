@@ -7,7 +7,7 @@ import pytest
 
 from actions import job_search
 from actions.job_search import JobSearchStatus, make_fetch
-from core.registry import ToolError
+from core.registry import Tier, ToolError
 
 NOW = datetime(2026, 10, 10, 18, 0)
 
@@ -329,3 +329,40 @@ def test_runs_under_jobpilots_new_agent_names_count(tmp_path):
     text = status.problems()
     assert "The scoring run failed 2 hours ago: QuotaExhausted" in text
     assert "The document run failed 1 hour ago: Gemini quota" in text
+
+
+# ---- going through the blanks one at a time (next_job_question) ----------------------------------
+
+def test_next_question_skips_answered_and_shared_questions(tmp_path):
+    """Seen live: "residing in Hyderabad?" asked five times, and "26 pending" that never went down."""
+    empty = "(empty, left for you)"
+    api = FakeApi(applications={"pending_review": [
+        _parked("CGI", [{"field_name": "Are you residing in Hyderabad?*", "value_used": empty},
+                        {"field_name": "Expected CTC", "value_used": empty}]),
+        _parked("Wipro", [{"field_name": "Are you  residing in Hyderabad?", "value_used": empty},
+                          {"field_name": "Do you speak Telugu?", "value_used": empty}]),
+        _parked("Mediamint", [{"field_name": "Notice period", "value_used": "30 days"}]),
+    ]})
+    api.data["/answers"] = [{"question": "Expected CTC", "answer": "16 LPA", "is_example": False},
+                            {"question": "Do you speak Telugu?", "answer": "", "is_example": False},   # still open
+                            {"question": "Are you residing in Hyderabad", "answer": "x", "is_example": True}]
+    s = JobSearchStatus(api, tmp_path, now=lambda: NOW)
+    text = s.next_question()
+    assert '"Are you residing in Hyderabad?"' in text and "CGI" in text and "1 more after this one" in text
+    api.data["/answers"].append({"question": "Are you residing in Hyderabad?", "answer": "Yes", "is_example": False})
+    text = s.next_question()                                                   # answered: gone for every job
+    assert '"Do you speak Telugu?"' in text and "Wipro" in text and "0 more" in text
+    text = s.next_question(skip="Do you speak Telugu?")                        # skipped: not asked again
+    assert text.startswith("No blank question is left") and "1 question skipped" in text
+
+
+def test_next_question_tool_is_read_only_and_short(tmp_path):
+    from actions import Services, job_search
+    from core.registry import Registry
+
+    registry = Registry()
+    services = Services()
+    services.data_dir = tmp_path
+    job_search.register(registry, {}, services)
+    tool = registry.get("next_job_question")
+    assert tool.tier == Tier.SAFE and tool.read_only and tool.untrusted_output and not tool.condense

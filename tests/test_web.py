@@ -312,7 +312,7 @@ async def test_llm_fallbacks_get_one_retry_each() -> None:
 
 
 async def test_an_overloaded_model_is_skipped_for_a_while_then_tried_again() -> None:
-    client = FakeGenAI({"flash": [api_error(504)] * 2 + ["flash again"], "lite": ["one", "two"]})
+    client = FakeGenAI({"flash": [api_error(503)] * 2 + ["flash again"], "lite": ["one", "two"]})
     llm = LLM(client, ["flash", "lite"], base_delay_s=0)
     now = [100.0]
     llm.clock = lambda: now[0]
@@ -324,6 +324,16 @@ async def test_an_overloaded_model_is_skipped_for_a_while_then_tried_again() -> 
     busy = LLM(FakeGenAI({"a": ["a ok"]}), ["a"], base_delay_s=0)
     busy._struggling["a"] = busy.clock() + 999                         # every model overloaded: tried anyway
     assert await busy.generate("p") == "a ok"
+
+
+async def test_a_timeout_moves_on_to_the_backup_without_a_retry() -> None:
+    """Seen live: a 504 after 9.5 s, then a retry of the same model, before the backup answered."""
+    client = FakeGenAI({"flash": [api_error(504), "never"], "lite": ["from lite"]})
+    llm = LLM(client, ["flash", "lite"], base_delay_s=0)
+    assert await llm.generate("p") == "from lite" and client.calls == ["flash", "lite"]
+    assert not llm.available("flash")                                   # and it's skipped for a while
+    alone = FakeGenAI({"flash": [api_error(504), "second try"]})           # no other model: it's tried again
+    assert await LLM(alone, ["flash"], base_delay_s=0).generate("p") == "second try"
 
 
 async def test_llm_sets_a_request_timeout() -> None:

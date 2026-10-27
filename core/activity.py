@@ -43,6 +43,7 @@ TOOL_TEXT = {
     "cancel_reminder": "Cancelling the reminder…",
     "job_search_status": "Checking your job search…", "agent_hub_request": "Asking your agents…",
     "agent_hub_status": "Checking your agents…", "save_job_answer": "Saving the answer…",
+    "next_job_question": "Finding the next question…",
     "run_plan": "Working through the plan…", "preview_voice": "Getting a voice sample…",
 }
 # Quick app-state tools: no status line (it would only flash).

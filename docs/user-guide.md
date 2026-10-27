@@ -99,6 +99,8 @@ turns the microphone on. **Up** and **Down** bring back earlier messages, and **
   status line shows how long it's been.
 - When Claude (or another chat app) takes more than a few seconds to reply, JARVIS says it will tell you,
   keeps watching in the background, and tells you when the reply is ready. You can keep talking meanwhile.
+- Results from your agents wait until JARVIS is free; if you start talking before it mentions one, it tells
+  you at the next pause. A request still running after 5 minutes gets one "still working on it".
 
 | You say | What happens |
 |---|---|
@@ -354,6 +356,11 @@ interviews and offers, and screening questions waiting for you. JobPilot's demo 
 The LinkedIn resume upload status still comes from `job_search.sync_dir`. JobPilot must be running
 (`E:\JobPilot\scripts\run_api.ps1`); if it isn't, JARVIS says so. It only reads: it never changes a
 status, approves or applies.
+
+Say **"ask me the blank questions"** to go through the questions the apply agent couldn't answer, one at a
+time: JARVIS skips any the answer bank already answers, asks a question shared by several applications only
+once, and saves each answer you give (after your yes). Say "skip" to move past one. The answers are used
+when the apply agent runs those applications again.
 
 **Agent Hub.** On (`features.agent_hub: true`). Start the Hub before JARVIS, once per boot:
 

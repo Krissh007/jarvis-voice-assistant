@@ -21,7 +21,9 @@ WebSocket like any view. To its window it sends only console lines starting "jar
 - `jarvis:dock:{"docked": true, "x", "y", "size", "hwnd"}` / `{"docked": false}`: the orb sits in the
   full-screen app's dot (screen pixels; it shrinks to `size`) or floats again where it was. Docked, the app's
   window (`hwnd`) owns the orb's: it stays just above the app and goes behind other apps with it, instead of
-  staying on top of everything (it would cover their buttons);
+  staying on top of everything (it would cover their buttons). Windows destroys an owned window with its
+  owner, so the app's window undocks the orb before it closes (seen live: closing the app took the orb with
+  it); if the orb's window is lost anyway, its process exits with LOST_WINDOW and JARVIS starts it again;
 - `jarvis:dock_slot:{"x", "y", "size"}`: the app page's dot for the orb, in page pixels. While the app's
   window is maximized it tells the page where that is on the screen (window.jarvisDock), and the page
   tells JARVIS, which tells the orb.
@@ -50,6 +52,8 @@ VK_LBUTTON = 0x01
 GWLP_HWNDPARENT = -8  # SetWindowLongPtr: a window's owner
 HWND_TOPMOST, HWND_NOTOPMOST = -1, -2
 SWP_NOSIZE, SWP_NOMOVE, SWP_NOACTIVATE = 0x1, 0x2, 0x10
+LOST_WINDOW = 75   # the orb process's exit code when Windows destroyed its window (with the app's, its owner)
+UNDOCK_MS = 800    # the app's window waits this long for the orb to undock before it really closes
 
 
 # ---------------------------------------------------------------- helpers (no Qt needed; tested directly)
@@ -186,7 +190,8 @@ def run_window(argv: list[str] | None = None) -> int:
     shapes: list[dict] = []
     orb = {"expanded": False, "ring": False, "inner": (canvas // 2, canvas // 2), "home": None, "placing": False, "canvas": canvas,
            "normal": canvas, "dock": None}   # normal: the floating orb's canvas; dock: (x, y) while docked in the app
-    slot: dict = {"at": None, "sent": None}   # chat mode: the page's dot for the orb, and what was last reported
+    slot: dict = {"at": None, "sent": None, "closing": False}   # chat mode: the page's dot for the orb, and what
+                                                                # was last reported
 
     if orb_mode and not ("cx" in state and "cy" in state):  # first time: near the top right
         state.update(cx=screen[0] + screen[2] - canvas // 2 - 40, cy=screen[1] + canvas // 2 + 120)
@@ -277,6 +282,16 @@ def run_window(argv: list[str] | None = None) -> int:
                 dock_soon.start(150)
 
         def closeEvent(self, event):  # noqa: N802
+            if not orb_mode and (slot["sent"] or {}).get("docked") and not slot["closing"]:
+                # The docked orb's window is owned by this one: Windows would destroy it with this window.
+                # Undock it first (hidden meanwhile, so the close looks instant), then close for real.
+                slot["closing"] = True
+                event.ignore()
+                slot["sent"] = {"docked": False}
+                page.runJavaScript('window.jarvisDock && window.jarvisDock({"docked": false})')
+                self.hide()
+                QTimer.singleShot(UNDOCK_MS, self.close)
+                return
             _save_state(args.state, state)
             super().closeEvent(event)
 
@@ -415,6 +430,9 @@ def run_window(argv: list[str] | None = None) -> int:
             """Take clicks only while the mouse is over the orb or the open control centre's parts, and tell
             the page when the mouse comes over them or leaves (outside them it gets no mouse events): the
             menu blooms while the mouse is over the orb and folds away once it has left."""
+            if not ctypes.windll.user32.IsWindow(int(view.winId())):
+                app.exit(LOST_WINDOW)   # destroyed with the app's window (its owner): JARVIS starts the orb again
+                return
             pos = view.mapFromGlobal(QCursor.pos())
             held = bool(ctypes.windll.user32.GetAsyncKeyState(VK_LBUTTON) & 0x8000)
             over = hit(shapes, pos.x(), pos.y())
@@ -474,6 +492,7 @@ class WindowProcess:
         self.log_path = log_path  # the window's own errors (Qt WebEngine)
         self._proc: subprocess.Popen | None = None
         self._stopping = False
+        self.exit_code: int | None = None   # the last closed window's exit code (LOST_WINDOW: start it again)
 
     def command(self) -> list[str]:
         cmd = [self.python, "-m", "ui.window", "--url", self.url, "--mode", self.mode, "--state", str(self.state_path),
@@ -514,6 +533,7 @@ class WindowProcess:
             proc = self._proc
             if proc is not None and proc.poll() is not None:
                 self._proc = None
+                self.exit_code = proc.returncode
                 log.info("web UI window closed (exit code %s)", proc.returncode)
                 if not self._stopping and self.on_closed is not None:
                     self.on_closed()

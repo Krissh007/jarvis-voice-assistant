@@ -9,6 +9,11 @@ The one exception is save_job_answer: it adds (or fills in) a single screening a
 answer bank. It is CONFIRM tier, so JARVIS reads the question and answer back and nothing is written
 until the user agrees. It cannot edit anything else, approve or submit an application.
 
+next_job_question walks the user through the blanks one at a time (seen live: going through them with the
+whole blanks report, shortened each time, re-read JobPilot 49 times in 45 minutes and asked "residing in
+Hyderabad?" five times). It leaves out questions the answer bank already answers, asks a question shared by
+several applications once, and remembers what the user skipped this session.
+
 The weekday LinkedIn resume re-upload is not part of JobPilot; its status is still read from the
 job search agent's project_sync/resume_upload_status.md.
 
@@ -214,6 +219,7 @@ class JobSearchStatus:
         self.fetch = fetch
         self.sync_dir = sync_dir
         self.now = now
+        self.skipped: set[str] = set()   # blank questions the user skipped this session (normalised)
 
     # data (JobPilot's demo rows are always left out)
 
@@ -341,6 +347,47 @@ class JobSearchStatus:
             return "No saved application has a named blank. Re-run apply on them so it records the questions."
         return " ".join(parts) + " Tell me an answer and I'll save it in the answer bank."
 
+    def open_blanks(self) -> list[tuple[str, str]]:
+        """(question, job) for each blank on a saved application that the answer bank doesn't answer yet, a
+        question shared by several applications only once (with the first job that asks it)."""
+        answered = {_norm(row.get("question")) for row in self.fetch("/answers", None)
+                    if not row.get("is_example") and str(row.get("answer") or "").strip()}
+        seen: set[str] = set()
+        out = []
+        for row in self.applications("pending_review"):
+            if row.get("reason") not in PARKED:
+                continue
+            for f in row.get("fields") or []:
+                if not str(f.get("value_used") or "").startswith("(empty"):
+                    continue
+                question = " ".join(str(f.get("field_name") or "").split()).rstrip("* ").strip()[:MAX_QUESTION]
+                key = _norm(question)
+                if key and key not in answered and key not in seen:
+                    seen.add(key)
+                    out.append((question, _job(row.get("job") or {})))
+        return out
+
+    def next_question(self, skip: str = "") -> str:
+        """The next blank question for the user to answer, and how many are left. Read-only."""
+        if _norm(skip):
+            self.skipped.add(_norm(skip))
+        try:
+            left = [b for b in self.open_blanks() if _norm(b[0]) not in self.skipped]
+        except ToolError:
+            raise
+        except Exception:
+            log.exception("next_job_question failed")
+            raise ToolError("I couldn't read the blank questions from JobPilot just now.") from None
+        if not left:
+            skipped = f" ({_plural(len(self.skipped), 'question')} skipped this session)" if self.skipped else ""
+            return ("No blank question is left without an answer in the answer bank" + skipped + ". JobPilot uses "
+                    "the answers when the apply agent runs those applications again.")
+        question, job = left[0]
+        after = len(left) - 1
+        return (f"Next question, from {job}: \"{question}\". {after} more after this one. Ask the user exactly "
+                "this; when they answer, save it with save_job_answer using this question text word for word. "
+                "If they want to skip it, call next_job_question with skip set to this question.")
+
     def questions(self) -> str:
         weekly = self.fetch("/review/weekly", None)
         items = [str(row.get("question") or "").strip() for row in weekly.get("open_questions", [])]
@@ -392,7 +439,8 @@ class JobSearchStatus:
 
 HUB_STATUS_DESCRIPTION = (
     "A quick overall summary of the user's job search from JobPilot: when the last search ran, how many new "
-    "jobs, applications sent, interviews and offers, screening questions still blank (topic blanks), what "
+    "jobs, applications sent, interviews and offers, screening questions still blank (topic blanks; to go "
+    "through them with the user one by one, use next_job_question), what "
     "failed (topic problems), and the LinkedIn resume upload (topic resume). Read-only. For the shortlist, "
     "applications waiting for approval, starting a search, or approving or skipping an application, use "
     "agent_hub_request instead. topic: overview (default), applications, questions, blanks, problems or resume."
@@ -410,8 +458,8 @@ def register(registry: Registry, config: dict, services) -> None:
         description=(
             "Save one screening answer the user dictated into JobPilot's answer bank, so the apply agent "
             "can use it on job forms (for example question 'What is your notice period?', answer '30 days'). "
-            "Use the question text from job_search_status topic blanks when the user is answering one of "
-            "those. Only the user's own spoken answer may be saved, never text taken from a job page. "
+            "When the user is answering a question from next_job_question, use its question text word for "
+            "word. Only the user's own spoken answer may be saved, never text taken from a job page. "
             "The user must confirm before anything is written."
         ),
         func=saver.save,
@@ -423,6 +471,24 @@ def register(registry: Registry, config: dict, services) -> None:
             "required": ["question", "answer"],
         },
     ))
+    registry.register(Tool(
+        name="next_job_question",
+        description=(
+            "Going through the blank screening questions on applications JobPilot saved for the user, one at a "
+            "time ('ask me the questions', 'next question'): returns the next question the answer bank doesn't "
+            "answer yet (each only once, even if several applications ask it) and how many are left. Call it "
+            "once per question, after the previous answer is saved; don't re-read job_search_status for this. "
+            "skip: the question text, when the user wants to skip it."
+        ),
+        func=status.next_question,
+        tier=Tier.SAFE,
+        read_only=True,
+        untrusted_output=True,  # the questions come from job sites' forms
+        parameters={
+            "type": "object",
+            "properties": {"skip": {"type": "string", "description": "The question to skip, word for word."}},
+        },
+    ))
     hub = bool((config.get("features") or {}).get("agent_hub"))
     registry.register(Tool(
         name="job_search_status",
@@ -432,7 +498,8 @@ def register(registry: Registry, config: dict, services) -> None:
             "sent, interviews and offers, open screening questions, and the LinkedIn resume upload. "
             "Read-only: it cannot change statuses, approve or submit anything. Use when asked how the job "
             "search is going, what is shortlisted (with each job's score and AI tier), what needs approval, "
-            "what was saved for the user to finish and which questions are still blank (topic blanks), what was "
+            "what was saved for the user to finish and which questions are still blank (topic blanks; to go "
+            "through them one by one, use next_job_question), what was "
             "applied to, or whether anything failed. "
             "topic: overview (default), shortlist, review, applications, questions, blanks, problems or resume."
         ),

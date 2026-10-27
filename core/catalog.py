@@ -101,6 +101,7 @@ CATALOG: dict[str, tuple[str, list[str]]] = {
     "list_reminders": ("reminders", ["reminders", "pending", "what reminders"]),
     "cancel_reminder": ("reminders", ["cancel", "reminder", "remove"]),
     "save_job_answer": ("jobs", ["screening answer", "answer bank", "application question"]),
+    "next_job_question": ("jobs", ["next question", "blank questions", "unanswered questions", "ask me the questions"]),
     "job_search_status": ("jobs", ["job search", "how's my job search", "summary", "progress"]),
 }
 

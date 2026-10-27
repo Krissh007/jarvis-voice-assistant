@@ -265,6 +265,7 @@ agent_hub:                      # used when features.agent_hub is true
   url: http://127.0.0.1:8765/mcp  # the Agent Hub's MCP endpoint (must be this computer); token: AGENT_HUB_TOKEN in .env
   poll_s: 5                     # how often to look for finished results
   request_timeout_s: 8          # per call to the Hub
+  still_working_s: 300          # a request with no result after this long: JARVIS tells you it's still running (once)
   start_script: E:/agent-hub/scripts/start_all.ps1   # the Command centre's Start / Stop run it (Stop adds -Stop); "" = no buttons
   auto_start: true              # a request that needs the Hub starts it when it isn't running (the poller never does)
   dashboard_url: http://127.0.0.1:8000   # JobPilot's dashboard, for the Command centre's button (must be this computer)

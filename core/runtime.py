@@ -862,7 +862,8 @@ class Assistant:
         self.progress_max = int(pcfg.get("max_lines", 4))
         self._progress = {"said": 0, "quiet_from": 0.0, "since": 0.0, "backup": False}
         self._doing_answered = ""   # the words "what are you doing?" was last answered for
-        self._later: list[tuple[str, bool]] = []   # notices waiting until JARVIS isn't busy (background waits)
+        self._later: list[tuple[str, bool, int]] = []   # (notice, untrusted, tries): waiting until JARVIS isn't busy
+        self._owed: tuple[str, bool, int] | None = None   # the last one sent, until JARVIS starts saying it
         self._voice_change: str | None = None   # a new reply voice, applied when JARVIS isn't busy
         self._last_heard = 0.0
         self._sleep_heard_at = 0.0   # when words came that may be "go to sleep" (checked once the sentence ends)
@@ -1741,7 +1742,15 @@ class Assistant:
             self.open_chat()
 
     def _window_closed(self) -> None:
-        """The user closed the web window: quit, or keep running in the tray (web_ui.close_button)."""
+        """The user closed the web window: quit, or keep running in the tray (web_ui.close_button). If Windows
+        destroyed the orb's window (with the app's, which owned it while docked), the orb just comes back."""
+        from ui.window import LOST_WINDOW
+
+        if self.window_proc is not None and self.window_proc.exit_code == LOST_WINDOW:
+            log.warning("the orb's window was lost; starting it again")
+            self.orb_dock = None
+            self.window_proc.start()
+            return
         if str((self.config.get("web_ui") or {}).get("close_button", "quit")).lower() == "hide" and self.tray:
             self._status("(window closed: still running; click the tray icon to open it)")
         else:
@@ -2070,19 +2079,41 @@ class Assistant:
         self._progress["quiet_from"] = time.monotonic()
 
     def _tell_when_free(self, text: str, untrusted: bool = False) -> None:
-        """A notice for the model once JARVIS isn't busy (a background wait finished). Safe from any thread."""
+        """A notice the user must hear (an agent result, a background wait), sent once JARVIS isn't busy.
+        Safe from any thread."""
         if self._loop is not None:
-            self._loop.call_soon_threadsafe(self._later.append, (text, untrusted))
+            self._loop.call_soon_threadsafe(self._later.append, (text, untrusted, 0))
         else:
-            self._later.append((text, untrusted))
+            self._later.append((text, untrusted, 0))
+
+    RETOLD = "[system notice] The user spoke before you could pass this on; tell them now, briefly.\n"
+    MAX_RETELLS = 2
 
     def _deliver_later(self) -> None:
         if not self._later or self._busy() or self._turn_open:
             return
-        text, untrusted = self._later.pop(0)
+        text, untrusted, tries = self._later.pop(0)
         if untrusted:
             self.dispatcher.tainted = True   # what an app wrote is never acted on without a yes
+        self._owed = (text, untrusted, tries)
         self._notify(text)
+
+    def _owed_said(self) -> None:
+        """JARVIS started answering after the notice: it's passing it on."""
+        self._owed = None
+
+    def _owed_cut_off(self) -> None:
+        """The user spoke before JARVIS said anything about the notice (seen live: an agent failure arrived 2 s
+        before "next question" and was never mentioned). It goes back in line for when JARVIS is free again."""
+        if self._owed is None:
+            return
+        text, untrusted, tries = self._owed
+        self._owed = None
+        if tries >= self.MAX_RETELLS:
+            log.warning("a notice was talked over %d times; dropping it: %s", tries + 1, text.splitlines()[0][:120])
+            return
+        log.info("the user spoke before JARVIS passed a notice on; it waits for the next pause")
+        self._later.insert(0, (text if tries else self.RETOLD + text, untrusted, tries + 1))
 
     def _notify(self, text: str) -> None:
         first = text.splitlines()[0]
@@ -2126,6 +2157,7 @@ class Assistant:
         self._reply_channel = "voice"
         self.dispatcher.turn_blocked = {}  # the chat's "web search off" was for its own message only
         self.transcript.add("user", text, "voice")
+        self._owed_cut_off()
         self._answer_what_doing()
         self.dispatcher.on_input_fragment(text)
         from core.utterance import unfinished
@@ -2142,6 +2174,7 @@ class Assistant:
 
     def on_output_transcript(self, text: str) -> None:
         self._last_reply_at = time.monotonic()
+        self._owed_said()
         self._reply_started()
         if not self._turn_open:
             self._hold_if_unfinished()

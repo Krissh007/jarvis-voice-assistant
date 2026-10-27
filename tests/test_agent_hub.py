@@ -415,3 +415,47 @@ async def test_client_sends_skills_over_mcp(tmp_path) -> None:
     tools = catalog.export(_registry_with_tools(tmp_path))
     reply = await HubClient(server, None).sync_tools(tools)
     assert reply["stored"] == len(tools) and got["tools"][0]["name"] == tools[0]["name"]
+
+
+# ---------------------------------------------------------------- results the user must hear (seen live 27 Oct)
+
+async def test_a_request_about_a_link_needs_the_link() -> None:
+    """Seen live: "Process the Wipro ... job link, score it" with no link in it."""
+    hub = FakeHub()
+    bridge = HubBridge(hub, make_services())
+    with pytest.raises(ToolError, match="full web address"):
+        await bridge.request("Process the Wipro Business Analyst job link, score it, and push it to JobPilot.")
+    assert hub.calls == []
+    await bridge.request("Score this job: https://careers.wipro.com/job/BUSINESS-ANALYST-L4/202570 and add it")
+    await bridge.request("find business analyst jobs on LinkedIn")                 # no link meant
+    assert len(hub.calls) == 2
+
+
+async def test_results_go_out_when_jarvis_is_free_and_can_be_told_again() -> None:
+    told = []
+    services = make_services(tell_when_free=lambda text, untrusted: told.append((text, untrusted)))
+    bridge = HubBridge(FakeHub(updates=[item("No such job.", "failed")]), services)
+    await bridge.deliver_once()
+    (notice, untrusted), = told
+    assert untrusted and "it failed" in notice and "No such job." in notice
+    assert services.notices == [] and not services.tainted                     # tainted when it's said
+
+
+async def test_a_long_running_request_gets_one_still_working_notice() -> None:
+    told = []
+    services = make_services(tell_when_free=lambda text, untrusted: told.append((text, untrusted)))
+    hub = FakeHub()
+    bridge = HubBridge(hub, services, still_working_s=300)
+    now = [1000.0]
+    bridge.clock = lambda: now[0]
+    await bridge.request("run the full pipeline")
+    await bridge.deliver_once()
+    assert told == []
+    now[0] += 301
+    await bridge.deliver_once()
+    await bridge.deliver_once()
+    (notice, untrusted), = told                                                # once, not every poll
+    assert "still working on \"run the full pipeline\" after 5 minutes" in notice and not untrusted
+    hub.pending_updates = [item("Done: 4 new jobs.", rid="r1")]
+    await bridge.deliver_once()
+    assert bridge.out == {} and "Done: 4 new jobs." in told[-1][0]
