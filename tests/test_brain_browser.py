@@ -199,8 +199,11 @@ async def test_the_app_opens_on_the_brain_with_the_hud(served, page) -> None:  #
     await page.get_by_role("heading", name="Brain").wait_for()
     hud = page.get_by_role("region", name="JARVIS", exact=True)
     await hud.get_by_role("img", name="JARVIS: Listening").wait_for()
+    assert "Listening" not in await hud.inner_text()                   # the state is said once, in the header
+    await page.locator("header .channel").get_by_text("Listening").wait_for()
+    await hud.get_by_text("Details").click()                           # the model and language are folded away
     text = await hud.inner_text()
-    assert "gemini-3.8-live" in text and "en-IN" in text and "Voice on" in text
+    assert "gemini-3.8-live" in text and "en-IN" in text
     caps = page.get_by_role("group", name="Capabilities")
     for name in ("Mic", "Voice", "Announce", "Memory", "Agents"):
         assert await caps.get_by_role("switch", name=name).get_attribute("aria-checked") == "true", name
@@ -228,7 +231,7 @@ async def test_the_switches_are_jarvis_controls(served, page) -> None:  # noqa: 
     bridge.bus.publish("voice", on=False)
     await caps.get_by_role("switch", name="Memory").and_(page.locator("[aria-checked=false]")).wait_for()
     await caps.get_by_role("switch", name="Voice").and_(page.locator("[aria-checked=false]")).wait_for()
-    await page.get_by_role("region", name="JARVIS", exact=True).get_by_text("Text only").wait_for()
+    await page.locator("header .channel [title^='Replies are text only']").wait_for()
     bridge.bus.publish("memory_keep", on=False, enabled=False)
     assert await caps.get_by_role("switch", name="Memory").is_disabled()
 

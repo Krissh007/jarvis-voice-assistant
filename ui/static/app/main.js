@@ -13,6 +13,7 @@ import { applyEvent, getState, setState, useStore } from "/static/shared/store.j
 import { connect, onConnection, onEvent, onUnpaired, paired, phone, send, toWindow } from "/static/shared/ws.js";
 import { BrainSection } from "/static/app/sections/brain.js";
 import { ChatSection } from "/static/app/sections/chat.js";
+import { channelOf, useChat } from "/static/app/sections/chat-model.js";
 import { CommandSection } from "/static/app/sections/command.js";
 import { MemorySection } from "/static/app/sections/memory.js";
 import { PairScreen } from "/static/app/sections/phone.js";
@@ -89,16 +90,32 @@ window.jarvisDock = (where) => {
 };
 onConnection((on) => { if (on && lastDock) send(lastDock); });
 
-function Header({ title }) {
+// The one place that says which channel you're on (voice or typing) and what JARVIS is doing. The orb, the
+// HUD and the messages don't repeat it; text-only replies and quiet announcements are small icons here.
+function ChannelTag() {
   const s = useStore();
+  const { turns, live } = useChat();
+  const channel = channelOf(turns, live);
+  const muted = s.jarvis === "muted";
+  const state = s.connected ? s.activity || STATE_LABEL[s.jarvis] || s.jarvis : "Not connected";
+  const tone = !s.connected ? "bad" : muted ? "warn" : "ok";
+  const why = channel === "voice" ? "You're talking to JARVIS by voice" : "You're typing to JARVIS";
+  return html`<span class=${"channel tone-" + tone} role="status" title=${why + ". " + state + "."}
+      aria-label=${`Channel: ${channel === "voice" ? "voice" : "typing"}. ${state}`}>
+    <${Icon} name=${channel === "voice" ? (muted ? "mic-off" : "mic") : "keyboard"} size=${14} />
+    <span class="channel-name">${channel === "voice" ? "Voice" : "Typing"}</span>
+    <span class="channel-state">${state}</span>
+    ${!s.voice && html`<span class="channel-flag" title="Replies are text only (not spoken)"><${Icon} name="volume-x" size=${13} /></span>`}
+    ${!s.announce && html`<span class="channel-flag" title="Announcements are off: background news is shown, not spoken">
+      <${Icon} name="bell-off" size=${13} /></span>`}
+  </span>`;
+}
+
+function Header({ title }) {
   return html`<header class="top">
     <h1>${title}</h1>
     <div class="grow"></div>
-    <span class="pill" title="What JARVIS is doing">${!s.orbDocked && html`<span class=${"dot " + (s.jarvis === "muted" ? "warn" : s.connected ? "ok" : "bad")}></span>`}
-      ${s.connected ? s.activity || STATE_LABEL[s.jarvis] || s.jarvis : "Not connected"}</span>
-    ${!s.voice && html`<span class="pill" title="Voice replies are off: JARVIS answers in text only">
-      <${Icon} name="volume-x" size=${14} /> Text only</span>`}
-    ${!s.announce && html`<span class="pill" title="Announcements are off"><${Icon} name="bell-off" size=${14} /> Quiet</span>`}
+    <${ChannelTag} />
     ${!phone && html`<${OrbDot} />`}
   </header>`;
 }

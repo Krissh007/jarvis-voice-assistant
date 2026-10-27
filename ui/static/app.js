@@ -5,7 +5,7 @@
 // idle, asleep), violet thinking, amber working on a task, grey with a mic-off badge muted, red when
 // something JARVIS needs isn't working (the reason shows under it); it moves with JARVIS's voice when it
 // speaks. Docked in the full-screen app it's the same orb, smaller: the same states and gestures, but it
-// stays in the app's dot when dragged.
+// stays in the app's dot when dragged, and replies, pictures and lists show only in the app's chat.
 // The older control centre below (opened only with #open=1 now) is kept for previews:
 // JARVIS's orb: a quick-action control centre. Idle, only the orb is visible. Tap it to talk, drag it
 // anywhere, double-tap it to open the control centre under it: the controls (talk, mute, new chat, stop,
@@ -260,6 +260,9 @@ function setStatus(text, sticky) {
 const sections = new Map();   // key -> element, in the order they appeared
 
 function section(key, title, cls) {
+  // Docked in the app, the app's chat shows every reply, picture and list: the orb doesn't repeat them
+  // (Krishna, 28 Oct: the same text in two places). Whatever is written to this goes nowhere.
+  if (docked) return document.createElement("section");
   let el = sections.get(key);
   if (!el) {
     el = document.createElement("section");

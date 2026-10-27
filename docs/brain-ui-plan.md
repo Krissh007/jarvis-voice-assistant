@@ -52,8 +52,9 @@ clipboard text enters the graph.
   **Top hubs** with link counts; **Forces** (repel, link length) and display switches (labels, links).
 - **Right column**: the legend as a filter (click a type to hide it, with counts); the **HUD** — a ring
   reticle with J.A.R.V.I.S. that follows JARVIS's state (blue listening, amber working, brighter while
-  speaking, grey muted, red with the reason when something's broken), pills for state, voice model,
-  language and Voice on/off, and a view switch (**Ring** now; **Orb** = today's 3D orb; Face later);
+  speaking, grey muted, red with the reason when something's broken; the state's words are only in the
+  header's channel tag since 28 Oct), the voice model and language under Details, and a view switch
+  (**Ring** now; **Orb** = today's 3D orb; Face later);
   **capability toggles** that are real JARVIS switches: Mic (mute), Voice, Announce, Memory (keep /
   pause this conversation), Agents (Hub status; opens the Command centre). Eyes (camera) and Watch
   (screen) appear only when those capabilities are built.
@@ -120,8 +121,8 @@ Later, separately: the Face HUD mode, Eyes (webcam) and Watch (screen) capabilit
   "Brain" (it opens the app, which lands on the Brain), and the App button opens it too.
 - HUD (`app/sections/brain-hud.js`): a ring reticle (SVG, CSS animation) that follows JARVIS's state
   (blue listening, amber working, brighter while speaking, grey muted, red with the reason), swelling
-  with the voice level; or the 3D orb (orb3d.js, made once and kept). Pills: state or activity, voice
-  model, language, Voice on / Text only.
+  with the voice level; or the 3D orb (orb3d.js, made once and kept). The voice model and language are
+  folded under Details; the state and activity are said once, in the app header's channel tag (main.js).
 - Capability switches, all real JARVIS controls: Mic (mute), Voice, Announce, Memory (keep this
   conversation, or stop as "don't remember this" does; click again to keep it from now on), Agents
   (Agent Hub status; opens the Command centre). The log's state is published as `memory_keep`.

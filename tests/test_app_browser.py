@@ -269,14 +269,29 @@ async def test_chats_speaker_button_mutes_only_replies(served, page) -> None:
     await page.goto(url + "&s=chat")
     speaker = page.get_by_role("button", name="Spoken replies")
     await speaker.wait_for()
-    assert await speaker.get_attribute("aria-pressed") == "true" and "Spoken" in await speaker.inner_text()
+    assert await speaker.get_attribute("aria-pressed") == "true" and "spoken" in await speaker.get_attribute("title")
     await speaker.click()
     assert await until(lambda: bridge.controls == ["voice"])               # the Voice setting, nothing else
     bridge.bus.publish("voice", on=False)
     await page.locator(".composer .tool.muted").wait_for()
-    assert await speaker.get_attribute("aria-pressed") == "false" and "Muted" in await speaker.inner_text()
+    assert await speaker.get_attribute("aria-pressed") == "false" and "muted" in await speaker.get_attribute("title")
     assert "still listens" in await speaker.get_attribute("title")
     assert await page.get_by_role("button", name="Talk").is_enabled()      # talking still works
+
+
+async def test_one_channel_tag_says_how_you_talk_to_jarvis(served, page) -> None:
+    """Krishna, 28 Oct: the channel was said in several places; now only the header's tag says it."""
+    bridge, url = served
+    await page.goto(url + "&s=chat")
+    tag = page.locator("header .channel")
+    await tag.get_by_text("Voice", exact=True).wait_for()               # nothing said yet: voice
+    bridge.bus.publish("message", channel="chat", role="user", label="Krishna", text="What's the time?")
+    await tag.get_by_text("Typing", exact=True).wait_for()
+    assert await page.get_by_text("typed", exact=True).count() == 0     # no per-message label any more
+    bridge.bus.publish("message", channel="voice", role="user", label="Krishna", text="And the weather?")
+    await tag.get_by_text("Voice", exact=True).wait_for()
+    context = page.get_by_role("complementary", name="What this answer used")
+    assert "none" in await context.inner_text()                         # empty groups fold to one line
 
 
 async def test_the_app_has_a_dot_for_the_orb_and_reports_full_screen(served, page) -> None:
@@ -291,10 +306,10 @@ async def test_the_app_has_a_dot_for_the_orb_and_reports_full_screen(served, pag
     await page.evaluate("window.jarvisDock({x: 1})")                    # not a dock message: ignored
     assert await until(lambda: len(bridge.docks) == 2)
     assert bridge.docks[0]["docked"] is True and bridge.docks[0]["x"] == 1880 and bridge.docks[1] == {"type": "orb_dock", "docked": False}
-    assert await page.locator("header .pill .dot").count() == 1
+    assert await page.locator("header .channel").count() == 1
     bridge.bus.publish("orb_dock", docked=True, x=1880, y=60, size=40)
     await page.locator("header .orb-dot.docked").wait_for()             # the orb is in the dot now
-    assert await page.locator("header .pill .dot").count() == 0
+    assert await page.locator("header .channel").count() == 1           # the one channel tag either way
     bridge.bus.publish("orb_dock", docked=False)
     await page.locator("header .orb-dot:not(.docked)").wait_for()
 

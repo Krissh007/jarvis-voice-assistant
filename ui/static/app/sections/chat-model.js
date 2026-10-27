@@ -107,4 +107,11 @@ export function useChat() {
   return { turns, live };
 }
 
+// The channel you're on: voice while you're speaking or when your last message was spoken, else typing.
+export function channelOf(turns, live) {
+  if (live.user) return "voice";
+  for (let i = turns.length - 1; i >= 0; i--) if (turns[i].user) return turns[i].user.channel === "voice" ? "voice" : "chat";
+  return "voice";
+}
+
 export const _test = { apply, reset: () => { turns = []; live = { user: "", jarvis: "" }; } };

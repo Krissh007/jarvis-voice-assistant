@@ -1,5 +1,6 @@
-// The Brain's HUD: JARVIS's state as a ring reticle (or the 3D orb), a few facts as pills, and the
-// capability switches. Every switch is a real JARVIS control (the same as the orb's buttons and the
+// The Brain's HUD: JARVIS's state as a ring reticle (or the 3D orb; its colour shows the state, the words
+// are in the header's channel tag only), the capability switches, and the voice model and language folded
+// under Details. Every switch is a real JARVIS control (the same as the orb's buttons and the
 // hotkeys): Mic mutes the microphone, Voice speaks replies, Announce speaks background news, Memory keeps
 // this conversation (or stops, as "don't remember this" does), Agents shows the Agent Hub and opens the
 // Command centre. Colours follow the orb: blue listening, amber working, brighter while speaking, grey
@@ -43,8 +44,7 @@ function Ring({ tone, label }) {
       <circle class="ring-arc a1" cx="100" cy="100" r="78" pathLength="100" />
       <circle class="ring-arc a2" cx="100" cy="100" r="68" pathLength="100" />
       <circle class="ring-core" cx="100" cy="100" r="50" />
-      <text class="ring-name" x="100" y="98">J.A.R.V.I.S.</text>
-      <text class="ring-state" x="100" y="116">${label.toUpperCase()}</text>
+      <text class="ring-name" x="100" y="104">J.A.R.V.I.S.</text>
     </svg>
   </div>`;
 }
@@ -143,12 +143,13 @@ export function Hud() {
       ${orbWanted && html`<${Orb} tone=${tone} shown=${view === "orb"} />`}
     </div>
     ${s.connected && s.problem && html`<p class="hud-problem small" role="status"><${Icon} name="triangle-alert" size=${14} /> ${s.problem}</p>`}
-    <div class="hud-pills">
-      <span class=${"pill tone-" + tone} title="What JARVIS is doing">${s.activity || label}</span>
-      ${s.voiceModel && html`<span class="pill" title="The voice model">${s.voiceModel}</span>`}
-      ${s.language && html`<span class="pill" title="The language JARVIS listens for">${s.language}</span>`}
-      <span class="pill" title=${s.voice ? "Replies are spoken" : "Replies are text only"}>${s.voice ? "Voice on" : "Text only"}</span>
-    </div>
     <${Capabilities} />
+    ${(s.voiceModel || s.language) && html`<details class="hud-more">
+      <summary class="small dim"><${Icon} name="info" size=${13} /> Details</summary>
+      <div class="hud-pills">
+        ${s.voiceModel && html`<span class="pill" title="The voice model">${s.voiceModel}</span>`}
+        ${s.language && html`<span class="pill" title="The language JARVIS listens for">${s.language}</span>`}
+      </div>
+    </details>`}
   </section>`;
 }

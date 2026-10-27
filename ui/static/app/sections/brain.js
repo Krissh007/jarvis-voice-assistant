@@ -116,8 +116,9 @@ function Controls({ forces, setForces, labels, setLabels, showLinks, setShowLink
   const slider = (key, label, min, max) => html`<label class="brain-slider"><span>${label}</span>
     <input type="range" min=${min} max=${max} value=${forces[key]} aria-label=${label}
       onInput=${(e) => setForces({ ...forces, [key]: Number(e.target.value) })} /></label>`;
-  return html`<section class="brain-card" aria-label="Layout">
-    <div class="brain-card-head"><${Icon} name="sliders-horizontal" size=${15} /> Layout</div>
+  return html`<details class="brain-card brain-fold" aria-label="Layout">
+    <summary class="brain-card-head"><${Icon} name="sliders-horizontal" size=${15} /> Layout
+      <span class="grow"></span><span class="fold-chevron"><${Icon} name="chevron-right" size=${14} /></span></summary>
     ${slider("repel", "Push apart", 10, 200)}
     ${slider("distance", "Link length", 15, 120)}
     <div class="brain-toggles">
@@ -134,7 +135,7 @@ function Controls({ forces, setForces, labels, setLabels, showLinks, setShowLink
       <button class="btn small-btn" title="Lay the brain out again from the start" onClick=${() => view.current?.shake()}>
         <${Icon} name="refresh-cw" size=${13} /> Re-arrange</button>
     </div>
-  </section>`;
+  </details>`;
 }
 
 function Legend({ graph, hidden, toggle }) {

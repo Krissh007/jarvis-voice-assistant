@@ -78,8 +78,7 @@ function Reply({ text, last, voice }) {
 
 function Turn({ t, last, selected, select, voice }) {
   return html`<div class=${"turn" + (selected ? " selected" : "")} onClick=${() => select(t.id)}>
-    ${t.user && html`<div class="msg user"><div class="bubble">${t.user.text}</div>
-      <div class="faint small">${t.user.channel === "voice" ? "spoken" : "typed"}</div></div>`}
+    ${t.user && html`<div class="msg user"><div class="bubble" title=${t.user.channel === "voice" ? "Spoken" : "Typed"}>${t.user.text}</div></div>`}
     ${t.pictures.map((p, i) => html`<figure key=${i} class="pic"><img src=${p.data} alt=${p.caption || p.title} />
       <figcaption class="faint small">${p.title}${p.caption ? " · " + p.caption : ""}</figcaption></figure>`)}
     ${t.tools.length > 0 && html`<div class="tool-chips">${t.tools.map((x, i) => html`<span key=${i} class="chip">
@@ -93,24 +92,33 @@ function Turn({ t, last, selected, select, voice }) {
 
 // ---------------------------------------------------------------- context panel
 
+// One group of the context panel: open when it has something, otherwise just its heading with "none".
+function Group({ icon, title, count, children }) {
+  if (!count) {
+    return html`<div class="ctx-group none"><${Icon} name=${icon} size=${14} /> ${title}<span class="faint small">none</span></div>`;
+  }
+  return html`<details class="ctx-group" open>
+    <summary><${Icon} name=${icon} size=${14} /> ${title}<span class="faint small">${count}</span></summary>${children}</details>`;
+}
+
 function Context({ t }) {
   if (!t) return html`<aside class="context"><p class="dim small">What JARVIS uses for an answer shows here.</p></aside>`;
   const memFacts = t.memory.flatMap((m) => m.facts);
   const memLines = t.memory.reduce((n, m) => n + m.lines, 0);
   return html`<aside class="context" aria-label="What this answer used">
-    <h3><${Icon} name="cpu" size=${14} /> Tools</h3>
-    ${t.tools.length ? html`<ul class="ctx">${t.tools.map((x, i) => html`<li key=${i}><span class=${"dot " + DOT[x.state]}></span>
-      ${label(x.tool)}<span class="faint small">${x.state === "running" ? "running" : x.state === "waiting" ? "waiting for you" : x.state}</span></li>`)}</ul>`
-      : html`<p class="faint small">None: answered directly.</p>`}
-    <h3><${Icon} name="globe" size=${14} /> Web sources</h3>
-    ${t.sources.length ? html`<ul class="ctx">${t.sources.map((s, i) => html`<li key=${i} title=${s.title}>
-      <span class="src-title">${s.title}</span><span class="faint small">${s.site}</span></li>`)}</ul>`
-      : html`<p class="faint small">None.</p>`}
-    <h3><${Icon} name="brain" size=${14} /> Memory</h3>
-    ${memFacts.length || memLines ? html`<ul class="ctx">
-      ${memFacts.map((f, i) => html`<li key=${i}>${f}</li>`)}
-      ${memLines > 0 && html`<li class="dim">${memLines} line${memLines === 1 ? "" : "s"} from past conversations</li>`}</ul>`
-      : html`<p class="faint small">No memory looked up. Your remembered facts are always available to JARVIS.</p>`}
+    <${Group} icon="cpu" title="Tools" count=${t.tools.length}>
+      <ul class="ctx">${t.tools.map((x, i) => html`<li key=${i}><span class=${"dot " + DOT[x.state]}></span>
+        ${label(x.tool)}<span class="faint small">${x.state === "running" ? "running" : x.state === "waiting" ? "waiting for you" : x.state}</span></li>`)}</ul>
+    </${Group}>
+    <${Group} icon="globe" title="Web sources" count=${t.sources.length}>
+      <ul class="ctx">${t.sources.map((s, i) => html`<li key=${i} title=${s.title}>
+        <span class="src-title">${s.title}</span><span class="faint small">${s.site}</span></li>`)}</ul>
+    </${Group}>
+    <${Group} icon="brain" title="Memory" count=${memFacts.length + (memLines ? 1 : 0)}>
+      <ul class="ctx">
+        ${memFacts.map((f, i) => html`<li key=${i}>${f}</li>`)}
+        ${memLines > 0 && html`<li class="dim">${memLines} line${memLines === 1 ? "" : "s"} from past conversations</li>`}</ul>
+    </${Group}>
   </aside>`;
 }
 
@@ -173,12 +181,12 @@ export function Composer({ compact, placeholder = "Message JARVIS…", inputRef 
         aria-label="Attach my screen" onClick=${snap}><${Icon} name="image" size=${17} /></button>`}
       <button type="button" class=${"tool web-" + web} title=${WEB_TITLE[web] + " (click to change)"} aria-label=${WEB_TITLE[web]}
         onClick=${() => setWeb(WEB[(WEB.indexOf(web) + 1) % WEB.length])}><${Icon} name="globe" size=${17} />
-        <span>${web === "auto" ? "Web: auto" : web === "on" ? "Web: on" : "Web: off"}</span></button>
+        ${web !== "auto" && html`<span>${web === "on" ? "Web: on" : "Web: off"}</span>`}</button>
       <span class="grow note dim small" role="status">${note}</span>
       <button type="button" class=${"tool" + (s.voice ? "" : " muted")} aria-pressed=${s.voice ? "true" : "false"}
         aria-label="Spoken replies" onClick=${() => control("voice")}
         title=${s.voice ? "Replies are spoken. Click to mute them (JARVIS keeps listening)" : "Replies are muted: text only, JARVIS still listens. Click to hear them"}>
-        <${Icon} name=${s.voice ? "volume-2" : "volume-x"} size=${17} /><span>${s.voice ? "Spoken" : "Muted"}</span></button>
+        <${Icon} name=${s.voice ? "volume-2" : "volume-x"} size=${17} /></button>
       ${!phone && html`<button type="button" class="tool" title="Talk instead (Ctrl+Alt+Space)" aria-label="Talk" onClick=${() => control("talk")}>
         <${Icon} name="mic" size=${17} /></button>`}
       ${busy && html`<button type="button" class="btn" title="Stop (Ctrl+Alt+S)" onClick=${() => control("stop")}>
@@ -210,7 +218,7 @@ export function ChatSection({ compact }) {
           <p class="dim">Voice and typing share one conversation. Say "hey Jarvis" or type below.</p></div>`}
         ${turns.map((t) => html`<${Turn} key=${t.id} t=${t} last=${t.id === lastId} selected=${!compact && shown && t.id === shown.id}
           select=${setSelected} voice=${s.voice} />`)}
-        ${live.user && html`<div class="msg user live"><div class="bubble">${live.user}</div><div class="faint small">listening…</div></div>`}
+        ${live.user && html`<div class="msg user live"><div class="bubble">${live.user}</div></div>`}
         ${live.jarvis && html`<div class="msg jarvis live"><div class="bubble">${live.jarvis}</div></div>`}
         ${s.activity && html`<div class="msg jarvis activity" role="status"><div class="bubble"><span class="pulse"></span>${s.activity}</div></div>`}
       </div>

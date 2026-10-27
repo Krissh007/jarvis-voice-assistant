@@ -181,13 +181,16 @@ the clipboard, running a plan, forgetting a memory) is read to you first:
 - **Ctrl+Alt+Space** hides or shows it. Talking without the wake word is **Ctrl+Alt+T** now.
 - It never disappears when the app opens. While the app is full screen it sits in the dot at the top right of
   the app (the same orb, smaller); minimise or close the app and it floats again where you left it.
+  While it's in the app, replies, pictures and lists show only in the app's chat, not around the orb.
 - Its colour: blue listening (still when idle), violet thinking, amber working on a task, grey muted, and
   **red when something JARVIS needs isn't
   working**: the reason shows under it when you tap (the voice session not connected, or the Agent Hub
   not reachable).
 
 **The app** opens maximized from the orb's menu (Chat, Command centre or Settings). Its icon sidebar has five
-sections; the button under them shows Chat and the Command centre side by side.
+sections; the button under them shows Chat and the Command centre side by side. One tag at the top right
+says how you're talking to JARVIS (**Voice** or **Typing**) and what it's doing; a speaker-off icon in it
+means replies are text only, a bell-off icon that announcements are off.
 
 - **Brain**: what JARVIS can do and is doing, as one graph: its tools by category (blue; a tool shows
   how often it was used in the last 30 days), **Active agents** (green: the Agent Hub's agents and
@@ -200,12 +203,14 @@ sections; the button under them shows Chat and the Command centre side by side.
     folder** for a file, **Command centre** for an agent. **Shift-click** a second dot to trace the path
     between the two.
   - **Drag** the background to move around, drag a dot to move it, **scroll** to zoom, double-click to
-    zoom in. **Search the brain** finds dots by name. **Top hubs** lists the busiest. **Layout** spreads
-    the dots out or pulls them in, shows labels on hubs, all or none, and hides the lines.
+    zoom in. **Search the brain** finds dots by name. **Top hubs** lists the busiest. **Layout** (folded:
+    click it to open) spreads the dots out or pulls them in, shows labels on hubs, all or none, and hides
+    the lines.
   - The list on the right (**Show**) hides or shows a kind of dot. The brain opens the way you left it
     and updates by itself as JARVIS uses tools and the agents report.
-  - Top right, JARVIS's **HUD**: a ring (or the 3D orb) in the orb's colours, what it's doing, the voice
-    model and language, and five switches: **Mic** (mute), **Voice** (spoken replies), **Announce**
+  - Top right, JARVIS's **HUD**: a ring (or the 3D orb) in the orb's colours (what it's doing is in the
+    header's tag), the voice model and language under **Details**, and five switches: **Mic** (mute),
+    **Voice** (spoken replies), **Announce**
     (spoken news), **Memory** (keep this conversation; off stops keeping it until you switch it back on
     or start a new chat) and **Agents** (whether the Agent Hub answers; click for the Command centre).
   - Under the graph, the **command bar**: type or talk to JARVIS (the same box as Chat). What JARVIS says
@@ -215,11 +220,13 @@ sections; the button under them shows Chat and the Command centre side by side.
 - **Chat**: everything you said and typed, and JARVIS's replies. Point at a reply to copy it, ask for it
   again differently (the last one), or pin it to memory (select part of it to pin just that). Actions
   that need your yes appear as a card with **Approve** and **Cancel**. The panel on the right shows what
-  an answer used: tools, web sources (site names) and memory. Click an older turn to see its panel.
-  Under the typing box: attach a picture (paperclip) or a picture of your screen (private windows are
-  blacked out first), set **Web** to auto (JARVIS decides), on or off for the next message, talk, stop.
-  The speaker button (**Spoken** / **Muted**) is the Voice switch: muted, replies are text only, but
-  JARVIS still listens and you can keep talking to it. Voice is on again each time JARVIS starts.
+  an answer used: tools, web sources (site names) and memory, each folded to one line when there's
+  none. Click an older turn to see its panel. Under the typing box (icons; point at one for what it
+  does): attach a picture (paperclip) or a picture of your screen (private windows are blacked out
+  first), set **Web** to auto (JARVIS decides), on or off for the next message (it says "Web: on" or
+  "Web: off" when it isn't auto), talk, stop. The speaker button is the Voice switch: muted (amber),
+  replies are text only, but JARVIS still listens and you can keep talking to it. Voice is on again
+  each time JARVIS starts.
   Voice works in Chat as everywhere else: say "hey Jarvis", or after typing a message just keep talking
   (typing at the PC opens the listening window, as speaking does; a message from the phone doesn't).
 - **Command centre**: whether the voice session, the Agent Hub and each of its agents are working,
