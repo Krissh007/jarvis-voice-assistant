@@ -319,21 +319,21 @@ receives can confirm an action.
   store and the dark cyan theme. Sections, from an icon sidebar (split view puts Chat and the Command
   centre side by side):
   - **Brain** (`app/sections/brain*.js`; docs/brain-ui-plan.md): `core/brain_graph.build()` turns JARVIS's
-    own data into nodes and links, each link with a reason: facts and kept conversations
-    (`data/memory.sqlite`; a fact links to a conversation by the cosine to its closest user line, ≥ 0.55,
-    or by shared words when there are no vectors), tools by `core/catalog.py` category, the Hub's agents
-    and actions (`agent_status` lists them), pending reminders, and files from the audit log's path
-    arguments only. Tool calls are placed in conversations by time (UTC log vs local conversations). The
-    page asks with `request: brain` (built off the loop); `WebBridge` publishes one `brain_update` at most
-    every 2 s after messages, tool calls, recalls, agent results, pins, forgets and deletes. The page draws
+    own data into nodes and links, each link with a reason: tools by `core/catalog.py` category (with
+    their call count and last use from the audit log), the Hub's agents and actions (`agent_status` lists
+    them) and its requests still running (`HubBridge.working`, as `services.agent_work`) under "Active
+    agents", the projects in `brain_view.projects` (files used under a project's folder, and the agents and
+    tool categories it names, link to it), pending reminders, and files from the audit log's path arguments
+    only. Facts and conversations aren't drawn since 28 Oct 2026 (they swamped the view; the Memory section
+    lists them). The page asks with `request: brain` (built off the loop); `WebBridge` publishes one
+    `brain_update` at most every 2 s after tool calls and agent results. The page draws
     with d3-force 3.0.0 (`ui/static/vendor/d3`, ISC) on a canvas that redraws only when something moves;
     node positions are kept in `data/brain_layout.json` (`brain_layout` messages in 6 KB chunks, since the
-    page's port, and so its storage, changes each start). The inspector's actions are the user's clicks:
-    `forget`, `request: conversation`, and `show_file` (the page names a node; the path comes from the audit
-    log, so nothing else can be opened). The HUD's switches are the existing controls plus `keep_memory`
+    page's port, and so its storage, changes each start). The inspector's actions are the user's clicks: `show_file`
+    (the page names a node; the path comes from the audit log, so nothing else can be opened) and the
+    Command centre for an agent. The HUD's switches are the existing controls plus `keep_memory`
     (`Assistant.toggle_keep`: `ConversationLog.pause` / `resume`, published as `memory_keep`); the command
-    bar reuses Chat's composer and plan cards; `tool_started`, `memory_used` and `agent_update` make nodes
-    pulse. Measured: 2,000 nodes settle in about 4 s at 50+ fps; a 30-day history of 200 conversations
+    bar reuses Chat's composer and plan cards; `tool_started` and `agent_update` make nodes pulse. Measured: 2,000 nodes settle in about 4 s at 50+ fps; a 30-day history of 200 conversations
     builds in under a second.
   - **Chat**: the conversation as turns (what you said, then JARVIS's replies, tool chips, plan cards
     with Approve / Cancel, pictures), reply actions (copy, regenerate the last, pin to memory), and a

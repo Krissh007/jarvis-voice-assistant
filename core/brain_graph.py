@@ -1,26 +1,26 @@
 """The Brain view's graph: what JARVIS knows and has done, as nodes and links (docs/brain-ui-plan.md).
 
-Everything comes from JARVIS itself, read-only: remembered facts and kept conversations
-(data/memory.sqlite), its tools (the registry, grouped by core/catalog.py's categories), the Agent Hub's
-agents and actions (agent_status), pending reminders, and the files JARVIS actually used (the audit log's
-path arguments, never the whole file index). Nothing is invented and nothing leaves the PC.
+Everything comes from JARVIS itself, read-only: its tools (the registry, grouped by core/catalog.py's
+categories, with how often each was called), the Agent Hub's agents and actions (agent_status) and the
+requests they are working on now, the projects JARVIS looks after (brain_view.projects in config.yaml),
+pending reminders, and the files JARVIS actually used (the audit log's path arguments, never the whole file
+index). Nothing is invented and nothing leaves the PC.
 
-Every link carries a reason the inspector can show ("called 3 times in this conversation", "close in
-meaning", "shares: car, service"). Sizes are capped so a long history can't swamp the view.
+Remembered facts and kept conversations aren't drawn: hundreds of them swamped the view (Krishna, 28 Oct
+2026). The Memory section still lists both.
 
-The labels are the facts and lines themselves, which already passed the secret filter when they were kept;
-they go through privacy.redact as well (emails, long numbers). The page shows them as text, never HTML.
+Every link carries a reason the inspector can show ("read_file 3×", "in this project"). Sizes are capped so
+a long history can't swamp the view. Labels go through privacy.redact (emails, long numbers); the page
+shows them as text, never HTML.
 """
 
 from __future__ import annotations
 
-import bisect
 import json
 import logging
 import os
-import re
 from collections import Counter, defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -30,36 +30,17 @@ from core.privacy import redact
 log = logging.getLogger(__name__)
 
 TYPES = {  # type -> the hub every node of that type hangs from (and its label; not a tool category's name)
-    "memory": ("hub:memory", "Remembered facts"),
-    "conversation": ("hub:conversation", "Conversations"),
     "tool": (None, None),            # tools hang from their category's hub (cat:<category>)
-    "agent": ("hub:agents", "Agent Hub"),
+    "agent": ("hub:agents", "Active agents"),
+    "project": ("hub:projects", "Projects"),
     "reminder": ("hub:reminder", "Reminders"),
     "file": ("hub:file", "Files used"),
 }
-MAX_CONVERSATIONS = 200
 MAX_FILES = 150
+MAX_PROJECTS = 20
 MAX_AUDIT_LINES = 8000          # newest lines of logs/actions.jsonl read for tool calls and files
-DAYS = 30                       # conversations and tool calls older than this aren't drawn
-# A fact and a conversation are linked when the fact's meaning is this close (cosine) to one of the user's
-# lines in it. Measured 26 Oct 2026 on Krishna's real data (14 facts x 21 conversations, 337 lines): the
-# best single line separates far better than the conversation's average (averages of long chats were all
-# "close" to everything). From 0.55 the pairs were right (the confirmation rule <-> a talk about
-# confirmations; screen permission <-> "what do you see on the screen?"); below it they turned vague
-# ("Claude replies summary" <-> "Open Claude.").
-MEANING_MIN = 0.55
-MAX_FACT_LINKS = 3              # facts linked to one conversation, closest first
-SHARED_WORDS_MIN = 2            # or, without meaning vectors to compare, this many shared words
+DAYS = 30                       # tool calls older than this aren't counted
 FILE_TOOLS = {"read_file", "write_file", "edit_file", "delete_file", "open_file"}
-WORD = re.compile(r"[A-Za-z][A-Za-z0-9']{2,}")
-STOP = {"the", "and", "for", "you", "your", "are", "was", "what", "that", "this", "with", "have", "can", "about",
-        "from", "please", "jarvis", "tell", "show", "open", "how", "who", "when", "where", "why", "did", "does",
-        "will", "would", "could", "should", "just", "now", "today", "like", "want", "need", "know", "call", "user",
-        "krishna", "its", "it's", "i'm", "don't", "there", "they", "them", "then", "than", "also", "into", "out"}
-
-
-def _words(text: str) -> set[str]:
-    return {w.lower() for w in WORD.findall(text or "")} - STOP
 
 
 def _label(text: Any, limit: int) -> str:
@@ -69,7 +50,7 @@ def _label(text: Any, limit: int) -> str:
 
 
 def _local(ts: str) -> datetime | None:
-    """The audit log's UTC timestamp as local time without a zone (how conversations are stored)."""
+    """The audit log's UTC timestamp as local time without a zone."""
     try:
         dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
     except ValueError:
@@ -77,23 +58,6 @@ def _local(ts: str) -> datetime | None:
     if dt.tzinfo is not None:
         dt = dt.astimezone().replace(tzinfo=None)
     return dt
-
-
-def _parse(ts: str) -> datetime | None:
-    try:
-        return datetime.fromisoformat(str(ts))
-    except (TypeError, ValueError):
-        return None
-
-
-def _vector(blob: bytes | None):
-    if not blob:
-        return None
-    import numpy as np
-
-    v = np.frombuffer(blob, dtype=np.float32)
-    n = float(np.linalg.norm(v))
-    return v / n if n else None
 
 
 def read_audit(path: Path | None, since: datetime) -> list[dict[str, Any]]:
@@ -161,100 +125,35 @@ class Graph:
         return nid
 
 
-def build(*, store=None, conversations=None, registry=None, hub_status: dict | None = None,
-          reminders: list[dict] | None = None, audit_path: Path | None = None, now: datetime | None = None) -> dict:
-    """The whole graph: {"nodes", "links", "counts", "generated", "capped"}. Every source is optional."""
+def _slug(name: str) -> str:
+    return "-".join("".join(c if c.isalnum() else " " for c in name.lower()).split())
+
+
+def _under(path: str, folder: str) -> bool:
+    p = str(path).replace("\\", "/").lower().rstrip("/")
+    f = str(folder).replace("\\", "/").lower().rstrip("/")
+    return bool(f) and (p == f or p.startswith(f + "/"))
+
+
+def build(*, registry=None, hub_status: dict | None = None, working: list[dict] | None = None,
+          projects: list[dict] | None = None, reminders: list[dict] | None = None, audit_path: Path | None = None,
+          now: datetime | None = None) -> dict:
+    """The whole graph: {"nodes", "links", "counts", "generated", "capped"}. Every source is optional.
+
+    working: the Agent Hub requests still out ({id, text, minutes}); projects: {name, folder, agents, tools}."""
     now = now or datetime.now()
     since = now - timedelta(days=DAYS)
     g = Graph()
     g.node("jarvis", "core", "JARVIS", hub=True)
     capped: list[str] = []
+    calls = read_audit(audit_path, since)
 
-    # ---- remembered facts
-    facts = []
-    if store is not None:
-        try:
-            with store.db.connect() as db:
-                facts = [dict(r) for r in db.execute("SELECT id, text, added, uses, embedding FROM facts ORDER BY id")]
-        except Exception:
-            log.exception("brain: facts unreadable")
-    for f in facts:
-        g.hub("memory")
-        nid = g.node(f"fact:{f['id']}", "memory", _label(f["text"], 140), added=f["added"], uses=f["uses"])
-        g.link(nid, "hub:memory", "remembered", "structure")
-
-    # ---- kept conversations (with a meaning vector from their user lines)
-    convs: list[dict] = []
-    if conversations is not None:
-        try:
-            with conversations.db.connect() as db:
-                # (the first thing the user said comes from the lines read below: a subquery per
-                # conversation was the slowest part of a long history)
-                rows = db.execute(
-                    "SELECT c.id, c.started, c.ended, c.channels, COUNT(m.id) AS lines "
-                    "FROM conversations c JOIN messages m ON m.conversation = c.id WHERE c.started >= ? "
-                    "GROUP BY c.id ORDER BY c.started DESC LIMIT ?", (since.isoformat(timespec="seconds"),
-                                                                     MAX_CONVERSATIONS + 1)).fetchall()
-                convs = [dict(r) for r in rows]
-                if len(convs) > MAX_CONVERSATIONS:
-                    convs = convs[:MAX_CONVERSATIONS]
-                    capped.append("conversations")
-                ids = [c["id"] for c in convs]
-                texts: dict[int, list[str]] = defaultdict(list)
-                vecs: dict[int, list] = defaultdict(list)
-                if ids:
-                    q = ",".join("?" * len(ids))
-                    for r in db.execute(f"SELECT conversation, text, embedding FROM messages WHERE role = 'user' "
-                                        f"AND conversation IN ({q}) ORDER BY id", ids):
-                        texts[r["conversation"]].append(r["text"])
-                        v = _vector(r["embedding"])
-                        if v is not None:
-                            vecs[r["conversation"]].append((v, r["text"]))
-        except Exception:
-            log.exception("brain: conversations unreadable")
-            convs = []
-        for c in convs:
-            c["first"] = (texts.get(c["id"]) or [None])[0]
-            c["words"] = _words(" ".join(texts.get(c["id"], [])))
-            c["said"] = vecs.get(c["id"], [])   # (meaning vector, text) of each line the user said
-    for c in convs:
-        g.hub("conversation")
-        when = _parse(c["started"])
-        nid = g.node(f"conv:{c['id']}", "conversation", _label(c["first"] or "(JARVIS spoke first)", 90),
-                     started=c["started"], ended=c["ended"], lines=c["lines"], channels=c["channels"],
-                     day=when.strftime("%a %d %b") if when else "")
-        g.link(nid, "hub:conversation", "kept conversation", "structure")
-
-    # ---- facts <-> conversations: close in meaning, or sharing words
-    import numpy as np
-
-    fact_words = {f["id"]: _words(f["text"]) for f in facts}
-    fact_vecs = {f["id"]: _vector(f.get("embedding")) for f in facts}
-    with_vec = [f for f in facts if fact_vecs[f["id"]] is not None]
-    fact_matrix = np.stack([fact_vecs[f["id"]] for f in with_vec]) if with_vec else None
-    for c in convs:
-        best: dict[int, tuple[float, str]] = {}   # fact id -> (closest line's cosine, that line)
-        if fact_matrix is not None and c["said"]:
-            sims = fact_matrix @ np.stack([v for v, _ in c["said"]]).T     # facts x lines, all at once
-            top = sims.argmax(axis=1)
-            for f, j, row in zip(with_vec, top, sims):
-                best[f["id"]] = (float(row[j]), c["said"][j][1])
-        scored = []
-        for f in facts:
-            fv = fact_vecs.get(f["id"])
-            sim, line = best.get(f["id"], (0.0, ""))
-            shared = sorted(fact_words[f["id"]] & c["words"])
-            if sim >= MEANING_MIN:
-                scored.append((sim + 0.01 * len(shared), f["id"],
-                               f"close in meaning to “{_label(line, 60)}” ({sim:.2f})"))
-            # words only when meaning can't be compared: on real data they mostly matched on "asking, not"
-            elif (fv is None or not c["said"]) and len(shared) >= SHARED_WORDS_MIN:
-                scored.append((0.3 + 0.01 * len(shared), f["id"], "shares: " + ", ".join(shared[:4])))
-        for _, fid, reason in sorted(scored, reverse=True)[:MAX_FACT_LINKS]:
-            g.link(f"conv:{c['id']}", f"fact:{fid}", reason, "meaning")
-
-    # ---- tools, by category
+    # ---- tools, by category, with how often each was called lately
     names = set()
+    used = Counter(c["tool"] for c in calls)
+    last: dict[str, datetime] = {}
+    for c in calls:
+        last[c["tool"]] = max(c["at"], last.get(c["tool"], c["at"]))
     if registry is not None:
         for t in registry.visible():
             names.add(t.name)
@@ -264,10 +163,11 @@ def build(*, store=None, conversations=None, registry=None, hub_status: dict | N
                    description=catalog.CATEGORIES.get(cat, "JARVIS's own controls: plans, tasks, the Agent Hub."))
             g.link("jarvis", cat_id, f"{cat} tools", "structure")
             nid = g.node(f"tool:{t.name}", "tool", t.name, description=_label(t.description, 220),
-                         read_only=bool(t.read_only))
+                         read_only=bool(t.read_only), calls=used.get(t.name, 0),
+                         last_used=last[t.name].isoformat(timespec="minutes") if t.name in last else "")
             g.link(nid, cat_id, f"a {cat} tool", "structure")
 
-    # ---- the Agent Hub's agents and actions
+    # ---- the Agent Hub's agents and actions, and the requests they're working on now
     agents = (hub_status or {}).get("agents") or []
     for a in agents:
         g.hub("agent")
@@ -279,8 +179,31 @@ def build(*, store=None, conversations=None, registry=None, hub_status: dict | N
             nid = g.node(f"action:{a.get('name')}.{act.get('name')}", "agent", str(act.get("name")),
                          description=_label(act.get("description"), 200), side_effect=bool(act.get("side_effect")))
             g.link(nid, aid, f"an action of {a.get('name')}", "structure")
-    if agents and "agent_hub_request" in names:
+    for w in working or []:
+        g.hub("agent")
+        minutes = int(w.get("minutes") or 0)
+        nid = g.node(f"work:{w.get('id')}", "agent", _label(w.get("text"), 90), minutes=minutes, working=True)
+        g.link(nid, "hub:agents", f"working on it now ({minutes} min)" if minutes else "working on it now", "uses")
+    if (agents or working) and "agent_hub_request" in names:
         g.link("tool:agent_hub_request", "hub:agents", "hands requests to the Agent Hub", "uses")
+
+    # ---- the projects JARVIS looks after
+    proj_ids: list[tuple[str, str]] = []   # (node id, folder)
+    for p in (projects or [])[:MAX_PROJECTS]:
+        name = str(p.get("name") or "").strip()
+        if not name:
+            continue
+        g.hub("project")
+        folder = str(p.get("folder") or "").strip()
+        pid = g.node(f"project:{_slug(name)}", "project", _label(name, 60), hub=True, folder=_label(folder, 160))
+        g.link(pid, "hub:projects", "a project JARVIS looks after", "structure")
+        proj_ids.append((pid, folder))
+        for agent in p.get("agents") or []:
+            g.link(pid, f"agent:{agent}", f"{agent} works on {name}", "uses")
+        for cat in p.get("tools") or []:
+            g.link(pid, f"cat:{cat}", f"the {cat} tools work on {name}", "uses")
+    if len(projects or []) > MAX_PROJECTS:
+        capped.append("projects")
 
     # ---- pending reminders
     for r in reminders or []:
@@ -290,48 +213,21 @@ def build(*, store=None, conversations=None, registry=None, hub_status: dict | N
                      due=due.isoformat(timespec="minutes") if isinstance(due, datetime) else str(due or ""))
         g.link(nid, "hub:reminder", "pending reminder", "structure")
 
-    # ---- what the audit log says JARVIS did: tools in conversations, files it used, reminders it set
-    calls = read_audit(audit_path, since)
-    spans = []
-    for c in sorted(convs, key=lambda c: c["started"]):
-        start = _parse(c["started"])
-        end = _parse(c["ended"]) if c["ended"] else None
-        if start:
-            spans.append((start, end, c["id"]))
-    spans = [(s, e or (spans[i + 1][0] if i + 1 < len(spans) else now), cid) for i, (s, e, cid) in enumerate(spans)]
-
-    starts = [s - timedelta(seconds=5) for s, _, _ in spans]
-
-    def conv_at(at: datetime) -> int | None:
-        """The conversation a call happened in: the latest one started by then (binary search), if the
-        call came before it ended (+60 s for the last reply's tools)."""
-        i = bisect.bisect_right(starts, at) - 1
-        for s, e, cid in reversed(spans[max(0, i - 2): i + 1]):   # one that ended late may overlap the next
-            if s - timedelta(seconds=5) <= at <= e + timedelta(seconds=60):
-                return cid
-        return None
-
-    per_conv: dict[tuple[int, str], int] = Counter()
+    # ---- files JARVIS used (the audit log), and the project each one is in
     file_uses: dict[str, Counter] = defaultdict(Counter)
     file_last: dict[str, datetime] = {}
+    file_full: dict[str, str] = {}
     for call in calls:
-        cid = conv_at(call["at"])
-        if cid is not None and call["tool"] in names:
-            per_conv[(cid, call["tool"])] += 1
         if call["tool"] in FILE_TOOLS and call["path"]:
             p = _short_path(call["path"])
             file_uses[p][call["tool"]] += 1
             file_last[p] = max(call["at"], file_last.get(p, call["at"]))
-        if call["tool"] == "set_reminder" and call["text"] and cid is not None:
-            for r in reminders or []:
-                if " ".join(str(r.get("text", "")).split()).lower() == " ".join(call["text"].split()).lower():
-                    g.link(f"reminder:{r.get('id')}", f"conv:{cid}", "set in this conversation", "uses")
-    for (cid, tool), n in per_conv.items():
-        g.link(f"conv:{cid}", f"tool:{tool}", f"called {n} time{'s' if n != 1 else ''} in this conversation", "uses")
+            file_full[p] = call["path"]
     recent_files = sorted(file_last, key=file_last.get, reverse=True)
     if len(recent_files) > MAX_FILES:
         recent_files = recent_files[:MAX_FILES]
         capped.append("files")
+    in_project: Counter = Counter()
     for p in recent_files:
         g.hub("file")
         nid = g.node(f"file:{p}", "file", _label(p.rsplit("/", 1)[-1], 80), path=_label(p, 160),
@@ -339,8 +235,15 @@ def build(*, store=None, conversations=None, registry=None, hub_status: dict | N
         g.link(nid, "hub:file", "a file JARVIS used", "structure")
         for tool, n in file_uses[p].items():
             g.link(nid, f"tool:{tool}", f"{tool} {n}×", "uses")
+        for pid, folder in proj_ids:
+            if _under(file_full[p], folder):
+                g.link(nid, pid, "in this project", "uses")
+                in_project[pid] += 1
+    for pid, _ in proj_ids:
+        g.nodes[pid]["detail"]["files"] = in_project.get(pid, 0)
 
-    # an agent is a hub for its actions but still one of the things shown; the rest of the hubs are just grouping
-    counts = Counter(n["type"] for n in g.nodes.values() if not n["hub"] or n["id"].startswith("agent:"))
+    # agents and projects are hubs for what hangs off them but still things shown; the other hubs only group
+    counts = Counter(n["type"] for n in g.nodes.values()
+                     if not n["hub"] or n["id"].startswith(("agent:", "project:")))
     return {"nodes": list(g.nodes.values()), "links": list(g.links.values()), "counts": dict(counts),
             "generated": now.isoformat(timespec="seconds"), "capped": capped}

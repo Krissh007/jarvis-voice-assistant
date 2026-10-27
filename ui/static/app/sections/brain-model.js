@@ -4,10 +4,9 @@
 "use strict";
 
 export const TYPES = {
-  memory: { label: "Memory", color: "#ffb347" },
-  conversation: { label: "Conversations", color: "#8b95ff" },
   tool: { label: "Tools", color: "#38c6f4" },
   agent: { label: "Agents", color: "#3ccf8e" },
+  project: { label: "Projects", color: "#ffb347" },
   reminder: { label: "Reminders", color: "#ff7ab6" },
   file: { label: "Files", color: "#9aa7b8" },
 };
@@ -17,10 +16,13 @@ export function colorOf(node) { return node.type === "core" ? CORE_COLOR : (TYPE
 
 export function typeLabel(node) {
   if (node.type === "core") return "JARVIS";
-  if (node.type === "agent") return node.id.startsWith("action:") ? "Agent action" : node.hub ? "Agent" : "Agents";
+  if (node.type === "agent") {
+    return node.id.startsWith("action:") ? "Agent action" : node.id.startsWith("work:") ? "Running request"
+      : node.hub && node.id.startsWith("agent:") ? "Agent" : "Agents";
+  }
+  if (node.id.startsWith("project:")) return "Project";
   if (node.hub) return node.id.startsWith("cat:") ? "Tool category" : "Group";
-  return { memory: "Remembered fact", conversation: "Conversation", tool: "Tool", reminder: "Reminder",
-           file: "File" }[node.type] || node.type;
+  return { tool: "Tool", reminder: "Reminder", file: "File" }[node.type] || node.type;
 }
 
 // The graph from JARVIS, ready to draw: each link's ends resolved to node objects, every node's links,
@@ -74,7 +76,7 @@ export function search(nodes, query, hidden = new Set(), limit = 8) {
   for (const n of nodes) {
     if (hidden.has(n.type)) continue;
     const label = String(n.label || "").toLowerCase();
-    const text = [label, n.detail?.path, n.detail?.description].filter(Boolean).join(" ").toLowerCase();
+    const text = [label, n.detail?.path, n.detail?.folder, n.detail?.description].filter(Boolean).join(" ").toLowerCase();
     if (!words.every((w) => text.includes(w))) continue;
     const score = (label.startsWith(words[0]) ? 4 : label.includes(words[0]) ? 2 : 0) + (n.hub ? 1 : 0) + Math.min(n.degree, 20) / 40;
     scored.push([score, n]);
@@ -84,7 +86,7 @@ export function search(nodes, query, hidden = new Set(), limit = 8) {
 
 // The chain of links from a to b that says the most (Dijkstra), skipping hidden types; [] when there's
 // none. Every link costs 1, and passing through a group hub costs more (JARVIS most), so a path goes
-// through JARVIS or "Remembered facts" only when nothing more specific joins the two.
+// through JARVIS or "Files used" only when nothing more specific joins the two.
 export function path(a, b, hidden = new Set()) {
   if (!a || !b) return [];
   if (a === b) return [a];
@@ -137,7 +139,7 @@ function pop(heap) {
   return top;
 }
 
-// JARVIS and the "Memory" / "Files"-style hubs only group things; agents and categories say more.
+// JARVIS and the "Files used"-style hubs only group things; agents, projects and categories say more.
 export function isGroup(n) { return n.type === "core" || n.id.startsWith("hub:"); }
 
 export function linkBetween(a, b) { return a.links.find((l) => other(l, a) === b) || null; }
@@ -175,16 +177,15 @@ export function details(n) {
     const t = s ? new Date(s) : null;
     return t && !isNaN(t) ? t.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
   };
-  if (n.type === "memory" && !n.hub) {
-    if (d.added) rows.push(["Remembered", date(d.added)]);
-    rows.push(["Recalled", `${d.uses || 0} time${d.uses === 1 ? "" : "s"}`]);
-  } else if (n.type === "conversation" && !n.hub) {
-    rows.push(["Started", date(d.started)]);
-    if (d.ended) rows.push(["Ended", date(d.ended)]);
-    rows.push(["Lines", String(d.lines ?? "")]);
-    if (d.channels) rows.push(["Through", String(d.channels).replace(/,/g, ", ")]);
-  } else if (n.type === "tool" && !n.hub) {
+  if (n.type === "tool" && !n.hub) {
     rows.push(["Does", d.read_only ? "Only reads" : "Can change things (asks first when it matters)"]);
+    rows.push(["Used", d.calls ? `${d.calls} time${d.calls === 1 ? "" : "s"} in 30 days` : "Not in 30 days"]);
+    if (d.last_used) rows.push(["Last used", date(d.last_used)]);
+  } else if (n.type === "agent" && n.id.startsWith("work:")) {
+    rows.push(["Running for", d.minutes ? `${d.minutes} min` : "under a minute"]);
+  } else if (n.type === "project" && n.id.startsWith("project:")) {
+    rows.push(["Folder", String(d.folder || "")]);
+    rows.push(["Files used", String(d.files ?? 0)]);
   } else if (n.type === "agent" && n.id.startsWith("action:")) {
     rows.push(["Does", d.side_effect ? "Changes things (asks first)" : "Only reads"]);
   } else if (n.type === "agent" && n.hub && n.id.startsWith("agent:")) {

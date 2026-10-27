@@ -1,4 +1,4 @@
-"""Brain view phase 1: the graph of what JARVIS knows and did (core/brain_graph.py) and the bridge's brain request."""
+"""The Brain view's graph of what JARVIS can do and is doing (core/brain_graph.py), and the bridge's brain request."""
 
 from __future__ import annotations
 
@@ -7,18 +7,11 @@ import json
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
-import numpy as np
-
 from core import brain_graph
 from core.memory_db import MemoryDB
 from tests.test_web_ui import assistant  # noqa: F401  (fixture)
 
 NOW = datetime(2026, 10, 26, 12, 0, 0)
-
-
-def vec(*xs) -> bytes:
-    v = np.array(xs + (0.0,) * (4 - len(xs)), dtype=np.float32)
-    return (v / np.linalg.norm(v)).astype(np.float32).tobytes()
 
 
 def utc(local: datetime) -> str:
@@ -33,29 +26,6 @@ class Registry:
 
     def visible(self):
         return self.tools
-
-
-def make_db(tmp_path):
-    db = MemoryDB(tmp_path / "memory.sqlite")
-    return db, SimpleNamespace(db=db)
-
-
-def add_fact(db, text, embedding=None, uses=0):
-    with db.connect() as c:
-        return c.execute("INSERT INTO facts (text, added, embedding, uses) VALUES (?, ?, ?, ?)",
-                         (text, NOW.isoformat(), embedding, uses)).lastrowid
-
-
-def add_conversation(db, started, lines, ended=None):
-    """lines: (role, text, embedding or None)."""
-    with db.connect() as c:
-        cid = c.execute("INSERT INTO conversations (started, ended, channels) VALUES (?, ?, 'voice')",
-                        (started.isoformat(timespec="seconds"),
-                         ended.isoformat(timespec="seconds") if ended else None)).lastrowid
-        for i, (role, text, emb) in enumerate(lines):
-            c.execute("INSERT INTO messages (conversation, time, role, text, embedding) VALUES (?, ?, ?, ?, ?)",
-                      (cid, (started + timedelta(seconds=i)).isoformat(timespec="seconds"), role, text, emb))
-    return cid
 
 
 def write_audit(path, *records):
@@ -77,31 +47,30 @@ def link(graph, a, b):
 
 def test_every_source_becomes_nodes_under_its_hub(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("USERPROFILE", r"C:\Users\krishna")
-    db, store = make_db(tmp_path)
-    fid = add_fact(db, "Krishna's car is a blue Honda", uses=3)
-    cid = add_conversation(db, NOW - timedelta(hours=2), [("user", "When is the car service due?", None),
-                                                          ("assistant", "Next Tuesday.", None)],
-                           ended=NOW - timedelta(hours=1, minutes=50))
     audit = tmp_path / "actions.jsonl"
     write_audit(audit, {"timestamp": utc(NOW - timedelta(hours=1, minutes=55)), "tool": "read_file",
                         "args": {"path": r"C:\Users\krishna\Documents\car.txt"}})
     hub = {"agents": [{"name": "jobpilot", "description": "Job search", "reachable": True, "optional": False,
                        "action_list": [{"name": "run_agent", "description": "Run it", "side_effect": True}]}]}
+    working = [{"id": "r7", "text": "Find Wipro jobs", "minutes": 6}]
+    projects = [{"name": "JobPilot", "folder": "E:/JobPilot", "agents": ["jobpilot"], "tools": ["jobs"]}]
     reminders = [{"id": "r1", "text": "Book the service", "due": NOW + timedelta(days=1)}]
-    g = brain_graph.build(store=store, conversations=store, registry=Registry("read_file", "agent_hub_request"),
-                          hub_status=hub, reminders=reminders, audit_path=audit, now=NOW)
+    g = brain_graph.build(registry=Registry("read_file", "agent_hub_request"), hub_status=hub, working=working,
+                          projects=projects, reminders=reminders, audit_path=audit, now=NOW)
     nodes = by_id(g)
-    assert nodes["jarvis"]["hub"] and nodes[f"fact:{fid}"]["detail"]["uses"] == 3
-    assert nodes[f"conv:{cid}"]["label"] == "When is the car service due?" and nodes[f"conv:{cid}"]["detail"]["lines"] == 2
-    assert link(g, f"fact:{fid}", "hub:memory") and link(g, f"conv:{cid}", "hub:conversation")
+    assert nodes["jarvis"]["hub"]
     assert link(g, "tool:read_file", "cat:files")["reason"] == "a files tool" and nodes["cat:files"]["hub"]
     assert link(g, "tool:agent_hub_request", "cat:core")                 # JARVIS's own controls
+    assert nodes["hub:agents"]["label"] == "Active agents" and nodes["hub:projects"]["label"] == "Projects"
     assert link(g, "action:jobpilot.run_agent", "agent:jobpilot") and nodes["action:jobpilot.run_agent"]["detail"]["side_effect"]
     assert link(g, "tool:agent_hub_request", "hub:agents")["reason"] == "hands requests to the Agent Hub"
+    assert link(g, "work:r7", "hub:agents")["reason"] == "working on it now (6 min)"
+    assert link(g, "project:jobpilot", "hub:projects") and link(g, "project:jobpilot", "agent:jobpilot")
     assert nodes["reminder:r1"]["detail"]["due"] == "2026-10-27T12:00"
     assert "file:Documents/car.txt" in nodes and nodes["file:Documents/car.txt"]["label"] == "car.txt"
     assert link(g, "file:Documents/car.txt", "tool:read_file")["reason"] == "read_file 1×"
-    assert g["counts"] == {"memory": 1, "conversation": 1, "tool": 2, "agent": 2, "reminder": 1, "file": 1}
+    assert not any(n["type"] in ("memory", "conversation") for n in g["nodes"])   # facts and talks aren't drawn
+    assert g["counts"] == {"tool": 2, "agent": 3, "project": 1, "reminder": 1, "file": 1}
     assert g["generated"] == "2026-10-26T12:00:00" and g["capped"] == []
     json.dumps(g)                                                         # the page gets it as JSON
 
@@ -111,85 +80,61 @@ def test_no_sources_is_just_jarvis() -> None:
     assert [n["id"] for n in g["nodes"]] == ["jarvis"] and g["links"] == [] and g["counts"] == {}
 
 
-def test_tool_calls_land_in_the_conversation_they_happened_in(tmp_path) -> None:
-    """The audit log's UTC times are matched to conversations kept in local time."""
-    db, store = make_db(tmp_path)
-    first = add_conversation(db, NOW - timedelta(hours=3), [("user", "Search the news", None)],
-                             ended=NOW - timedelta(hours=3) + timedelta(minutes=5))
-    second = add_conversation(db, NOW - timedelta(minutes=30), [("user", "Search again", None)])  # still open
+def test_tools_say_how_often_they_were_called(tmp_path) -> None:
     audit = tmp_path / "actions.jsonl"
-    in_first = NOW - timedelta(hours=3) + timedelta(minutes=2)
     write_audit(audit,
-                {"timestamp": utc(in_first), "tool": "search_web"},
-                {"timestamp": utc(in_first + timedelta(seconds=10)), "tool": "search_web"},
-                {"timestamp": utc(NOW - timedelta(hours=1)), "tool": "search_web"},          # between the two
+                {"timestamp": utc(NOW - timedelta(hours=3)), "tool": "search_web"},
                 {"timestamp": utc(NOW - timedelta(minutes=10)), "tool": "search_web"},
                 {"timestamp": utc(NOW - timedelta(minutes=9)), "tool": "search_web", "confirmation": "cancelled"},
                 {"timestamp": utc(NOW - timedelta(minutes=8)), "tool": "search_web", "dry_run": True},
+                {"timestamp": utc(NOW - timedelta(days=brain_graph.DAYS + 1)), "tool": "search_web"},
                 {"timestamp": utc(NOW - timedelta(minutes=7)), "tool": "not_a_tool_here"})
     with audit.open("a", encoding="utf-8") as f:
         f.write("not json\n")
-    g = brain_graph.build(conversations=store, registry=Registry("search_web"), audit_path=audit, now=NOW)
-    assert link(g, f"conv:{first}", "tool:search_web")["reason"] == "called 2 times in this conversation"
-    assert link(g, f"conv:{second}", "tool:search_web")["reason"] == "called 1 time in this conversation"
-    assert "tool:not_a_tool_here" not in by_id(g)
+    g = brain_graph.build(registry=Registry("search_web", "read_file"), audit_path=audit, now=NOW)
+    nodes = by_id(g)
+    assert nodes["tool:search_web"]["detail"]["calls"] == 2                # cancelled, dry runs and old calls don't count
+    assert nodes["tool:search_web"]["detail"]["last_used"] == "2026-10-26T11:50"   # local time, from the UTC log
+    assert nodes["tool:read_file"]["detail"]["calls"] == 0 and nodes["tool:read_file"]["detail"]["last_used"] == ""
+    assert "tool:not_a_tool_here" not in nodes
 
 
-def test_a_call_just_after_a_new_conversation_starts_belongs_to_it(tmp_path) -> None:
-    """Conversations without an end run until the next one starts; a call in the new one's first minute is
-    the new one's, not the old one's (they overlap by the minute allowed for a last reply's tools)."""
-    db, store = make_db(tmp_path)
-    old = add_conversation(db, NOW - timedelta(hours=2), [("user", "Earlier", None)])
-    new = add_conversation(db, NOW - timedelta(hours=1), [("user", "Later", None)])
+def test_running_requests_hang_from_the_active_agents(tmp_path) -> None:
+    working = [{"id": "r1", "text": "Score the new jobs", "minutes": 0},
+               {"id": "r2", "text": "Mail me at krishna@example.com " + "word " * 40, "minutes": 12}]
+    g = brain_graph.build(registry=Registry("agent_hub_request"), working=working, now=NOW)   # Hub unreachable
+    nodes = by_id(g)
+    assert link(g, "work:r1", "hub:agents")["reason"] == "working on it now"
+    assert link(g, "work:r2", "hub:agents")["reason"] == "working on it now (12 min)"
+    assert "example.com" not in nodes["work:r2"]["label"] and len(nodes["work:r2"]["label"]) <= 90
+    assert link(g, "tool:agent_hub_request", "hub:agents") and g["counts"]["agent"] == 2
+
+
+def test_projects_gather_their_files_agents_and_tools(tmp_path) -> None:
     audit = tmp_path / "actions.jsonl"
-    write_audit(audit, {"timestamp": utc(NOW - timedelta(hours=1) + timedelta(seconds=20)), "tool": "search_web"},
-                {"timestamp": utc(NOW - timedelta(hours=1, minutes=30)), "tool": "search_web"})
-    g = brain_graph.build(conversations=store, registry=Registry("search_web"), audit_path=audit, now=NOW)
-    assert link(g, f"conv:{new}", "tool:search_web")["reason"] == "called 1 time in this conversation"
-    assert link(g, f"conv:{old}", "tool:search_web")["reason"] == "called 1 time in this conversation"
-
-
-def test_old_conversations_and_calls_are_left_out(tmp_path) -> None:
-    db, store = make_db(tmp_path)
-    old = add_conversation(db, NOW - timedelta(days=brain_graph.DAYS + 1), [("user", "Long ago", None)])
-    audit = tmp_path / "actions.jsonl"
-    write_audit(audit, {"timestamp": utc(NOW - timedelta(days=40)), "tool": "read_file", "args": {"path": "E:/old.txt"}})
-    g = brain_graph.build(conversations=store, registry=Registry("read_file"), audit_path=audit, now=NOW)
-    assert f"conv:{old}" not in by_id(g) and not any(n["type"] == "file" for n in g["nodes"])
-
-
-def test_facts_link_to_conversations_by_their_closest_line(tmp_path) -> None:
-    db, store = make_db(tmp_path)
-    close = add_fact(db, "Only ask before deleting things", vec(1, 0.2))
-    vague = add_fact(db, "Krishna likes tea", vec(0.5, 0, 1))          # about 0.45 to the matching line
-    worded = add_fact(db, "The dentist appointment is in March")      # no vector yet: words decide
-    generic = add_fact(db, "Talking about change is something", vec(0, 0, 1))  # shares words, far in meaning
-    cid = add_conversation(db, NOW - timedelta(hours=1), [
-        ("user", "Don't ask me before every little change", vec(1, 0, 0)),
-        ("user", "Talking about something else entirely now", vec(0, 1, 0)),
-        ("user", "Move my dentist appointment to April", vec(0, 1, 0)),
-        ("assistant", "Done, the dentist appointment is moved.", vec(0, 0, 0, 1)),   # JARVIS's lines don't count
-    ])
-    g = brain_graph.build(store=store, conversations=store, now=NOW)
-    meaning = link(g, f"conv:{cid}", f"fact:{close}")
-    assert meaning["kind"] == "meaning" and meaning["reason"].startswith("close in meaning to “Don't ask me before")
-    assert meaning["reason"].endswith("(0.98)")
-    assert link(g, f"conv:{cid}", f"fact:{vague}") is None             # below MEANING_MIN
-    assert link(g, f"conv:{cid}", f"fact:{worded}")["reason"] == "shares: appointment, dentist"
-    assert link(g, f"conv:{cid}", f"fact:{generic}") is None
-
-
-def test_one_conversation_links_to_its_closest_facts_only(tmp_path) -> None:
-    db, store = make_db(tmp_path)
-    facts = [add_fact(db, f"Rule number {i}", vec(1, 0.05 * i)) for i in range(5)]
-    cid = add_conversation(db, NOW - timedelta(hours=1), [("user", "the rule", vec(1, 0))])
-    g = brain_graph.build(store=store, conversations=store, now=NOW)
-    linked = [f for f in facts if link(g, f"conv:{cid}", f"fact:{f}")]
-    assert linked == facts[:brain_graph.MAX_FACT_LINKS]
-
-
-def test_the_threshold_matches_the_measurement() -> None:
-    assert brain_graph.MEANING_MIN == 0.55     # measured on real data: see the comment in core/brain_graph.py
+    t = utc(NOW - timedelta(minutes=5))
+    write_audit(audit,
+                {"timestamp": t, "tool": "read_file", "args": {"path": r"E:\JobPilot\app\main.py"}},
+                {"timestamp": t, "tool": "edit_file", "args": {"path": "e:/jobpilot/README.md"}},
+                {"timestamp": t, "tool": "read_file", "args": {"path": "E:/JobPilotOld/x.py"}},   # a different folder
+                {"timestamp": t, "tool": "read_file", "args": {"path": "E:/JARVIS Agent/jarvis/config.yaml"}})
+    projects = [{"name": "JobPilot", "folder": "E:/JobPilot/", "agents": ["jobpilot", "not_an_agent"], "tools": ["jobs"]},
+                {"name": "JARVIS", "folder": "E:/JARVIS Agent"},
+                {"name": "Vision 2.0"},                                   # no folder: nothing to match
+                {"name": "  "}]                                           # no name: left out
+    hub = {"agents": [{"name": "jobpilot", "reachable": True}]}
+    g = brain_graph.build(registry=Registry("read_file", "edit_file", "job_search_status"), hub_status=hub,
+                          projects=projects, audit_path=audit, now=NOW)
+    nodes = by_id(g)
+    jp = nodes["project:jobpilot"]
+    assert jp["hub"] and jp["label"] == "JobPilot" and jp["detail"]["folder"] == "E:/JobPilot/"
+    assert jp["detail"]["files"] == 2 and nodes["project:jarvis"]["detail"]["files"] == 1
+    assert nodes["project:vision-2-0"]["detail"]["files"] == 0
+    assert link(g, "file:E:/JobPilot/app/main.py", "project:jobpilot")["reason"] == "in this project"
+    assert link(g, "file:E:/JobPilotOld/x.py", "project:jobpilot") is None
+    assert link(g, "project:jobpilot", "agent:jobpilot")["reason"] == "jobpilot works on JobPilot"
+    assert link(g, "project:jobpilot", "cat:jobs")["reason"] == "the jobs tools work on JobPilot"
+    assert g["counts"]["project"] == 3 and not any(n["id"] == "project:" for n in g["nodes"])
 
 
 def test_files_come_only_from_file_tools_path_arguments(tmp_path, monkeypatch) -> None:
@@ -202,7 +147,8 @@ def test_files_come_only_from_file_tools_path_arguments(tmp_path, monkeypatch) -
                 {"timestamp": t, "tool": "read_file", "args": {"path": "E:/notes/b.md"}},
                 {"timestamp": t, "tool": "search_web", "args": {"path": "C:/secret/plans.txt"}},   # not a file tool
                 {"timestamp": t, "tool": "read_file", "args": {"path": 42}},
-                {"timestamp": t, "tool": "read_file", "args": {"query": "C:/x.txt"}})
+                {"timestamp": t, "tool": "read_file", "args": {"query": "C:/x.txt"}},
+                {"timestamp": utc(NOW - timedelta(days=40)), "tool": "read_file", "args": {"path": "E:/old.txt"}})
     g = brain_graph.build(registry=Registry("read_file", "write_file", "search_web"), audit_path=audit, now=NOW)
     files = {n["id"]: n for n in g["nodes"] if n["type"] == "file" and not n["hub"]}
     assert set(files) == {"file:Desktop/a.html", "file:E:/notes/b.md"}
@@ -212,40 +158,25 @@ def test_files_come_only_from_file_tools_path_arguments(tmp_path, monkeypatch) -
 
 def test_sizes_are_capped(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(brain_graph, "MAX_FILES", 2)
-    monkeypatch.setattr(brain_graph, "MAX_CONVERSATIONS", 2)
-    db, store = make_db(tmp_path)
-    for i in range(4):
-        add_conversation(db, NOW - timedelta(hours=i + 1), [("user", f"chat {i}", None)])
+    monkeypatch.setattr(brain_graph, "MAX_PROJECTS", 2)
     audit = tmp_path / "actions.jsonl"
     write_audit(audit, *({"timestamp": utc(NOW - timedelta(minutes=10 - i)), "tool": "read_file",
                           "args": {"path": f"E:/f{i}.txt"}} for i in range(4)))
-    g = brain_graph.build(conversations=store, registry=Registry("read_file"), audit_path=audit, now=NOW)
-    assert g["counts"]["conversation"] == 2 and g["counts"]["file"] == 2
+    projects = [{"name": f"P{i}", "folder": f"E:/p{i}"} for i in range(3)]
+    g = brain_graph.build(registry=Registry("read_file"), projects=projects, audit_path=audit, now=NOW)
+    assert g["counts"]["project"] == 2 and g["counts"]["file"] == 2
     assert {n["label"] for n in g["nodes"] if n["type"] == "file" and not n["hub"]} == {"f2.txt", "f3.txt"}  # newest
-    assert sorted(g["capped"]) == ["conversations", "files"]
+    assert sorted(g["capped"]) == ["files", "projects"]
 
 
 def test_labels_are_redacted_and_cut(tmp_path) -> None:
-    db, store = make_db(tmp_path)
-    fid = add_fact(db, "Krishna's email is krishna@example.com and phone 9876543210")
-    cid = add_conversation(db, NOW - timedelta(hours=1), [("user", "word " * 100, None)])
-    g = brain_graph.build(store=store, conversations=store, now=NOW)
+    reminders = [{"id": "r1", "text": "Email krishna@example.com and call 9876543210", "due": NOW},
+                 {"id": "r2", "text": "word " * 100, "due": NOW}]
+    g = brain_graph.build(reminders=reminders, now=NOW)
     nodes = by_id(g)
-    assert "example.com" not in nodes[f"fact:{fid}"]["label"] and "[email]" in nodes[f"fact:{fid}"]["label"]
-    assert "9876543210" not in nodes[f"fact:{fid}"]["label"]
-    assert len(nodes[f"conv:{cid}"]["label"]) <= 90 and nodes[f"conv:{cid}"]["label"].endswith("…")
-
-
-def test_reminders_link_to_the_conversation_that_set_them(tmp_path) -> None:
-    db, store = make_db(tmp_path)
-    cid = add_conversation(db, NOW - timedelta(minutes=20), [("user", "Remind me to call mum", None)])
-    audit = tmp_path / "actions.jsonl"
-    write_audit(audit, {"timestamp": utc(NOW - timedelta(minutes=19)), "tool": "set_reminder",
-                        "args": {"text": "Call  mum"}})
-    reminders = [{"id": "r9", "text": "call mum", "due": NOW + timedelta(hours=1)}]
-    g = brain_graph.build(conversations=store, registry=Registry("set_reminder"), reminders=reminders,
-                          audit_path=audit, now=NOW)
-    assert link(g, "reminder:r9", f"conv:{cid}")["reason"] == "set in this conversation"
+    assert "example.com" not in nodes["reminder:r1"]["label"] and "[email]" in nodes["reminder:r1"]["label"]
+    assert "9876543210" not in nodes["reminder:r1"]["label"]
+    assert len(nodes["reminder:r2"]["label"]) <= 90 and nodes["reminder:r2"]["label"].endswith("…")
 
 
 # ---- the bridge: the app's brain request and brain_update events
@@ -288,13 +219,14 @@ async def test_brain_updates_are_debounced(assistant, monkeypatch) -> None:  # n
     seen = []
     a.bus.subscribe(lambda e: seen.append(e) if e.kind == "brain_update" else None)
     a.bus.publish("tool_finished", tool="search_web", step=1, paused=False, ok=True)
-    a.bus.publish("message", role="user", label="Krishna", text="hi")
+    a.bus.publish("agent_update", request_id="r1", status="done", say="Done.")
+    a.bus.publish("message", role="user", label="Krishna", text="hi")   # facts and talks aren't drawn any more
     a.bus.publish("partial", text="h")                                  # doesn't change the graph
     await asyncio.sleep(0.15)
-    assert [e.data["why"] for e in seen] == [["message", "tool_finished"]]
-    bridge.forget_fact(12345)                                           # a page action without a bus event
+    assert [e.data["why"] for e in seen] == [["agent_update", "tool_finished"]]
+    bridge.forget_fact(12345)                                           # nor does the Memory page
     await asyncio.sleep(0.15)
-    assert [e.data["why"] for e in seen][-1] == ["memory"] and len(seen) == 2
+    assert len(seen) == 1
 
 
 def test_brain_request_and_updates_reach_the_page(assistant) -> None:  # noqa: F811

@@ -1,12 +1,12 @@
-// The Brain: everything JARVIS knows and has done, as one graph (docs/brain-ui-plan.md). Remembered
-// facts, conversations, tools by category, the Agent Hub's agents and actions, reminders and the files
-// JARVIS used; every link says why it's there. Left: search, the inspector (read-only), the busiest hubs
-// and the layout controls. Right: JARVIS's HUD and capability switches (brain-hud.js), then the legend,
-// which is also the filter. Below the graph: the command bar (brain-ask.js). Click a node to focus it,
-// Shift-click another to trace the path between them. What JARVIS uses while it works pulses: the tool it
-// calls, the facts it recalls, the Agent Hub when an agent reports. The graph is refreshed when JARVIS
-// says it changed (brain_update), and where each node sits is kept by JARVIS, so the brain opens the way
-// it was left.
+// The Brain: what JARVIS can do and is doing, as one graph (docs/brain-ui-plan.md). Tools by category,
+// the Agent Hub's agents, actions and running requests, the projects JARVIS looks after, reminders and the
+// files JARVIS used; every link says why it's there (facts and conversations are in the Memory section).
+// Left: search, the inspector (read-only), the busiest hubs and the layout controls. Right: JARVIS's HUD
+// and capability switches (brain-hud.js), then the legend, which is also the filter. Below the graph: the
+// command bar (brain-ask.js). Click a node to focus it, Shift-click another to trace the path between
+// them. What JARVIS uses while it works pulses: the tool it calls, the agents when one reports. The graph
+// is refreshed when JARVIS says it changed (brain_update), and where each node sits is kept by JARVIS, so
+// the brain opens the way it was left.
 "use strict";
 
 import { useEffect, useMemo, useRef, useState } from "/static/vendor/preact/hooks.module.js";
@@ -21,7 +21,6 @@ import { TYPES, colorOf, details, layoutChunks, linkBetween, neighbours, path, p
 
 const SAVE_AFTER_MS = 1500;   // after the layout settles or a node is dragged
 const MAX_NEIGHBOURS = 40;    // listed in the inspector
-const MAX_LINES = 80;         // of a conversation, read in the inspector
 
 function Dot({ color }) { return html`<span class="dot" style=${{ background: color }}></span>`; }
 
@@ -46,7 +45,7 @@ function Search({ graph, hidden, onPick }) {
   </div>`;
 }
 
-function Inspector({ focused, trail, onPick, onClear, onForgotten }) {
+function Inspector({ focused, trail, onPick, onClear }) {
   if (trail.length > 1) {
     return html`<section class="brain-card" aria-label="Path">
       <div class="brain-card-head"><${Icon} name="route" size=${15} /> Path · ${trail.length - 1} step${trail.length > 2 ? "s" : ""}
@@ -71,7 +70,7 @@ function Inspector({ focused, trail, onPick, onClear, onForgotten }) {
     ${d.description && html`<p class="dim small brain-desc">${d.description}</p>`}
     ${d.day && html`<p class="faint small">${d.day}</p>`}
     <dl class="brain-facts">${details(focused).map(([k, v]) => html`<dt>${k}</dt><dd>${v}</dd>`)}</dl>
-    <${Actions} key=${focused.id} node=${focused} onForgotten=${onForgotten} />
+    <${Actions} key=${focused.id} node=${focused} />
     <h3>Linked to · ${near.length}</h3>
     <ul class="brain-list">${near.slice(0, MAX_NEIGHBOURS).map(({ node, reason }) => html`<li key=${node.id}>
       <${NodeButton} node=${node} onPick=${onPick} /><div class="brain-why small">${reason}</div></li>`)}
@@ -79,32 +78,15 @@ function Inspector({ focused, trail, onPick, onClear, onForgotten }) {
   </section>`;
 }
 
-// What you can do with the focused node: forget a fact (a second click confirms), read a conversation,
-// show a file JARVIS used in Explorer, open the Command centre for an agent. Each is the user's own click.
-function Actions({ node, onForgotten }) {
-  const [armed, setArmed] = useState(false);
+// What you can do with the focused node: show a file JARVIS used in Explorer, open the Command centre for
+// an agent. Each is the user's own click.
+function Actions({ node }) {
   const [note, setNote] = useState("");
-  const [lines, setLines] = useState(null);
   const id = node.id;
-  const fact = node.type === "memory" && !node.hub && id.startsWith("fact:");
-  const conv = node.type === "conversation" && !node.hub && id.startsWith("conv:");
   const file = node.type === "file" && !node.hub && id.startsWith("file:");
   const agent = node.type === "agent";
-  if (!fact && !conv && !file && !agent) return null;
+  if (!file && !agent) return null;
 
-  async function forget() {
-    if (!armed) { setArmed(true); return; }
-    setArmed(false);
-    const d = await ask({ type: "forget", fact: Number(id.slice(5)) });
-    setNote(d ? d.message : "Not connected.");
-    if (d && d.ok) onForgotten(node);
-  }
-  async function read() {
-    if (lines) { setLines(null); return; }
-    const d = await ask({ type: "request", what: "conversation", arg: Number(id.slice(5)) });
-    setLines(d ? d.lines || [] : []);
-    if (!d) setNote("Not connected.");
-  }
   async function show() {
     setNote("Opening…");
     const d = await ask({ type: "show_file", node: id }, 12000);
@@ -112,22 +94,12 @@ function Actions({ node, onForgotten }) {
   }
   return html`<div class="brain-actions">
     <div class="brain-action-row">
-      ${fact && html`<button class=${"btn danger small-btn" + (armed ? " armed" : "")} onClick=${forget} onBlur=${() => setArmed(false)}
-        title="Forget this fact (asks once more)"><${Icon} name="trash-2" size=${13} /> ${armed ? "Sure? Forget" : "Forget"}</button>`}
-      ${conv && html`<button class="btn small-btn" onClick=${read} aria-expanded=${lines ? "true" : "false"}>
-        <${Icon} name="message-square" size=${13} /> ${lines ? "Hide the conversation" : "Read the conversation"}</button>`}
       ${file && html`<button class="btn small-btn" onClick=${show} title="Open File Explorer at this file">
         <${Icon} name="search" size=${13} /> Show in folder</button>`}
       ${agent && html`<button class="btn small-btn" onClick=${() => control("open_command")}>
         <${Icon} name="activity" size=${13} /> Command centre</button>`}
     </div>
     ${note && html`<p class="small dim brain-note" role="status">${note}</p>`}
-    ${lines && html`<ol class="conv-lines brain-lines" aria-label="The conversation">
-      ${lines.length === 0 && html`<li class="faint small">No lines kept.</li>`}
-      ${lines.slice(0, MAX_LINES).map((l) => html`<li key=${l.id} class=${l.role}>
-        <span class="who">${l.role === "assistant" ? "JARVIS" : "You"}</span><span class="said">${l.text}</span></li>`)}
-      ${lines.length > MAX_LINES && html`<li class="faint small">and ${lines.length - MAX_LINES} more lines (Memory section)</li>`}
-    </ol>`}
   </div>`;
 }
 
@@ -183,15 +155,8 @@ function Legend({ graph, hidden, toggle }) {
 export function highlight(v, ev) {
   if (!v) return;
   if (ev.kind === "tool_started" || ev.kind === "confirm_requested") v.pulse("tool:" + ev.tool, ev.kind === "confirm_requested" ? 8 : 4);
-  else if (ev.kind === "memory_used") {
-    const said = (ev.facts || []).map((f) => norm(f).slice(0, 60)).filter(Boolean);
-    for (const n of v.nodes) if (n.type === "memory" && !n.hub && said.some((f) => norm(n.label).startsWith(f.slice(0, 40)))) v.pulse(n.id, 5);
-  } else if (ev.kind === "agent_update") {
-    v.pulse("hub:agents", 5);
-  }
+  else if (ev.kind === "agent_update") v.pulse("hub:agents", 5);
 }
-
-function norm(text) { return String(text || "").toLowerCase().replace(/\s+/g, " ").trim(); }
 
 export function BrainSection() {
   const s = useStore();
@@ -304,7 +269,7 @@ export function BrainSection() {
   return html`<div class="brain">
     <div class="brain-left">
       <${Search} graph=${graph} hidden=${hidden} onPick=${pickFromList} />
-      <${Inspector} focused=${focused} trail=${trail} onPick=${pickFromList} onClear=${clear} onForgotten=${() => setTimeout(clear, 1200)} />
+      <${Inspector} focused=${focused} trail=${trail} onPick=${pickFromList} onClear=${clear} />
       <${Hubs} graph=${graph} hidden=${hidden} onPick=${pickFromList} />
       <${Controls} forces=${forces} setForces=${setForces} labels=${labels} setLabels=${setLabels}
         showLinks=${showLinks} setShowLinks=${setShowLinks} view=${view} />

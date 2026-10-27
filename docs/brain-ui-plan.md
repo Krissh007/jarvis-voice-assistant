@@ -146,3 +146,18 @@ Later, separately: the Face HUD mode, Eyes (webcam) and Watch (screen) capabilit
 - The page with 2,000 nodes and 4,000 links (headless Chromium): a new layout settles in 3.7 s at 53 fps;
   settled frames take about 17 ms with any labels; nothing is drawn while nothing changes.
 - Docs: user guide (the Brain), architecture (how it's built, `data/brain_layout.json`).
+
+## Change, 28 October 2026: agents and projects instead of facts and conversations
+
+Krishna asked to cut the clutter: the **Memory** and **Conversations** nodes are gone (hundreds of them
+swamped the graph; the Memory section still lists both), and so are the links built on them (fact <->
+conversation by meaning, conversation -> tool, reminder -> conversation) and the inspector's Forget and
+Read the conversation buttons. The tool category hubs (Core, Browser, Jobs...) and the JobPilot agent stay.
+
+- **Active agents** (`hub:agents`, was "Agent Hub"): the Hub's agents and actions as before, plus each
+  request still running (`work:<id>`, from `HubBridge.working()`), with how long it has been out.
+- **Projects** (`hub:projects`): one hub per project in `brain_view.projects` (config.yaml), with its
+  folder. Files JARVIS used inside the folder link to it ("in this project"), as do the agents
+  (`agents`) and tool categories (`tools`) it names.
+- A tool now says how often it was called in the last 30 days and when last.
+- `brain_update` follows tool calls and agent results only.

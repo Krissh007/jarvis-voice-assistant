@@ -459,3 +459,18 @@ async def test_a_long_running_request_gets_one_still_working_notice() -> None:
     hub.pending_updates = [item("Done: 4 new jobs.", rid="r1")]
     await bridge.deliver_once()
     assert bridge.out == {} and "Done: 4 new jobs." in told[-1][0]
+
+
+async def test_the_brain_view_sees_the_requests_still_running() -> None:
+    services = make_services(tell_when_free=lambda text, untrusted: None)
+    hub = FakeHub()
+    bridge = HubBridge(hub, services)
+    now = [1000.0]
+    bridge.clock = lambda: now[0]
+    assert bridge.working() == []
+    await bridge.request("run the full pipeline")
+    now[0] += 130
+    assert bridge.working() == [{"id": "r1", "text": "run the full pipeline", "minutes": 2}]
+    hub.pending_updates = [item("Done.", rid="r1")]
+    await bridge.deliver_once()
+    assert bridge.working() == []                                               # its result came in

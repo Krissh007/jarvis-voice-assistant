@@ -38,7 +38,7 @@ from core.wakeword import WakeState
 log = logging.getLogger(__name__)
 
 PROBLEM_GRACE_S = 20  # the voice session may take this long to connect before the orb shows an error
-BRAIN_KINDS = {"message", "tool_finished", "conversation", "memory_used", "agent_update"}  # change the brain graph
+BRAIN_KINDS = {"tool_finished", "agent_update"}  # change the brain graph
 BRAIN_DEBOUNCE_S = 2.0  # changes inside this long become one brain_update
 BRAIN_HUB_TTL_S = 60  # the Agent Hub's agent list is asked for again after this long
 BRAIN_LAYOUT_MAX = 4000  # node positions kept for the Brain view (the page's port, so its storage, changes each start)
@@ -325,8 +325,8 @@ class WebBridge:
         self.bus.publish("brain_update", why=why)
 
     async def brain(self) -> dict:
-        """The Brain view's graph (core/brain_graph.py): memory, conversations, tools, agents, reminders and
-        the files JARVIS used, with the reason for every link. Read-only; built off the loop."""
+        """The Brain view's graph (core/brain_graph.py): tools, agents and their running requests, projects,
+        reminders and the files JARVIS used, with the reason for every link. Read-only; built off the loop."""
         from core import brain_graph
 
         a = self._a
@@ -340,8 +340,10 @@ class WebBridge:
                 self._hub_report_at = time.monotonic()
         reminders = a.services.reminders.pending() if a.services.reminders is not None else []
         graph = await asyncio.to_thread(
-            brain_graph.build, store=a.services.memory, conversations=a.services.conversations, registry=a.registry,
-            hub_status=self._hub_report if a.config["features"].get("agent_hub") else None, reminders=reminders,
+            brain_graph.build, registry=a.registry,
+            hub_status=self._hub_report if a.config["features"].get("agent_hub") else None,
+            working=a.services.agent_work() if a.services.agent_work else None,
+            projects=(a.config.get("brain_view") or {}).get("projects") or [], reminders=reminders,
             audit_path=a.options.log_dir / "actions.jsonl")
         graph["layout"] = self._brain_layout()
         return graph
@@ -587,7 +589,6 @@ class WebBridge:
         except ToolError as exc:
             return {"ok": False, "message": str(exc)}
         log.info("web: pinned to memory (%s)", result)
-        self._brain_changed("memory")
         return {"ok": True, "message": {"added": "Pinned to memory.", "updated": "Updated in memory.",
                                         "duplicate": "Already in memory."}[result]}
 
@@ -656,7 +657,6 @@ class WebBridge:
             return {"ok": False, "message": "Conversations aren't kept.", "conversations": []}
         n = log_.delete_conversation(conversation_id)
         log.info("web: deleted conversation %s (%d lines)", conversation_id, n)
-        self._brain_changed("conversation")
         return {"ok": n > 0, "message": f"Deleted ({n} lines)." if n else "It was already gone.",
                 "conversations": log_.conversations()}
 
@@ -716,7 +716,6 @@ class WebBridge:
         fact = next((f for f in store.facts() if f["id"] == fact_id), None)
         ok = bool(fact) and store.remove(fact)
         log.info("web: forgot fact %s", fact_id if ok else f"{fact_id} (not found)")
-        self._brain_changed("memory")
         return {"ok": ok, "message": "Forgotten." if ok else "That fact was already gone.", "facts": store.facts()}
 
 

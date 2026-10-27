@@ -199,6 +199,7 @@ each; they change the orb live, and your choices are kept in `data/orb_look.json
 | `agent_hub.still_working_s` | `300` | A request still without a result after this many seconds gets one spoken "still working on it". A result you talk over before JARVIS mentions it is told again at the next pause |
 | `agent_hub.start_script` | `E:/agent-hub/scripts/start_all.ps1` | The Hub's start script: the Command centre's Start / Stop run it (Stop with `-Stop`, which stops only what it started); `""` hides the buttons |
 | `agent_hub.auto_start` | `true` | A request that needs the Hub (a job-search request, its status, a Hub tool) starts it with that script when it isn't running, then tries once more. The background poller never starts it. After a failed start, JARVIS waits 2 minutes before starting it on its own again |
+| `brain_view.projects` | JARVIS, JobPilot, Agent Hub, Job search agent | The Brain's **Projects**: each `{name, folder, agents, tools}`. Files JARVIS used inside `folder` link to the project, and so do the Agent Hub agents in `agents` and the tool categories in `tools` (at most 20 projects) |
 | `agent_hub.dashboard_url` | `http://127.0.0.1:8000` | JobPilot's dashboard, opened by the Command centre's button (this computer only); started first if it doesn't answer |
 
 ### Features

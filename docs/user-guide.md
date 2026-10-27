@@ -189,19 +189,21 @@ the clipboard, running a plan, forgetting a memory) is read to you first:
 **The app** opens maximized from the orb's menu (Chat, Command centre or Settings). Its icon sidebar has five
 sections; the button under them shows Chat and the Command centre side by side.
 
-- **Brain**: everything JARVIS knows and has done, as one graph: remembered facts (amber), conversations
-  from the last 30 days (violet), its tools by category (blue), the Agent Hub's agents and actions (green),
-  pending reminders (pink) and the files JARVIS used (grey). Every line has a reason ("called 2 times in
-  this conversation", "close in meaning to what you said", "a file JARVIS used").
+- **Brain**: what JARVIS can do and is doing, as one graph: its tools by category (blue; a tool shows
+  how often it was used in the last 30 days), **Active agents** (green: the Agent Hub's agents and
+  actions, and the requests they're working on right now), **Projects** (amber: the projects JARVIS looks
+  after, set in `brain_view.projects`), pending reminders (pink) and the files JARVIS used (grey). Every
+  line has a reason ("in this project", "jobpilot works on JobPilot", "working on it now (6 min)").
+  Remembered facts and past conversations aren't drawn; the Memory section lists them.
   - **Click** a dot to focus it: only it and its links light up, and the **Inspector** on the left says
-    what it is and why each link is there. Click a linked item to move to it. Its buttons: **Forget** a
-    fact (click twice), **Read the conversation**, **Show in folder** for a file, **Command centre** for
-    an agent. **Shift-click** a second dot to trace the path between the two.
+    what it is and why each link is there. Click a linked item to move to it. Its buttons: **Show in
+    folder** for a file, **Command centre** for an agent. **Shift-click** a second dot to trace the path
+    between the two.
   - **Drag** the background to move around, drag a dot to move it, **scroll** to zoom, double-click to
     zoom in. **Search the brain** finds dots by name. **Top hubs** lists the busiest. **Layout** spreads
     the dots out or pulls them in, shows labels on hubs, all or none, and hides the lines.
   - The list on the right (**Show**) hides or shows a kind of dot. The brain opens the way you left it
-    and updates by itself as you talk.
+    and updates by itself as JARVIS uses tools and the agents report.
   - Top right, JARVIS's **HUD**: a ring (or the 3D orb) in the orb's colours, what it's doing, the voice
     model and language, and five switches: **Mic** (mute), **Voice** (spoken replies), **Announce**
     (spoken news), **Memory** (keep this conversation; off stops keeping it until you switch it back on

@@ -270,6 +270,15 @@ agent_hub:                      # used when features.agent_hub is true
   auto_start: true              # a request that needs the Hub starts it when it isn't running (the poller never does)
   dashboard_url: http://127.0.0.1:8000   # JobPilot's dashboard, for the Command centre's button (must be this computer)
 
+brain_view:                     # the app's Brain section
+  # Projects JARVIS looks after, drawn under "Projects": files JARVIS used inside a project's folder link to
+  # it, and so do the Agent Hub agents (agents) and tool categories (tools) named here.
+  projects:
+    - {name: JARVIS, folder: "E:/JARVIS Agent"}
+    - {name: JobPilot, folder: E:/JobPilot, agents: [jobpilot], tools: [jobs]}
+    - {name: Agent Hub, folder: E:/agent-hub}
+    - {name: Job search agent, folder: E:/job_search_agent, tools: [jobs]}
+
 briefing:                       # used when features.morning_briefing is true
   news_query: "top news today"  # e.g. "India news today"; weather needs weather.default_city
 

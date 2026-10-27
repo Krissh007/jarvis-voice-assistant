@@ -19,31 +19,31 @@ def link(a, b, reason, kind="structure"):
 GRAPH = {
     "nodes": [
         node("jarvis", "core", "JARVIS", True),
-        node("hub:memory", "memory", "Remembered facts", True),
-        node("fact:1", "memory", "Krishna's friend is called Sanjay.", added="2026-10-19T10:00:00", uses=2),
-        node("fact:2", "memory", "<b>Krishna</b> prefers short answers.", added="2026-10-20T10:00:00", uses=0),
-        node("hub:conversation", "conversation", "Conversations", True),
-        node("conv:5", "conversation", "Call Sanjay tomorrow and search the web", started="2026-10-25T09:00:00",
-             lines=6, channels="voice", day="Sun 25 Oct"),
         node("cat:search", "tool", "Search", True, description="Web search"),
-        node("tool:search_web", "tool", "search_web", description="Search the web.", read_only=True),
+        node("tool:search_web", "tool", "search_web", description="Search the web.", read_only=True, calls=2,
+             last_used="2026-10-25T09:01"),
+        node("hub:agents", "agent", "Active agents", True),
+        node("agent:jobpilot", "agent", "jobpilot", True, description="Jobs", reachable=True),
+        node("work:r1", "agent", "Find <b>Wipro</b> jobs", minutes=6, working=True),
+        node("hub:projects", "project", "Projects", True),
+        node("project:jobpilot", "project", "JobPilot", True, folder="E:/JobPilot", files=1),
         node("hub:file", "file", "Files used", True),
         node("file:Documents/notes.md", "file", "notes.md", path="Documents/notes.md", last_used="2026-10-25T09:01"),
     ],
     "links": [
-        link("jarvis", "hub:memory", "part of JARVIS: remembered facts"),
-        link("fact:1", "hub:memory", "remembered"),
-        link("fact:2", "hub:memory", "remembered"),
-        link("jarvis", "hub:conversation", "part of JARVIS: conversations"),
-        link("conv:5", "hub:conversation", "kept conversation"),
-        link("conv:5", "fact:1", "close in meaning to “Call Sanjay tomorrow” (0.71)", "meaning"),
         link("jarvis", "cat:search", "search tools"),
         link("tool:search_web", "cat:search", "a search tool"),
-        link("conv:5", "tool:search_web", "called 2 times in this conversation", "uses"),
+        link("jarvis", "hub:agents", "part of JARVIS: active agents"),
+        link("agent:jobpilot", "hub:agents", "an agent of the Agent Hub"),
+        link("work:r1", "hub:agents", "working on it now (6 min)", "uses"),
+        link("jarvis", "hub:projects", "part of JARVIS: projects"),
+        link("project:jobpilot", "hub:projects", "a project JARVIS looks after"),
+        link("project:jobpilot", "agent:jobpilot", "jobpilot works on JobPilot", "uses"),
         link("jarvis", "hub:file", "part of JARVIS: files used"),
         link("file:Documents/notes.md", "hub:file", "a file JARVIS used"),
+        link("file:Documents/notes.md", "project:jobpilot", "in this project", "uses"),
     ],
-    "counts": {"memory": 2, "conversation": 1, "tool": 1, "file": 1},
+    "counts": {"tool": 1, "agent": 2, "project": 1, "file": 1},
     "capped": [],
     "layout": {},
 }
@@ -68,19 +68,24 @@ async def test_the_brain_draws_jarvis_data_and_inspects_a_node(served, page) -> 
     await page.get_by_role("button", name="Brain").wait_for()
     await page.get_by_text("10 nodes · 11 links").wait_for()
     legend = page.get_by_label("Legend: click a type to hide or show it")
-    assert "Memory2" in (await legend.inner_text()).replace("\n", "").replace(" ", "")
+    shown = (await legend.inner_text()).replace("\n", "").replace(" ", "")
+    assert "Projects1" in shown and "Agents2" in shown
+    assert "Memory" not in shown and "Conversations" not in shown       # facts and talks aren't drawn any more
 
-    await page.get_by_label("Search the brain").fill("sanjay")
+    await page.get_by_label("Search the brain").fill("jobpilot")
     results = page.get_by_label("Search results")
-    assert (await results.get_by_role("button").count()) == 2          # the fact and the conversation
-    await results.get_by_role("button", name="Krishna's friend is called Sanjay.").click()
+    assert (await results.get_by_role("button").count()) == 2          # the project and the agent
+    await results.get_by_role("button", name="JobPilot Project").click()
     inspector = page.get_by_role("region", name="Inspector")
-    await inspector.get_by_text("Remembered fact", exact=True).wait_for()
-    await inspector.get_by_text("close in meaning to “Call Sanjay tomorrow” (0.71)").wait_for()
-    assert "Recalled" in await inspector.inner_text() and "2 times" in await inspector.inner_text()
+    await inspector.get_by_text("Project", exact=True).wait_for()
+    await inspector.get_by_text("jobpilot works on JobPilot").wait_for()
+    text = await inspector.inner_text()
+    assert "E:/JobPilot" in text and "Files used" in text
 
-    await inspector.get_by_role("button", name="Call Sanjay tomorrow and search the web").click()   # a neighbour
-    await inspector.get_by_text("called 2 times in this conversation").wait_for()
+    await inspector.get_by_role("button", name="notes.md").click()      # a neighbour
+    await inspector.get_by_text("in this project").wait_for()
+    await focus(page, "search_web")
+    assert "2 times in 30 days" in await inspector.inner_text()
     await page.get_by_label("Clear the focus").click()
     await page.get_by_text("Click a node to see what it is").wait_for()
 
@@ -89,10 +94,13 @@ async def test_labels_are_text_not_html(served, page) -> None:  # noqa: F811
     bridge, url = served
     bridge.brain_graph = GRAPH
     await page.goto(url + "&s=brain")
-    await page.get_by_label("Search the brain").fill("short answers")
+    await page.get_by_label("Search the brain").fill("wipro")
     await page.get_by_label("Search the brain").press("Enter")
-    await page.get_by_role("region", name="Inspector").get_by_text("<b>Krishna</b> prefers short answers.").wait_for()
+    inspector = page.get_by_role("region", name="Inspector")
+    await inspector.get_by_text("Find <b>Wipro</b> jobs").wait_for()
     assert await page.locator(".brain b").count() == 0
+    text = (await inspector.inner_text()).lower()
+    assert "running request" in text and "6 min" in text
 
 
 async def test_the_legend_hides_a_type_and_shift_click_traces_a_path(served, page) -> None:  # noqa: F811
@@ -101,19 +109,19 @@ async def test_the_legend_hides_a_type_and_shift_click_traces_a_path(served, pag
     await page.goto(url + "&s=brain")
     await page.get_by_text("10 nodes · 11 links").wait_for()
     await settle(page)
-    x, y = await screen_xy(page, "fact:2")
+    x, y = await screen_xy(page, "work:r1")
     await page.mouse.click(x, y)
-    await page.get_by_role("region", name="Inspector").get_by_text("<b>Krishna</b> prefers short answers.").wait_for()
-    x, y = await screen_xy(page, "tool:search_web")
+    await page.get_by_role("region", name="Inspector").get_by_text("Find <b>Wipro</b> jobs").wait_for()
+    x, y = await screen_xy(page, "file:Documents/notes.md")
     await page.keyboard.down("Shift")
     await page.mouse.click(x, y)
     await page.keyboard.up("Shift")
     trail = page.get_by_role("region", name="Path")
     await trail.wait_for()
     text = await trail.inner_text()
-    # fact -> Remembered facts -> fact:1 ... the path avoids JARVIS when there's another way
-    assert "called 2 times in this conversation" in text and "part of JARVIS" not in text
-    assert text.index("prefers short answers") < text.index("search_web")
+    # request -> Active agents -> jobpilot -> JobPilot -> notes.md: the path avoids JARVIS when there's another way
+    assert "jobpilot works on JobPilot" in text and "in this project" in text and "part of JARVIS" not in text
+    assert text.index("Wipro") < text.index("notes.md")
     await page.get_by_label("Clear the path").click()
 
     await page.get_by_role("button", name="Hide tools").click()
@@ -121,7 +129,7 @@ async def test_the_legend_hides_a_type_and_shift_click_traces_a_path(served, pag
     await page.get_by_label("Search the brain").fill("search_web")
     await page.get_by_text("Nothing called that.").wait_for()           # hidden types aren't found either
     hubs = await page.get_by_role("region", name="Top hubs").inner_text()
-    assert "Search" not in hubs and "Remembered facts" in hubs
+    assert "Search" not in hubs and "Active agents" in hubs
 
 
 async def test_the_brain_refreshes_on_brain_update_and_keeps_its_layout(served, page) -> None:  # noqa: F811
@@ -133,18 +141,18 @@ async def test_the_brain_refreshes_on_brain_update_and_keeps_its_layout(served, 
     positions, fresh = bridge.layouts[0]
     assert fresh and set(positions) == {n["id"] for n in GRAPH["nodes"]}
     assert all(len(xy) == 2 for xy in positions.values())
-    before = await screen_xy(page, "fact:1")
+    before = await screen_xy(page, "agent:jobpilot")
 
     grown = json.loads(json.dumps(GRAPH))
-    grown["nodes"].append(node("fact:3", "memory", "Krishna's car is blue."))
-    grown["links"].append(link("fact:3", "hub:memory", "remembered"))
-    grown["counts"]["memory"] = 3
+    grown["nodes"].append(node("work:r2", "agent", "Score the new jobs", minutes=0, working=True))
+    grown["links"].append(link("work:r2", "hub:agents", "working on it now", "uses"))
+    grown["counts"]["agent"] = 3
     bridge.brain_graph = grown
     seen = bridge.brain_requests
-    bridge.bus.publish("brain_update", why=["memory"])
+    bridge.bus.publish("brain_update", why=["agent_update"])
     await page.get_by_text("11 nodes · 12 links").wait_for()
     assert bridge.brain_requests == seen + 1
-    after = await screen_xy(page, "fact:1")
+    after = await screen_xy(page, "agent:jobpilot")
     assert abs(after[0] - before[0]) < 60 and abs(after[1] - before[1]) < 60   # the brain didn't reshuffle
 
 
@@ -154,29 +162,31 @@ async def test_the_model_helpers(served, page) -> None:  # noqa: F811
     await page.goto(url + "&s=chat")
     result = await page.evaluate("""async (graph) => {
         const m = await import('/static/app/sections/brain-model.js');
-        const g = m.prepare(graph, new Map(), { "fact:1": [10, 20] });
-        const fact = g.byId.get("fact:1"), conv = g.byId.get("conv:5");
+        const g = m.prepare(graph, new Map(), { "agent:jobpilot": [10, 20] });
+        const agent = g.byId.get("agent:jobpilot"), work = g.byId.get("work:r1");
         const many = Array.from({ length: 900 }, (_, i) => ({ id: "file:" + "x".repeat(60) + i, x: i * 1.234, y: -i }));
         const chunks = m.layoutChunks(many);
-        const again = m.prepare(graph, new Map([["fact:1", { x: 5, y: 6 }]]), { "fact:1": [10, 20] });
+        const again = m.prepare(graph, new Map([["agent:jobpilot", { x: 5, y: 6 }]]), { "agent:jobpilot": [10, 20] });
         return {
-            kept: [fact.x, fact.y], placedNear: Number.isFinite(conv.x), placed: g.placed,
-            previousWins: [again.byId.get("fact:1").x, again.byId.get("fact:1").y],
+            kept: [agent.x, agent.y], placedNear: Number.isFinite(work.x), placed: g.placed,
+            previousWins: [again.byId.get("agent:jobpilot").x, again.byId.get("agent:jobpilot").y],
             chunkSizes: chunks.map((c) => JSON.stringify({ type: "brain_layout", ...c }).length),
             fresh: chunks.map((c) => c.fresh), total: chunks.reduce((n, c) => n + Object.keys(c.positions).length, 0),
-            path: m.path(g.byId.get("fact:2"), g.byId.get("tool:search_web")).map((n) => n.id),
-            hiddenPath: m.path(g.byId.get("fact:2"), g.byId.get("tool:search_web"), new Set(["conversation"])).map((n) => n.id),
-            found: m.search(g.nodes, "SANJAY call").map((n) => n.id),
-            degree: g.byId.get("conv:5").degree,
+            path: m.path(g.byId.get("work:r1"), g.byId.get("file:Documents/notes.md")).map((n) => n.id),
+            hiddenPath: m.path(g.byId.get("work:r1"), g.byId.get("file:Documents/notes.md"), new Set(["project"])).map((n) => n.id),
+            found: m.search(g.nodes, "JOBPILOT e:/").map((n) => n.id),
+            degree: g.byId.get("project:jobpilot").degree,
+            labels: ["work:r1", "project:jobpilot", "hub:projects", "agent:jobpilot"].map((id) => m.typeLabel(g.byId.get(id))),
         };
     }""", GRAPH)
     assert result["kept"] == [10, 20] and result["placed"] == 1 and result["placedNear"]
     assert result["previousWins"] == [5, 6]                             # the open page's positions beat the kept ones
     assert max(result["chunkSizes"]) < 8000 and result["total"] == 900
     assert result["fresh"][0] is True and not any(result["fresh"][1:])
-    assert result["path"] == ["fact:2", "hub:memory", "fact:1", "conv:5", "tool:search_web"]
-    assert result["hiddenPath"] == ["fact:2", "hub:memory", "jarvis", "cat:search", "tool:search_web"]
-    assert result["found"] == ["conv:5", "fact:1"] and result["degree"] == 3   # "call" is in "called" too
+    assert result["path"] == ["work:r1", "hub:agents", "agent:jobpilot", "project:jobpilot", "file:Documents/notes.md"]
+    assert result["hiddenPath"] == ["work:r1", "hub:agents", "jarvis", "hub:file", "file:Documents/notes.md"]
+    assert result["found"] == ["project:jobpilot"] and result["degree"] == 3   # its folder is searched too
+    assert result["labels"] == ["Running request", "Project", "Group", "Agent"]
 
 
 # ---- phase 3: the HUD, the switches, the command bar and live highlights
@@ -261,10 +271,9 @@ async def test_what_jarvis_uses_lights_up(served, page) -> None:  # noqa: F811
     pulses = "() => [...document.querySelector('.brain-canvas').brainView.pulses.keys()].sort()"
     bridge.bus.publish("tool_started", channel="voice", tool="search_web", args={}, step=False)
     bridge.bus.publish("tool_started", channel="voice", tool="not_in_the_graph", args={}, step=False)
-    bridge.bus.publish("memory_used", channel="voice", topic="sanjay", when="", facts=["Krishna's friend is called Sanjay."],
-                       conversation_lines=0)
+    bridge.bus.publish("agent_update", request_id="r1", status="done", say="Found 3 jobs.")
     await page.wait_for_function(f"({pulses})().length === 2")
-    assert await page.evaluate(pulses) == ["fact:1", "tool:search_web"]
+    assert await page.evaluate(pulses) == ["hub:agents", "tool:search_web"]
 
 
 # ---- phase 4: the inspector's actions
@@ -278,38 +287,20 @@ async def focus(page, name):
 
 async def test_the_inspector_actions(served, page) -> None:  # noqa: F811
     bridge, url = served
-    graph = json.loads(json.dumps(GRAPH))
-    graph["nodes"].append(node("agent:jobpilot", "agent", "jobpilot", True, description="Jobs", reachable=True))
-    graph["links"].append(link("agent:jobpilot", "jarvis", "an agent of the Agent Hub"))
-    bridge.brain_graph = graph
+    bridge.brain_graph = GRAPH
     await page.goto(url + "&s=brain")
-    await page.get_by_text("11 nodes · 12 links").wait_for()
+    await page.get_by_text("10 nodes · 11 links").wait_for()
     inspector = page.get_by_role("region", name="Inspector")
-
-    await focus(page, "Krishna's friend is called Sanjay.")
-    forget = inspector.get_by_role("button", name="Forget")
-    await forget.click()
-    assert bridge.forgotten == []                                       # the first click only asks
-    await inspector.get_by_role("button", name="Sure? Forget").click()
-    assert await until(lambda: bridge.forgotten == [1])
-    await inspector.get_by_text("Forgotten.").wait_for()
-
-    await focus(page, "Call Sanjay tomorrow and search the web")
-    await inspector.get_by_role("button", name="Read the conversation").click()
-    lines = inspector.get_by_label("The conversation")
-    await lines.get_by_text("Reminder set for 9.").wait_for()
-    assert bridge.read == [5] and "You" in await lines.inner_text()
-    await inspector.get_by_role("button", name="Hide the conversation").click()
-    assert await inspector.get_by_label("The conversation").count() == 0
 
     await focus(page, "notes.md")
     await inspector.get_by_role("button", name="Show in folder").click()
     await inspector.get_by_text("Opened in File Explorer.").wait_for()
     assert bridge.shown == ["file:Documents/notes.md"]                  # the node, never a path
 
-    await focus(page, "jobpilot")
+    await page.get_by_label("Search the brain").fill("jobpilot")
+    await page.get_by_label("Search results").get_by_role("button", name="jobpilot Agent").click()
     await inspector.get_by_role("button", name="Command centre").click()
     assert await until(lambda: "open_command" in bridge.controls)
 
     await focus(page, "search_web")                                     # a tool: nothing to do with it
-    assert await inspector.get_by_role("button", name="Forget").count() == 0
+    assert await inspector.locator(".brain-actions").count() == 0

@@ -310,6 +310,12 @@ class HubBridge:
         if self.services.notify:
             self.services.notify(self._notice(item))
 
+    def working(self) -> list[dict]:
+        """The requests handed over with no result yet, for the Brain view: {id, text, minutes}."""
+        now = self.clock()
+        return [{"id": rid, "text": item["text"], "minutes": int((now - item["at"]) // 60)}
+                for rid, item in self.out.items()]
+
     def _still_working(self) -> None:
         """One notice for a request handed over long ago with no result yet, so JARVIS doesn't just keep
         promising to tell the user (the request's words are JARVIS's own, not the agents')."""
@@ -458,6 +464,7 @@ def register(registry: Registry, config: dict, services) -> None:
                        services.data_dir / "agent_hub_held.json", toast=_toast, registry=registry,
                        still_working_s=float(settings.get("still_working_s") or 300))
     services.hub = client  # the tool registry's lookups, for core/router.py
+    services.agent_work = bridge.working  # the Brain view's active agents
     services.background.append(bridge.poll_loop)
     services.on_start.append(_warm_up)
 
