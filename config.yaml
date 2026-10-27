@@ -38,14 +38,23 @@ reasoning:                      # think_through (features.reasoning): careful an
   # Free tier, checked on this account 2026-10-16: Gemini Pro models have a limit of 0 and Google Search
   # grounding is refused, so think_through uses Flash + JARVIS's own search (Tavily, else DuckDuckGo).
 
+progress:                       # keeping you in the loop while JARVIS works
+  spoken: true                  # it says short lines itself ("Still looking at your screen."), recorded once in its voice
+  first_after_s: 7              # after this much quiet while a request is under way
+  every_s: 12                   # then again, at most max_lines times per request
+  max_lines: 4
+
 condense:                       # long tool results (read_app, wait_for_app, job_search_status) are shortened
   over_chars: 1500              # before the Live model sees them; shorter results pass unchanged
   max_words: 120
   model: gemini-3.5-flash-lite  # tried first (spares the main Flash model's small daily quota)
-  timeout_s: 5                  # slower than this: use the start and end of the text instead
+  timeout_s: 1.5                # slower than this: use the start and end of the text instead (a reply waits for it)
+  cut_chars: 3500               # how much of the text a cut keeps
 
 chat_apps:                       # read_app what=latest and wait_for_app: the newest message, not the window
   max_chars: 6000               # longest reply returned (its start is kept)
+  foreground_wait_s: 12         # wait_for_app: waits this long, then keeps watching in the background and says so
+  background_wait_s: 300        # how long it keeps watching for the reply in the background
   profiles:
     claude.exe:                 # Claude's chat view (checked 2026-10-16); other views fall back, with a warning
       container_role: feed      # web role of the message list ("Chat messages")

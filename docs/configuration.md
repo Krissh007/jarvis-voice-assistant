@@ -153,11 +153,16 @@ each; they change the orb live, and your choices are kept in `data/orb_look.json
 | `file_edit.backups` | Keep each file's old version in `data/file_backups` before changing it (default `true`) |
 | `file_edit.editor` | `code` opens files in VS Code when `write_file` has `open`; empty = the file's usual app |
 | `chat_apps.max_chars` | Longest chat reply `read_app what=latest` and `wait_for_app` return; its start is kept (default `6000`) |
+| `chat_apps.foreground_wait_s` | `wait_for_app` waits this long for a chat app's reply (default `12` s), then keeps watching in the background and tells you when it's in |
+| `chat_apps.background_wait_s` | How long it keeps watching in the background (default `300` s) |
+| `progress.spoken` | JARVIS says short lines itself while a request is under way ("Still looking at your screen."), and answers "what are you doing?" at once (default `true`). The lines are recorded once per voice in `data/voice_lines` |
+| `progress.first_after_s` / `every_s` / `max_lines` | The first line after this much quiet (default `7` s), then one every `12` s, at most `4` per request |
 | `chat_apps.profiles.<exe>` | Where an app's messages are in its accessibility tree: `container_role`, `message_role`, `message_name` (number and total), `streaming_name`, `roles` (text label → role), `reply_role`, `skip_inside` (`button`, `status`, `menu`, `toolbar`) and `drop_text`. Shipped for `claude.exe` (Claude's chat view); a profile that doesn't match logs a warning (once per window per session) and JARVIS reads the whole window |
 | `condense.over_chars` | Results from `read_app`, `wait_for_app` and `job_search_status` longer than this (default `1500` characters) are shortened before the Live model sees them |
 | `condense.max_words` | Length of that summary (default `120` words) |
 | `condense.model` | Model tried first for it (default `gemini-3.5-flash-lite`, to spare the main Flash model's daily quota) |
-| `condense.timeout_s` | If summarising takes longer (default `5` s), the start and end of the text are used instead |
+| `condense.timeout_s` | If summarising takes longer (default `1.5` s), or the model is overloaded, the start and end of the text are used instead |
+| `condense.cut_chars` | How much of the text that cut keeps (default `3500` characters) |
 | `groq.models` | Groq models for `ask_brain`, tried in order (default `openai/gpt-oss-120b`, `qwen/qwen3.8-27b`, then `openai/gpt-oss-20b`, which also classifies unclear requests; free tier: 1000 requests a day and 8000 tokens a minute each). A model Groq retires is skipped for an hour and logged |
 | `groq.timeout_s` / `groq.max_tokens` | Per model call: time limit (default `15` s) and longest reply (default `700` tokens) |
 | `groq.rpm` | Requests per minute per model, kept under on this side (free tier: 30) |

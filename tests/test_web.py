@@ -297,16 +297,33 @@ async def test_llm_retries_503_then_succeeds() -> None:
     assert client.calls == ["flash", "flash"]
 
 
-async def test_llm_falls_back_to_the_next_model_after_three_retries() -> None:
-    client = FakeGenAI({"flash": [api_error(503)] * 4, "lite": ["from lite"]})
-    assert await LLM(client, ["flash", "lite"], base_delay_s=0).generate("p") == "from lite"
-    assert client.calls == ["flash"] * 4 + ["lite"]
+async def test_llm_falls_back_to_the_next_model_after_one_retry() -> None:
+    """Seen live: three retries of an overloaded model, 25 s each, before a fallback that took 3 s."""
+    client = FakeGenAI({"flash": [api_error(503)] * 2, "lite": ["from lite"]})
+    llm = LLM(client, ["flash", "lite"], base_delay_s=0)
+    assert await llm.generate("p") == "from lite"
+    assert client.calls == ["flash"] * 2 + ["lite"] and llm.last_fallback_at > 0
 
 
 async def test_llm_fallbacks_get_one_retry_each() -> None:
-    client = FakeGenAI({"flash": [api_error(503)] * 4, "lite": [api_error(503)] * 2, "tiny": ["ok"]})
+    client = FakeGenAI({"flash": [api_error(503)] * 2, "lite": [api_error(503)] * 2, "tiny": ["ok"]})
     assert await LLM(client, ["flash", "lite", "tiny"], base_delay_s=0).generate("p") == "ok"
-    assert client.calls == ["flash"] * 4 + ["lite"] * 2 + ["tiny"]
+    assert client.calls == ["flash"] * 2 + ["lite"] * 2 + ["tiny"]
+
+
+async def test_an_overloaded_model_is_skipped_for_a_while_then_tried_again() -> None:
+    client = FakeGenAI({"flash": [api_error(504)] * 2 + ["flash again"], "lite": ["one", "two"]})
+    llm = LLM(client, ["flash", "lite"], base_delay_s=0)
+    now = [100.0]
+    llm.clock = lambda: now[0]
+    assert await llm.generate("p") == "one"
+    assert not llm.available("flash") and llm.available("lite")
+    assert await llm.generate("p") == "two" and client.calls == ["flash", "flash", "lite", "lite"]   # skipped
+    now[0] += 181
+    assert llm.available("flash") and await llm.generate("p") == "flash again"
+    busy = LLM(FakeGenAI({"a": ["a ok"]}), ["a"], base_delay_s=0)
+    busy._struggling["a"] = busy.clock() + 999                         # every model overloaded: tried anyway
+    assert await busy.generate("p") == "a ok"
 
 
 async def test_llm_sets_a_request_timeout() -> None:
@@ -317,8 +334,13 @@ async def test_llm_sets_a_request_timeout() -> None:
             seen["timeout"] = config.http_options.timeout
             return type("R", (), {"text": "ok"})()
 
-    await LLM(Capture({}), ["a"], timeout_s=25).generate("p")
-    assert seen["timeout"] == 25000
+    await LLM(Capture({}), ["a"], timeout_s=25).generate("p", max_tokens=800)
+    assert seen["timeout"] == 12000                                    # the first model: 8 s, plus some for 800 tokens
+    llm = LLM(Capture({}), ["a", "b"], timeout_s=25)
+    llm._struggling["a"] = llm.clock() + 999
+    await llm.generate("p", max_tokens=800)
+    assert seen["timeout"] == 12000                                    # whichever model is tried first
+    assert llm._attempt_timeout(False, 800) == 25                      # a fallback: the last chance, so longer
 
 
 def quota_error(per_day: bool, delay: str = "27s") -> Exception:

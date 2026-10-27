@@ -90,6 +90,16 @@ JARVIS answers in the conversation and, normally, out loud too. Turn off *Speak 
 messages* in the right-click menu for silent, text-only answers, e.g. in a meeting. Typing never
 turns the microphone on. **Up** and **Down** bring back earlier messages, and **Esc** clears the box.
 
+**While it works**, JARVIS keeps you posted:
+- Before anything slow it says what it's doing ("Let me look at your screen.").
+- If a step stays quiet for a few seconds, it says a short line itself ("Still looking at your screen.",
+  "Google's model is busy, so I'm trying the backup."), a few times at most. These lines are recorded
+  once in its voice, in the background, the first time it starts with a new voice.
+- Ask **"what are you doing?"** (or "what's taking so long?") at any point for an instant answer; the orb's
+  status line shows how long it's been.
+- When Claude (or another chat app) takes more than a few seconds to reply, JARVIS says it will tell you,
+  keeps watching in the background, and tells you when the reply is ready. You can keep talking meanwhile.
+
 | You say | What happens |
 |---|---|
 | "What's the weather in Hyderabad?" | Answers straight away |

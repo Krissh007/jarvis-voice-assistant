@@ -65,7 +65,7 @@ class VoicePreviews:
             log.info("voice preview: made a %.1f s sample of %s", len(data) / 48_000, voice)
             return data
 
-    async def _generate(self, voice: str) -> bytes:
+    async def _generate(self, voice: str, text: str = SAMPLE) -> bytes:
         config = types.LiveConnectConfig(
             response_modalities=[types.Modality.AUDIO],
             system_instruction=READER,
@@ -75,7 +75,7 @@ class VoicePreviews:
         chunks: list[bytes] = []
         async with self._client.aio.live.connect(model=self._model, config=config) as session:
             await session.send_client_content(
-                turns=types.Content(role="user", parts=[types.Part(text=SAMPLE)]), turn_complete=True)
+                turns=types.Content(role="user", parts=[types.Part(text=text)]), turn_complete=True)
             async for msg in session.receive():
                 content = msg.server_content
                 if content and content.model_turn and content.model_turn.parts:

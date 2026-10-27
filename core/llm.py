@@ -2,6 +2,10 @@
 
 The Flash model never sees secrets or memory; callers pass untrusted text already wrapped
 with core.untrusted.wrap, and every call carries the untrusted-content rule.
+
+Seen live (26-27 Oct): an overloaded Flash model answered 503 or hung until the 25 s timeout, three times
+over, before the fallback answered in 3 s: "can you see my screen?" took 107 s. So the first model gets a
+short timeout and one retry, and a model that keeps failing that way is skipped for a few minutes.
 """
 
 from __future__ import annotations
@@ -59,11 +63,13 @@ class LLM:
         rpm: dict[str, float | None] | None = None,
         openrouter_key: str | None = None,
         openrouter_model: str | None = None,
-        retries: int = 3,
+        retries: int = 1,
         base_delay_s: float = 1.0,
         thinking: dict[str, str] | None = None,
         fallback_retries: int = 1,
         timeout_s: float = 25.0,
+        first_timeout_s: float = 8.0,
+        struggle_cooldown_s: float = 180.0,
     ) -> None:
         self.client = client
         self.models = [m for m in models if m]
@@ -74,9 +80,23 @@ class LLM:
         self.base_delay_s = base_delay_s
         self.thinking = {k: v.upper() for k, v in (thinking or {}).items() if v}  # model -> thinking level
         self.fallback_retries = fallback_retries  # fallbacks get fewer retries, to bound voice latency
-        self.timeout_s = timeout_s
+        self.timeout_s = timeout_s            # fallbacks: they're the last chance, so they get longer
+        self.first_timeout_s = first_timeout_s  # the first model tried, plus a little for long answers
+        self.struggle_cooldown_s = struggle_cooldown_s
         self.clock = time.monotonic
-        self._cooling: dict[str, float] = {}  # model -> skip until (monotonic time)
+        self._cooling: dict[str, float] = {}  # model -> skip until (monotonic time): quota used up
+        self._struggling: dict[str, float] = {}  # model -> skip until: overloaded or timing out
+        self.last_fallback_at = 0.0   # when a call last moved on to a backup model (JARVIS can say so)
+
+    def available(self, model: str | None) -> bool:
+        """The model isn't being skipped (quota used up, or overloaded lately)."""
+        now = self.clock()
+        return bool(model) and self._cooling.get(model, 0) <= now and self._struggling.get(model, 0) <= now
+
+    def _attempt_timeout(self, first: bool, max_tokens: int) -> float:
+        if not first:
+            return self.timeout_s
+        return min(self.timeout_s, self.first_timeout_s + max_tokens / 200)
 
     async def generate(self, prompt: str, system: str = "", max_tokens: int = 800, json: bool = False,
                        images: list[bytes] | None = None, thinking: str | None = None,
@@ -88,16 +108,24 @@ class LLM:
         models = self.models
         if start_at in models:
             models = [start_at, *(m for m in models if m != start_at)]
-        for i, model in enumerate(models):
-            if self._cooling.get(model, 0) > self.clock():
-                continue  # quota used up; don't waste time on it
+        now = self.clock()
+        usable = [m for m in models if self._cooling.get(m, 0) <= now]   # quota used up: don't waste time on it
+        ready = [m for m in usable if self._struggling.get(m, 0) <= now]
+        tried_first = False
+        for model in ready or usable:   # all of them overloaded lately: try them anyway
+            first, tried_first = not tried_first, True
+            timeout = self._attempt_timeout(first, max_tokens)
             try:
                 return await with_backoff(
-                    lambda m=model: self._gemini(m, prompt, system, max_tokens, json, images, thinking),
-                    is_retryable, retries=self.retries if i == 0 else self.fallback_retries, base_s=self.base_delay_s,
+                    lambda m=model, t=timeout: self._gemini(m, prompt, system, max_tokens, json, images, thinking, t),
+                    is_retryable, retries=self.retries if first else self.fallback_retries, base_s=self.base_delay_s,
                 )
             except Exception as exc:
                 log.warning("model %s failed: %s", model, exc)
+                if not isinstance(exc, QuotaExceeded) and is_retryable(exc):
+                    self._struggling[model] = self.clock() + self.struggle_cooldown_s
+                    log.warning("%s is overloaded or timing out; skipping it for %.0f s", model, self.struggle_cooldown_s)
+                self.last_fallback_at = self.clock()
         if self.openrouter_key and self.openrouter_model and not images:
             try:
                 return await with_backoff(
@@ -109,13 +137,14 @@ class LLM:
         raise LLMUnavailable(USAGE_LIMIT_MESSAGE)
 
     async def _gemini(self, model: str, prompt: str, system: str, max_tokens: int, json: bool = False,
-                      images: list[bytes] | None = None, thinking: str | None = None) -> str:
+                      images: list[bytes] | None = None, thinking: str | None = None,
+                      timeout_s: float | None = None) -> str:
         from google.genai import types
 
         await self.buckets[model].acquire()
         level = thinking.upper() if thinking else self.thinking.get(model)
         try:
-            response = await self._call(model, prompt, system, max_tokens, level, json, images)
+            response = await self._call(model, prompt, system, max_tokens, level, json, images, timeout_s)
         except Exception as exc:
             if (cooldown := quota_cooldown(exc)) is not None:
                 self._cooling[model] = self.clock() + cooldown
@@ -131,7 +160,7 @@ class LLM:
         return text
 
     async def _call(self, model: str, prompt: str, system: str, max_tokens: int, level: str | None, json: bool = False,
-                    images: list[bytes] | None = None):
+                    images: list[bytes] | None = None, timeout_s: float | None = None):
         from google.genai import types
 
         return await self.client.aio.models.generate_content(
@@ -144,7 +173,7 @@ class LLM:
                 thinking_config=types.ThinkingConfig(thinking_level=level) if level else None,
                 automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
                 http_options=types.HttpOptions(
-                    timeout=int(self.timeout_s * 1000),  # milliseconds; an overloaded model can hang otherwise
+                    timeout=int((timeout_s or self.timeout_s) * 1000),  # ms; an overloaded model can hang otherwise
                     retry_options=types.HttpRetryOptions(attempts=1),
                 ),
             ),

@@ -77,13 +77,15 @@ class Activity:
         self.clock = clock
         self.text = ""
         self.kind = ""          # thinking | tool | composing | background | ""
+        self.tool = ""          # the tool running, while kind is "tool" (for JARVIS's spoken progress)
         self.since = 0.0
         self.slow = False
         self.background_jobs = 0   # agent runs started and not reported back yet
 
-    def set(self, text: str, kind: str) -> None:
+    def set(self, text: str, kind: str, tool: str = "") -> None:
         if not text:
             kind = ""
+        self.tool = tool if kind == "tool" else ""
         if text == self.text and kind == self.kind:
             return
         self.text, self.kind, self.since, self.slow = text, kind, self.clock(), False

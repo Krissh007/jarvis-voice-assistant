@@ -42,7 +42,7 @@ def test_short_text_passes_unchanged_without_a_model_call() -> None:
 
 
 def test_without_a_model_the_start_and_end_are_kept() -> None:
-    out = asyncio.run(condenser(Model(fail=True)).condense("read_app", "A" * 400 + "MIDDLE" + "Z" * 400, "q"))
+    out = asyncio.run(condenser(Model(fail=True), cut_chars=500).condense("read_app", "A" * 400 + "MIDDLE" + "Z" * 400, "q"))
     assert out.startswith("A") and out.endswith("Z") and "(cut short)" in out and "MIDDLE" not in out
     assert cut("short", 100) == "short"
 
@@ -114,6 +114,23 @@ def test_a_slow_model_falls_back_to_cutting() -> None:
             await asyncio.sleep(5)
             return "late"
 
-    c = condenser(Slow(), timeout_s=0.05)
+    c = condenser(Slow(), timeout_s=0.05, cut_chars=500)
     out = asyncio.run(c.condense("read_app", "A" * 400 + "Z" * 400, "q"))
     assert "(cut short)" in out and "late" not in out
+    assert Condenser(Slow(), {}).timeout_s == 1.5                      # seen live: 5 s made replies wait for nothing
+
+
+def test_an_overloaded_model_isnt_asked_and_a_cut_keeps_more() -> None:
+    class Busy(Model):
+        asked = 0
+
+        def available(self, model):
+            return False
+
+        async def generate(self, prompt, **kw):
+            Busy.asked += 1
+            return "summary"
+
+    text = "A" * 3000 + "MIDDLE" + "Z" * 3000
+    out = asyncio.run(condenser(Busy()).condense("read_app", text, "q"))
+    assert Busy.asked == 0 and "(cut short)" in out and len(out) > 3000   # straight to the cut, no waiting

@@ -62,6 +62,7 @@ class Services:
     context: Callable[[str], None] | None = None  # tells the model a fact without asking it to reply
     hub_reachable: bool | None = None  # the Agent Hub answered its last check (None = not checked yet)
     taint: Callable[[], None] | None = None  # marks the turn as carrying untrusted text
+    tell_when_free: Callable[[str, bool], None] | None = None  # (notice, untrusted): sent once JARVIS isn't busy
 
 
 def load_actions(registry: Registry, config: dict, services: Services | None = None) -> Registry:

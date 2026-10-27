@@ -852,6 +852,17 @@ class Assistant:
 
         self.previews = (VoicePreviews(client, config["models"]["live"], Services().data_dir / "voice_previews")
                          if client is not None else None)
+        from core.voice_lines import VoiceLines
+
+        self.voice_lines = VoiceLines(self.previews, Services().data_dir / "voice_lines")
+        pcfg = config.get("progress") or {}
+        self.progress_on = bool(pcfg.get("spoken", True))   # JARVIS says short lines itself while it works
+        self.progress_first_s = float(pcfg.get("first_after_s", 7))
+        self.progress_every_s = float(pcfg.get("every_s", 12))
+        self.progress_max = int(pcfg.get("max_lines", 4))
+        self._progress = {"said": 0, "quiet_from": 0.0, "since": 0.0, "backup": False}
+        self._doing_answered = ""   # the words "what are you doing?" was last answered for
+        self._later: list[tuple[str, bool]] = []   # notices waiting until JARVIS isn't busy (background waits)
         self._voice_change: str | None = None   # a new reply voice, applied when JARVIS isn't busy
         self._last_heard = 0.0
         self._sleep_heard_at = 0.0   # when words came that may be "go to sleep" (checked once the sentence ends)
@@ -967,6 +978,7 @@ class Assistant:
             self.dispatcher.condenser = Condenser(llm, config)
         self.services.notify = self._notify
         self.services.can_speak = self._can_announce
+        self.services.tell_when_free = self._tell_when_free
         self.services.announce = lambda: self.announce
         self.services.context = lambda text: self.session.send_context(text)
         self.services.taint = lambda: setattr(self.dispatcher, "tainted", True)
@@ -1087,6 +1099,8 @@ class Assistant:
             tasks.append(asyncio.create_task(self.window_proc.watch(), name="web-window"))
         if self.chat_proc is not None:
             tasks.append(asyncio.create_task(self.chat_proc.watch(), name="chat-window"))
+        if self.progress_on:   # record JARVIS's progress lines in its voice, once, after start-up settles
+            self.voice_lines.prepare(self._reply_voice(), delay_s=30)
         if self.app_proc is not None:
             tasks.append(asyncio.create_task(self.app_proc.watch(), name="app-window"))
         self._ready = True
@@ -1491,7 +1505,7 @@ class Assistant:
 
         if kind == "tool_started":
             if text := describe(str(data.get("tool") or ""), data.get("args")):
-                self.activity.set(text, "tool")
+                self.activity.set(text, "tool", str(data.get("tool") or ""))
         elif kind == "tool_finished":
             if data.get("tool") == "agent_hub_request" and "started" in str(data.get("result") or "").lower():
                 self.activity.background_jobs += 1   # a run that reports back later
@@ -1537,6 +1551,7 @@ class Assistant:
             return  # a word or two is often noise, which the model may rightly ignore
         log.warning("no reply from Gemini %.0f s after the user spoke; restarting the session", now - heard)
         self._status("(no reply from Gemini: reconnecting)")
+        self._say_line("reconnect")
         self._last_reply_at = now
         self.session.restart_stalled(
             "[system notice] The connection to Gemini stalled and was restarted. The user's last request, "
@@ -1554,6 +1569,8 @@ class Assistant:
                 self._check_stall()
                 self._apply_voice_change()
                 self._update_activity()
+                self._speak_progress()
+                self._deliver_later()
             except Exception:
                 log.exception("stall check failed")
             working = time.monotonic() - self._last_tool_at < WORKING_MAX_S  # a tool call's turn isn't over
@@ -1862,6 +1879,8 @@ class Assistant:
             return
         voice, self._voice_change = self._voice_change, None
         self._status(f"(voice: {voice})")
+        if self.progress_on:
+            self.voice_lines.prepare(voice, delay_s=10)
         self.session.restart_fresh(
             f"[system notice] Your speaking voice is now {voice}. Say one short sentence so the user hears it.",
             f"new reply voice {voice}")
@@ -1978,6 +1997,93 @@ class Assistant:
         lines += [(who, text) for who, text in self.transcript.recent if " ".join(text.split()) not in saved]
         return build_recap(lines, max_lines=RECAP_LINES_SAVED)  # (the just-flushed line may not be saved yet)
 
+    # ---- keeping the user in the loop while JARVIS works ----
+
+    def _reply_voice(self) -> str:
+        return str((self.config.get("voice") or {}).get("name") or "")
+
+    def _say_line(self, key: str) -> bool:
+        """One of JARVIS's own recorded lines (core.voice_lines), if Voice is on and nothing is playing."""
+        from core.voice_lines import LINES
+
+        if not self.voice or self._quiet_reply or self.playback.playing:
+            return False
+        pcm = self.voice_lines.get(self._reply_voice(), key)
+        if pcm is None:
+            return False
+        log.info("said by itself: %s", LINES[key])
+        self.player.enqueue(pcm)
+        return True
+
+    def _working(self) -> bool:
+        """A request is under way and JARVIS is quiet about it: a tool runs, or the answer hasn't come yet."""
+        return (self.activity.kind in {"tool", "thinking", "composing"} or self.dispatcher._running is not None) \
+            and not self.dispatcher.awaiting_confirmation
+
+    def _speak_progress(self) -> None:
+        """Seen live: up to a minute and a half of silence while a model was slow or Claude was writing. After
+        progress.first_after_s of quiet JARVIS says a short line itself ("Still looking at your screen."), then
+        one every progress.every_s, at most progress.max_lines per request."""
+        from core.voice_lines import progress_key
+
+        p, now = self._progress, time.monotonic()
+        if not self._working():
+            p.update(said=0, since=0.0, backup=False)
+            return
+        if not p["since"]:
+            p["since"] = now
+        if self.playback.playing:
+            p["quiet_from"] = now      # JARVIS (or Gemini) is talking: the quiet starts again afterwards
+            return
+        if (not self.progress_on or not self.voice or self.gate.muted or p["said"] >= self.progress_max
+                or (self.wake is not None and not self.wake.awake)):
+            return
+        quiet_from = max(p["quiet_from"], self._last_heard, p["since"])
+        wait = self.progress_first_s if p["said"] == 0 else self.progress_every_s
+        if now - quiet_from < wait:
+            return
+        llm = self.services.llm
+        fell_back = not p["backup"] and llm is not None and getattr(llm, "last_fallback_at", 0) > p["since"]
+        key = progress_key(self.activity.tool, self.activity.kind, p["said"], fell_back)
+        p["quiet_from"] = now
+        if self._say_line(key):
+            p["said"] += 1
+            p["backup"] = p["backup"] or key == "backup"
+
+    WHAT_DOING = re.compile(r"\b(what (are|r) you (doing|up to)|what'?s (taking (so )?long|going on|happening)|"
+                            r"are you (still )?(there|working)|still there|why (is it|are you) (so )?slow)\b", re.I)
+
+    def _answer_what_doing(self) -> None:
+        """"What are you doing?" while JARVIS works: answered at once from what it's actually running (Gemini
+        can't speak until its tool returns), and the status line says how long it's been."""
+        said = self.transcript.last_user()
+        if not self._working() or said == self._doing_answered or not self.WHAT_DOING.search(said or ""):
+            return
+        from core.voice_lines import doing_key
+
+        self._doing_answered = said
+        a = self.activity
+        took = int(time.monotonic() - a.since) if a.since else 0
+        self._status(f"({(a.text or 'Working on it…').rstrip('.… ')}: {took} s so far)")
+        self.player.clear("asked what JARVIS is doing")   # make room for the answer
+        self._say_line(doing_key(a.tool, a.kind))
+        self._progress["quiet_from"] = time.monotonic()
+
+    def _tell_when_free(self, text: str, untrusted: bool = False) -> None:
+        """A notice for the model once JARVIS isn't busy (a background wait finished). Safe from any thread."""
+        if self._loop is not None:
+            self._loop.call_soon_threadsafe(self._later.append, (text, untrusted))
+        else:
+            self._later.append((text, untrusted))
+
+    def _deliver_later(self) -> None:
+        if not self._later or self._busy() or self._turn_open:
+            return
+        text, untrusted = self._later.pop(0)
+        if untrusted:
+            self.dispatcher.tainted = True   # what an app wrote is never acted on without a yes
+        self._notify(text)
+
     def _notify(self, text: str) -> None:
         first = text.splitlines()[0]
         log.info("notice: %s", first)
@@ -2020,6 +2126,7 @@ class Assistant:
         self._reply_channel = "voice"
         self.dispatcher.turn_blocked = {}  # the chat's "web search off" was for its own message only
         self.transcript.add("user", text, "voice")
+        self._answer_what_doing()
         self.dispatcher.on_input_fragment(text)
         from core.utterance import unfinished
 
